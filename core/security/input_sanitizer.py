@@ -1,26 +1,44 @@
+"""
+VOX Input Sanitizer
+Internal Name: THE TRANSLATOR
+
+Enforces data integrity and security across the agent's input pipeline.
+Detects malicious patterns, prevents injection attacks, and enforces
+structural constraints on incoming payloads.
+"""
+
 import re
 import html
-from typing import Any
+from typing import Any, Dict, List, Union
 
 class SecurityError(Exception):
+    """Raised when a payload violates the security policy or contains malicious patterns."""
     pass
 
 class InputSanitizer:
     """
-    Sanitizes all inputs based on known dangerous patterns and length limits.
+    High-assurance data validator.
+    Implements recursive sanitization and pattern-based threat detection.
     """
+
+    # Advanced threat patterns for Cross-Site Scripting, SQLi, and Command Injection
     DANGEROUS_PATTERNS = [
-        r'<script',           # Basic XSS
-        r'javascript:',       # Protocol injection
-        r'eval\(',            # Dynamic code execution
-        r'exec\(',            # Python command execution
-        r'\.\./\.\./',        # Path Traversal (LFI/RFI)
-        r'SELECT.*FROM',      # SQL Injection for DB-based Roles
-        r'rm\s+-rf',          # Destructive Command Injection
+        r'<script',               # Script tag injection
+        r'javascript:',           # Protocol-based URI injection
+        r'eval\(',                # Dynamic execution sinks
+        r'exec\(',                # System-level execution sinks
+        r'\.\./\.\./',            # Path traversal / Directory climbing
+        r'SELECT.*FROM',          # SQL injection patterns
+        r'DROP\s+TABLE',          # SQL destructive patterns
+        r'rm\s+-rf',              # POSIX destructive commands
+        r'base64\s+--decode',     # Obfuscated payload execution
     ]
 
     def sanitize(self, data: Any) -> Any:
-        """Sanitizes dictionaries, lists and strings recursively."""
+        """
+        Recursively sanitizes incoming data structures.
+        Supports nested Dictionaries, Lists, and Strings.
+        """
         if isinstance(data, dict):
             return {k: self.sanitize(v) for k, v in data.items()}
         elif isinstance(data, list):
@@ -30,15 +48,29 @@ class InputSanitizer:
         return data
 
     def _sanitize_string(self, text: str) -> str:
-        # 1. Dangerous pattern detection (Fail Fast)
+        """
+        String-level security enforcement protocol.
+        
+        1. Threat Detection: Scans for known malicious signatures.
+        2. HTML Normalization: Escapes entities to prevent injection.
+        3. Size Constraints: Enforces limits to mitigate Buffer Overflow/DoS.
+        """
+        
+        # Phase 1: Fail-Fast Pattern Analysis
         for pattern in self.DANGEROUS_PATTERNS:
             if re.search(pattern, text, re.IGNORECASE):
-                # Instead of just clearing the action, block for security reasons
-                raise SecurityError(f"Security pattern detected: {pattern}")
+                # Security policy: Any malicious signature results in an immediate block
+                raise SecurityError(f"Security Policy Violation: Malicious pattern '{pattern}' detected.")
         
-        # 2. HTML escape to prevent accidental rendering
+        # Phase 2: HTML Encoding (Neutralization)
+        # Prevents rendering of accidental or intentional HTML in communication links
         text = html.escape(text)
         
-        # 3. Length limit (prevents memory-based DoS attacks)
-        max_len = 5000 
-        return text[:max_len] if len(text) > max_len else text
+        # Phase 3: Volumetric Control
+        # Prevents memory exhaustion attacks (DoS) via oversized payloads
+        MAX_STR_LENGTH = 8192  # Optimized for LLM contexts (approx 2k tokens)
+        
+        if len(text) > MAX_STR_LENGTH:
+            return text[:MAX_STR_LENGTH]
+            
+        return text
