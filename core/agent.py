@@ -1,191 +1,275 @@
+"""
+VOX Agent Executive
+Internal Name: THE EXECUTIVE
+
+Defines the VOXAgent class, which acts as a secure container for Roles and Capabilities.
+It manages internal event routing (Synapsis) and enforces security boundaries
+between raw input and role execution.
+"""
+
 import yaml
 import asyncio
 import importlib.util
+from typing import Any, Dict, List, Optional, Type
+from dotenv import dotenv_values
 from pathlib import Path
+
+# Core Infrastructure
 from core.logger import log_info, log_ok, log_warn, log_fail
 from core.security.input_sanitizer import InputSanitizer, SecurityError
 from core.security.rate_limiter import RateLimiter, RateLimitError
 
 class AgentProvisionError(Exception):
+    """Raised when an Agent fails to satisfy its blueprint requirements."""
     pass
 
 class VOXAgent:
-    def __init__(self, agent_dir: Path, orchestrator=None):
+    """
+    Autonomous Execution Unit.
+    Manages its own lifecycle, security context, and internal role orchestration.
+    """
+
+    def __init__(self, agent_dir: Path, orchestrator: Any = None):
+        """
+        Initializes the Agent Sandbox.
+        :param agent_dir: Path to the agent's filesystem (blueprint).
+        :param orchestrator: Reference to the Orchestrator for inter-agent communication.
+        """
         self.dir = agent_dir
         self.orchestrator = orchestrator
-        self.roles = {}
-        self.commands = []
-        self.capabilities = {}
-        self._sanitizer = InputSanitizer()              # For input sanitization
+        
+        # Internal State (The Single Source of Truth)
+        self.config: Dict[str, Any] = {
+            "name": None,
+            "id": None,
+            "master_id": None,
+            "capabilities": []
+        }
+        
+        self.roles: Dict[str, Any] = {}
+        self.capabilities: Dict[str, Any] = {}
+        self.event_router: Dict[str, List[Any]] = {}
+        self.commands: List[str] = []
+        
+        # Security Middleware
+        self._sanitizer = InputSanitizer()
         self._rate_limiter = RateLimiter(max_calls=100, window_seconds=60)
 
-        # 1. Load Manifest
-        self.config = self._load_manifest()
-        if not self.config:
-            raise AgentProvisionError(f"No valid agent.yml in {agent_dir}")
+        # Self-Ignition Sequence
+        self._bootstrap()
 
-        # Validation
-        required_fields = ["name", "id"]
-        if not all(field in self.config for field in required_fields):
-            raise AgentProvisionError(f"Missing fields (name/id) in {agent_dir}/agent.yml")
+    @property
+    def name(self) -> str: return self.config.get("name") or "UnknownAgent"
 
-        self.name = self.config["name"]
-        self.id = self.config["id"]
-        self.master_id = self.config.get("master_id", "")
+    @property
+    def id(self) -> str: return self.config.get("id")
 
-        self.log_agent_ok("Manifest loaded successfully")
+    @property
+    def master_id(self) -> str: return self.config.get("master_id")
 
-        # 2. Provision Capabilities
-        self._provision_capabilities()
+    # --- LIFECYCLE MANAGEMENT -------------------------------------------------
 
-        # 3. Discover Roles (No parameters for now)
+    def _bootstrap(self):
+        """Standard Ignition Sequence: Identity -> Capabilities -> Roles."""
+        if not self._load_manifest():
+            raise AgentProvisionError("Manifest (agent.yml) is missing or corrupted.")
+            
+        if not self._load_dotenv():
+            raise AgentProvisionError("Environment (.env) is missing or unreadable.")
+
+        # Identity Validation
+        required_params = ["name", "id", "AGENT_TELEGRAM_TOKEN"]
+        if not self._validate_identity(required_params):
+            raise AgentProvisionError("Critical identity parameters are missing.")
+
+        self.log_agent_ok(f"Identity Verified: {self.id}")
+
+        # Provisioning Layers
+        self._mount_capabilities()
         self.commands = self._discover_roles()
-        if self.commands:
-            self.log_agent_ok(
-                f"Roles initialized successfully. My available commands are: {self.commands}"
-            )
-        else:
-            self.log_agent_warn(f"Agent {self.name}'s Roles do not declare any public commands.")
         
         if not self.roles:
-            self.log_agent_fail("Agent has no valid roles. Aborting.")
-            raise AgentProvisionError(f"Agent {self.name} has no valid roles.")
+            raise AgentProvisionError("Functional Failure: No valid roles discovered.")
+            
+        self.log_agent_ok(f"Agent Ready. System Synapsis established.")
 
-    def _discover_roles(self):
-        """Scans the Agent's Roles folder and tries to load Role files."""
+    def _load_manifest(self) -> bool:
+        """Parses the YAML blueprint."""
+        manifest_path = self.dir / "agent.yml"
+        try:
+            with open(manifest_path, "r") as f:
+                data = yaml.safe_load(f) or {}
+                self.config.update({
+                    "name": data.get("name"),
+                    "id": data.get("id"),
+                    "master_id": data.get("master_id"),
+                    "capabilities": data.get("capabilities", [])
+                })
+                return True
+        except Exception as e:
+            log_fail(f"Blueprint Error [{self.dir.name}]: {e}")
+            return False
+
+    def _load_dotenv(self) -> bool:
+        """Loads secrets into the internal config without polluting os.environ."""
+        dotenv_path = self.dir / ".env"
+        if not dotenv_path.exists(): return False
+            
+        secrets = dotenv_values(dotenv_path)
+        self.config.update(secrets)
+        
+        # Core Mapping for specialized tokens
+        if "TELEGRAM_TOKEN" in secrets:
+            self.config["AGENT_TELEGRAM_TOKEN"] = secrets["TELEGRAM_TOKEN"]
+        return True
+
+    def _validate_identity(self, params: list) -> bool:
+        """Check for mandatory operational parameters."""
+        missing = [p for p in params if self.config.get(p) is None]
+        for m in missing:
+            self.log_agent_fail(f"Identity Gap: Missing '{m}'")
+        return len(missing) == 0
+
+    # --- PROVISIONING ENGINE --------------------------------------------------
+
+    def _mount_capabilities(self):
+        """Instantiates and attaches functional modules (Capabilities)."""
+        caps_list = self.config.get("capabilities", [])
+        
+        # Security Firewall for Capability Provisioning
+        PROTECTED = ["AGENT_ID", "MASTER_ID", "AGENT_TELEGRAM_TOKEN"]
+
+        for cap_path in caps_list:
+            try:
+                module = importlib.import_module(f"core.capabilities.{cap_path}")
+                class_name = cap_path.split(".")[-1].capitalize() + "Capability"
+                cap_class = getattr(module, class_name)
+
+                # Protocol Check: What data does the capability request?
+                requested = cap_class.get_params()
+                if any(p in requested for p in PROTECTED):
+                    self.log_agent_fail(f"Capability '{cap_path}' BLOCKED: Unauthorized data access.")
+                    continue
+
+                safe_params, missing = cap_class.validate_and_extract(self.config)
+                if missing:
+                    self.log_agent_fail(f"Capability '{cap_path}' REJECTED: Missing {missing}")
+                    continue
+
+                # Instantiate and Bind
+                instance = cap_class(self, **safe_params)
+                cap_name = cap_path.split(".")[-1]
+                self.capabilities[cap_name] = instance
+                setattr(self, f"cap_{cap_name}", instance)
+                
+                self.log_agent_ok(f"Capability Mounted: {cap_name}")
+
+            except Exception as e:
+                self.log_agent_fail(f"Provisioning Failure [{cap_path}]: {e}")
+
+    def _discover_roles(self) -> List[str]:
+        """Scans for Role files and wires them to the Event Router."""
         roles_path = self.dir / "roles"
-        if not roles_path.exists():
-            return
-
-        all_discovered_commands = []
-
+        if not roles_path.exists(): return []
+        
+        discovered_cmds = []
         for py_file in roles_path.glob("*.py"):
-            # Skip hidden or system files
             if py_file.name.startswith("__"): continue
             
-            role_instance = self._dynamic_load(py_file)
-            if role_instance:
-                # 1. Register Role
-                self.roles[py_file.stem] = role_instance
-                setattr(self, py_file.stem, role_instance)
-                # 2. Extract public function names as commands
-                if hasattr(role_instance, "get_capabilities"):
-                    caps = role_instance.get_capabilities()
-                    all_discovered_commands.extend(caps.keys())
+            role_inst = self._dynamic_load_role(py_file)
+            if role_inst:
+                role_name = py_file.stem
+                self.roles[role_name] = role_inst
+                setattr(self, role_name, role_inst)
+                
+                # Dynamic Routing Registration
+                self._register_role_routes(role_inst)
+                
+                if hasattr(role_inst, "get_capabilities"):
+                    discovered_cmds.extend(role_inst.get_capabilities().keys())
+        return discovered_cmds
 
-        # This list might return empty
-        return all_discovered_commands
-
-    def _dynamic_load(self, py_file: Path):
-        """Loads a .py file and looks for the Role class."""
-        try:
-            # Create a unique module name to avoid collisions in sys.modules
-            module_name = f"agents.{self.name.lower()}.roles.{py_file.stem}"
+    def _register_role_routes(self, role_inst: Any):
+        """Maps role handlers into the central Conductor (Synapsis)."""
+        for event_name in role_inst._handlers.keys():
+            if event_name not in self.event_router:
+                self.event_router[event_name] = []
             
+            if role_inst not in self.event_router[event_name]:
+                self.event_router[event_name].append(role_inst)
+                role_module = role_inst.__class__.__module__.split('.')[-1]
+                self.log_agent_info(f"Behavior Associated: {event_name} -> [{role_module}]")
+
+    def _dynamic_load_role(self, py_file: Path) -> Optional[Any]:
+        """Low-level module loading for Roles."""
+        try:
+            module_name = f"agents.{self.name.lower()}.roles.{py_file.stem}"
             spec = importlib.util.spec_from_file_location(module_name, py_file)
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
-
             if hasattr(module, "Role"):
-                role_class = getattr(module, "Role")
-                # Inject the Agent instance (self)
-                return role_class(self) 
-            else:
-                self.log_agent_warn(f"No class 'Role' found in {py_file.name}")
-                return None
+                return getattr(module, "Role")(self)
         except Exception as e:
-            self.log_agent_fail(f"Failed to load role {py_file.stem}: {e}")
-            return None
+            self.log_agent_fail(f"Role Loading Error [{py_file.stem}]: {e}")
+        return None
 
-    def _load_manifest(self):
-        manifest_path = self.dir / "agent.yml"
-        if not manifest_path.exists(): return None
+    # --- EVENT ORCHESTRATION --------------------------------------------------
+
+    async def emit(self, event_name: str, **kwargs):
+        """
+        Primary Event Dispatcher.
+        Implements Rate Limiting, Input Sanitization, and Targeted Routing.
+        """
         try:
-            with open(manifest_path, "r") as f:
-                return yaml.safe_load(f)
-        except yaml.YAMLError as e:
-            log_fail(f"YAML Syntax Error in {manifest_path}: {e}")
-            return None
+            # 1. Security Check
+            self._rate_limiter.check_limit() 
+            safe_kwargs = self._sanitizer.sanitize(kwargs)
 
-    def _provision_capabilities(self):
-        """Reads the 'capabilities' dictionary and provisions them from the core."""
-        caps_config = self.config.get("capabilities", {})
-        
-        for cap_path, cap_params in caps_config.items():
-            # 1. Translate e.g. 'comm.telegram' -> 'core/capabilities/comm/telegram.py'
-            module_path = "core.capabilities." + cap_path
-            
-            try:
-                # 2. Dynamic Loading of the Capability
-                module = importlib.import_module(module_path)
-                # Look for the standard class (e.g. TelegramCapability)
-                # This converts 'telegram' to 'TelegramCapability'
-                class_name = cap_path.split(".")[-1].capitalize() + "Capability"
-                
-                if hasattr(module, class_name):
-                    cap_class = getattr(module, class_name)
-                    # Instantiate using parameters in the YAML
-                    instance = cap_class(self, **cap_params)
-                    
-                    # Register in the Agent
-                    cap_name = cap_path.split(".")[-1]
-                    self.capabilities[cap_name] = instance
-                    setattr(self, f"cap_{cap_name}", instance)
-                    
-                    self.log_agent_ok(f"Capability '{cap_name}' mounted.")
-            except Exception as e:
-                self.log_agent_fail(f"Failed to mount capability {cap_path}: {e}")
+            # 2. Targeted Delivery
+            targets = self.event_router.get(event_name, [])
+            if not targets: return
+
+            for role_inst in targets:
+                role_module = role_inst.__class__.__module__.split('.')[-1]
+                self.log_agent_info(f"Routing '{event_name}' to [{role_module}]")
+                await role_inst.handle_event(event_name, **safe_kwargs)
+
+        except (RateLimitError, SecurityError) as e:
+            self.log_agent_fail(f"SECURITY BREACH / LIMIT: {e}")
+        except Exception as e:
+            self.log_agent_fail(f"Internal Routing Error ({event_name}): {e}")
 
     async def boot(self):
-        """Activates all capabilities that have a 'boot' method."""
-        for cap_instance in self.capabilities.values():
-            if hasattr(cap_instance, "boot"):
-                asyncio.create_task(cap_instance.boot())
+        """Async engine activation for all mounted capabilities."""
+        for cap in self.capabilities.values():
+            if hasattr(cap, "boot"):
+                asyncio.create_task(cap.boot())
 
-    def health_check(self) -> bool:
-        return len(self.roles) > 0
+    def get_all_capabilities(self) -> dict:
+        """
+        Aggregates capabilities from all attached roles.
+        """
+        combined_caps = {}
+        for role in self.roles.values():
+            combined_caps.update(role.get_capabilities())
+        return combined_caps
+
+    async def report_to_master(self, event_name: str, **kwargs):
+        """Inter-Agent Escalation Protocol."""
+        if not self.master_id or not self.orchestrator:
+            self.log_agent_warn("Escalation failed: No Master ID or Orchestrator link.")
+            return
+
+        master_agent = self.orchestrator.active_agents.get(self.master_id)
+        if master_agent:
+            self.log_agent_info(f"Escalating '{event_name}' -> Master [{self.master_id}]")
+            await master_agent.emit(event_name, sender_id=self.id, **kwargs)
+
+    # --- UTILITIES ------------------------------------------------------------
+
+    def health_check(self) -> bool: return len(self.roles) > 0
 
     def log_agent_ok(self, msg: str): log_ok(msg, self.name)
     def log_agent_info(self, msg: str): log_info(msg, self.name)
     def log_agent_warn(self, msg: str): log_warn(msg, self.name)
     def log_agent_fail(self, msg: str): log_fail(msg, self.name)
-
-    async def emit(self, event_name, **kwargs):
-        """Notifies all the Roles that something happened."""
-        self.log_agent_info("Broadcasting event to all roles.")
-        try:
-            # Check using Rate Limiter
-            if not self._rate_limiter.allow():
-                self.log_agent_fail("BLOCK: Rate Limit exceeded.")
-                raise RateLimitError(f"Agent {self.name} exceeded its call limit.")
-
-            # Sanitize Input
-            self.log_agent_info("Sanitizing input.")
-            safe_kwargs = self._sanitizer.sanitize(kwargs)
-
-            # Broadcast to the roles
-            for role_inst in self.roles.values():
-                if hasattr(role_inst, "handle_event"):
-                    self.log_agent_info(f"{role_inst} will try to parse the command.")
-                    await role_inst.handle_event(event_name, **safe_kwargs)
-        except RateLimitError as e:
-            self.log_agent_fail(f"RATE LIMIT BLOCK: {e}")
-            # TODO: Report to the War Room
-        except SecurityError as e:
-            self.log_agent_fail(f"SECURITY BLOCK: {e}")
-            # TODO: Report to the War Room
-
-    async def report_to_master(self, event_name, **kwargs):
-        """Sends an event to the Agent defined as master_id."""
-        if not self.master_id:
-            self.log_agent_warn("I'm trying to report, but my master_id is not defined.")
-            # TODO: Report to the War Room
-            return
-
-        # We need the Orchestrator to help us find the 'Boss'
-        # We assume we're saving a reference to the orchestrator in self.orchestrator
-        master_agent = self.orchestrator.active_agents.get(self.master_id)
-        
-        if master_agent:
-            self.log_agent_info(f"Escalating event '{event_name}' to {self.master_id}.")
-            await master_agent.emit(event_name, sender_name=self.name, **kwargs)

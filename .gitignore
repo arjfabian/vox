@@ -1,21 +1,22 @@
+# ==============================================================================
+# VOX - VIRTUAL ORCHESTRATOR EXPERIENCE
+# Project Sovereignty & Data Privacy Manifesto
+# ==============================================================================
+
 # ------------------------------------------------------------------------------
-# Python & System Garbage
+# INTERPRETER & ENVIRONMENT
 # ------------------------------------------------------------------------------
+# Python & System Garbage.
 __pycache__/
 *.pyc
 .venv/
+.vscode/
 .DS_Store
 
 # ------------------------------------------------------------------------------
-# Private Data
+# SENSITIVE ASSET PROTECTION
 # ------------------------------------------------------------------------------
-agents/*
+# Hard-block for all identity-related or infrastructure secrets.
+agents/**
 !agents/.gitkeep
 !agents/__init__.py
-
-# ------------------------------------------------------------------------------
-# Security Fallback
-# ------------------------------------------------------------------------------
-.env
-*.log
-logs/
