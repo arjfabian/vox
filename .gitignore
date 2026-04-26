@@ -9,8 +9,10 @@
 # Python & System Garbage.
 __pycache__/
 *.pyc
+.env
 .venv/
 .vscode/
+.wiki
 .DS_Store
 
 # ------------------------------------------------------------------------------
@@ -20,3 +22,5 @@ __pycache__/
 agents/**
 !agents/.gitkeep
 !agents/__init__.py
+# User identity
+identity/

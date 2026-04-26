@@ -9,7 +9,7 @@ specific triggers (events) and expose functional capabilities.
 
 import weakref
 import inspect
-from typing import Any, Dict, Optional, Callable, Awaitable
+from typing import Any, Dict, Callable, Awaitable
 
 class AgentHostDeadError(Exception):
     """Raised when a Role tries to access its parent Agent after it has been garbage collected."""
