@@ -1,0 +1,31 @@
+name: net.browser
+type: capability
+version: 1.0
+
+description: >
+  Headless browser capability powered by Playwright Firefox.
+  Provides page capture, text extraction, and multimodal analysis.
+
+runtime:
+  singleton: true
+  stateful: true
+  lifecycle:
+    boot: true
+    shutdown: true
+
+params:
+  BROWSER_HEADLESS:
+    description: Run browser in headless mode
+    type: bool
+    default: true
+
+  BROWSER_TIMEOUT:
+    description: Page load timeout in milliseconds
+    type: int
+    default: 30000
+
+dependencies:
+  system:
+    - playwright
+  capabilities:
+    - ai.ollama

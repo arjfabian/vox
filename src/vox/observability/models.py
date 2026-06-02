@@ -1,0 +1,74 @@
+import logging
+from dataclasses import dataclass
+
+from .constants import LOG_LEVEL_OK
+
+
+@dataclass(slots=True)
+class VOXLogSource:
+
+    source_type: str
+    source_name: str = ""
+    source_uuid: str = ""
+
+    @property
+    def short_uuid(self) -> str:
+        if not self.source_uuid:
+            return ""
+        return f"{self.source_uuid[:4]}...{self.source_uuid[-4:]}"
+
+    @property
+    def display_name(self) -> str:
+        if self.source_name and self.source_uuid:
+            return (
+                f"{self.source_type}."
+                f"{self.source_name}:"
+                f"{self.short_uuid}"
+            )
+
+        if self.source_name:
+            return (
+                f"{self.source_type}."
+                f"{self.source_name}"
+            )
+
+        return self.source_type
+
+
+class VOXForensicLogger:
+
+    def __init__(self, logger: logging.Logger, verbose: bool = False) -> None:
+        self._logger = logger
+        self.verbose = verbose
+
+    def _extra(self, source: VOXLogSource | None) -> dict:
+        return { "vox_source": source }
+
+    def ok(self, message: str, source: VOXLogSource | None = None) -> None:
+        self._logger.log(LOG_LEVEL_OK, message, extra=self._extra(source))
+
+    def info(self, message: str, source: VOXLogSource | None = None) -> None:
+        self._logger.info(message, extra=self._extra(source))
+
+    def warning(self, message: str, source: VOXLogSource | None = None) -> None:
+        self._logger.warning(message, extra=self._extra(source))
+
+    def error(self, message: str, source: VOXLogSource | None = None) -> None:
+        self._logger.error(message, extra=self._extra(source))
+
+    def debug(self, message: str, source: VOXLogSource | None = None) -> None:
+        if not self.verbose:
+            return
+        self._logger.debug(message, extra=self._extra(source))
+
+    def get_child(self, name: str) -> "VOXForensicLogger":
+        """Returns a new VOXForensicLogger whose records carry ``name``
+        as a dotted suffix on the logger name (e.g. ``vox.tina``).
+
+        Formatters can split on ``.`` and render only the last segment
+        so that agent-scoped messages show ``[tina]`` instead of ``[vox]``.
+        """
+        return VOXForensicLogger(
+            self._logger.getChild(name),
+            verbose=self.verbose,
+        )

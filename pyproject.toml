@@ -1,0 +1,17 @@
+[project]
+name = "vox"
+version = "0.1.0"
+description = ""
+authors = [
+    { name = "José Fabián", email = "jfabian@datorum.net" }
+]
+dependencies = []
+
+[project.scripts]
+vox = "vox.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

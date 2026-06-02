@@ -8,7 +8,9 @@
 # ------------------------------------------------------------------------------
 # Python & System Garbage.
 __pycache__/
+.pytest_cache/
 *.pyc
+*.egg-info/
 .env
 .venv/
 .vscode/
@@ -18,9 +20,12 @@ __pycache__/
 # ------------------------------------------------------------------------------
 # SENSITIVE ASSET PROTECTION
 # ------------------------------------------------------------------------------
-# Hard-block for all identity-related or infrastructure secrets.
-agents/**
-!agents/.gitkeep
-!agents/__init__.py
+# Agents contains the declaration
+src/vox/agents/**
+!src/vox/agents/__init__.py
+!src/vox/agents/base.py
+!src/vox/agents/memory.py
+!src/vox/agents/store.py
 # User identity
-identity/
+identity/**
+!identity/.gitkeep

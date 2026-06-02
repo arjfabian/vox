@@ -1,0 +1,23 @@
+name: comm.telegram
+version: 1.0.0
+
+description: |
+  Telegram communication bridge for VOX agents.
+
+capability_class: Capability
+
+provides:
+  - messaging
+  - polling
+  - notifications
+  - voice_input
+
+requires:
+  - TELEGRAM_BOT_TOKEN
+  - TELEGRAM_USER_ID
+
+optional:
+  TELEGRAM_LONG_TIMEOUT: 20
+
+singleton: true
+stateless: false

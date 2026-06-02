@@ -1,0 +1,6 @@
+name: comm.voicetotext
+version: 1.0.0
+description: Local offline speech-to-text using faster-whisper
+author: VOX
+runtime: local
+singleton: true
