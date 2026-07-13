@@ -1,0 +1,39 @@
+name: comm.email
+version: 1.0.0
+
+description: |
+  Asynchronous email dispatch capability for VOX agents.
+  Sends plain-text emails via SMTP using credentials from the
+  bound agent's local .env file.
+
+capability_class: EmailCapability
+
+provides:
+  - email
+
+params:
+  SMTP_HOST:
+    description: SMTP server hostname
+    type: string
+    default: null
+    sensitive: false
+  SMTP_PORT:
+    description: SMTP server port
+    type: int
+    default: 587
+    sensitive: false
+  SMTP_USER:
+    description: SMTP authentication username
+    type: string
+    default: null
+    sensitive: true
+  SMTP_PASS:
+    description: SMTP authentication password
+    type: secret
+    default: null
+    sensitive: true
+
+exposed_commands:
+  - name: send_email
+    description: "Send an automated plain-text email to a recipient."
+    method: send_email

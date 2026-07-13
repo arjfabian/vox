@@ -1,31 +1,34 @@
-# ==============================================================================
-# VOX - VIRTUAL ORCHESTRATOR EXPERIENCE
-# Project Sovereignty & Data Privacy Manifesto
-# ==============================================================================
-
 # ------------------------------------------------------------------------------
-# INTERPRETER & ENVIRONMENT
+# INTERPRETER, RUNTIME & ENVIRONMENT
 # ------------------------------------------------------------------------------
-# Python & System Garbage.
+# Python Build Artifacts & Caches
 __pycache__/
 .pytest_cache/
 *.pyc
 *.egg-info/
+
+# Local Environment & IDE Configs
 .env
 .venv/
 .vscode/
-.wiki
 .DS_Store
 
 # ------------------------------------------------------------------------------
-# SENSITIVE ASSET PROTECTION
+# SENSITIVE ASSET PROTECTION & LOCAL DATA
 # ------------------------------------------------------------------------------
-# Agents contains the declaration
-src/vox/agents/**
-!src/vox/agents/__init__.py
-!src/vox/agents/base.py
-!src/vox/agents/memory.py
-!src/vox/agents/store.py
-# User identity
-identity/**
+# Local Agents State & Configurations
+agents/*
+!agents/.gitkeep
+
+# Master Identity Profiles
+identity/*
 !identity/.gitkeep
+
+# Runtime Operations, Traces & Caches
+logs/*
+!logs/.gitkeep
+var/cache/
+
+# Project Documentation
+wiki/
+docs/internal/

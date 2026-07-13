@@ -1,3 +1,7 @@
+import asyncio
+import os
+import signal
+
 from playwright.async_api import async_playwright
 
 
@@ -13,6 +17,7 @@ class BrowserClient:
         self._pw = await async_playwright().start()
         self.browser = await self._pw.firefox.launch(headless=self.config.headless)
         self.context = await self.browser.new_context(
+            ignore_https_errors=True,
             viewport={
                 "width": self.config.viewport_width,
                 "height": self.config.viewport_height,
@@ -26,10 +31,42 @@ class BrowserClient:
         )
 
     async def stop(self):
-        if self.browser:
-            await self.browser.close()
-        if self._pw:
-            await self._pw.stop()
+        # 1. Track the underlying process PID safely
+        browser_pid = None
+        try:
+            if hasattr(self, "browser") and self.browser and hasattr(self.browser, "_process"):
+                browser_pid = self.browser._process.pid
+        except Exception:
+            pass
+
+        # 2. Fast-abort teardown with tight timeouts
+        if hasattr(self, "context") and self.context:
+            try:
+                await asyncio.wait_for(self.context.close(), timeout=0.5)
+            except BaseException:
+                pass
+
+        if hasattr(self, "browser") and self.browser:
+            try:
+                await asyncio.wait_for(self.browser.close(), timeout=0.5)
+            except BaseException:
+                pass
+
+        if hasattr(self, "_pw") and self._pw:
+            try:
+                await asyncio.wait_for(self._pw.stop(), timeout=0.5)
+            except BaseException:
+                pass
+
+        # 3. CRITICAL OS FALLBACK: Force kill if the process is still alive
+        if browser_pid:
+            try:
+                os.kill(browser_pid, signal.SIGKILL)
+                print(f"[browser] Hard-killed/verified browser PID {browser_pid}")
+            except ProcessLookupError:
+                pass
+            except Exception as e:
+                print(f"[browser] OS fallback kill failed: {e}")
 
     async def new_page(self):
         if not self.context:

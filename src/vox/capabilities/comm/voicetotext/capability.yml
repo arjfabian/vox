@@ -1,6 +1,27 @@
 name: comm.voicetotext
 version: 1.0.0
-description: Local offline speech-to-text using faster-whisper
-author: VOX
-runtime: local
-singleton: true
+
+description: |
+  Local offline speech-to-text using faster-whisper.
+  Provides file-based audio transcription with language detection.
+
+capability_class: VoiceToTextCapability
+
+provides:
+  - transcription
+  - speech_to_text
+
+params:
+  WHISPER_MODEL_SIZE:
+    description: faster-whisper model size (tiny, base, small, medium, large-v3)
+    type: string
+    default: base
+  WHISPER_DEVICE:
+    description: Compute device (cpu, cuda, auto)
+    type: string
+    default: cpu
+  WHISPER_COMPUTE_TYPE:
+    description: Compute precision (int8, float16, float32)
+    type: string
+    default: int8
+

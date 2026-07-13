@@ -1,5 +1,6 @@
 import logging
 from dataclasses import dataclass
+from typing import Any
 
 from .constants import LOG_LEVEL_OK
 
@@ -44,22 +45,27 @@ class VOXForensicLogger:
     def _extra(self, source: VOXLogSource | None) -> dict:
         return { "vox_source": source }
 
-    def ok(self, message: str, source: VOXLogSource | None = None) -> None:
-        self._logger.log(LOG_LEVEL_OK, message, extra=self._extra(source))
+    def ok(self, message: str, *args: Any, source: VOXLogSource | None = None, **kwargs: Any) -> None:
+        kwargs.pop("extra", None)
+        self._logger.log(LOG_LEVEL_OK, message, *args, extra=self._extra(source), **kwargs)
 
-    def info(self, message: str, source: VOXLogSource | None = None) -> None:
-        self._logger.info(message, extra=self._extra(source))
+    def info(self, message: str, *args: Any, source: VOXLogSource | None = None, **kwargs: Any) -> None:
+        kwargs.pop("extra", None)
+        self._logger.info(message, *args, extra=self._extra(source), **kwargs)
 
-    def warning(self, message: str, source: VOXLogSource | None = None) -> None:
-        self._logger.warning(message, extra=self._extra(source))
+    def warning(self, message: str, *args: Any, source: VOXLogSource | None = None, **kwargs: Any) -> None:
+        kwargs.pop("extra", None)
+        self._logger.warning(message, *args, extra=self._extra(source), **kwargs)
 
-    def error(self, message: str, source: VOXLogSource | None = None) -> None:
-        self._logger.error(message, extra=self._extra(source))
+    def error(self, message: str, *args: Any, source: VOXLogSource | None = None, **kwargs: Any) -> None:
+        kwargs.pop("extra", None)
+        self._logger.error(message, *args, extra=self._extra(source), **kwargs)
 
-    def debug(self, message: str, source: VOXLogSource | None = None) -> None:
+    def debug(self, message: str, *args: Any, source: VOXLogSource | None = None, **kwargs: Any) -> None:
         if not self.verbose:
             return
-        self._logger.debug(message, extra=self._extra(source))
+        kwargs.pop("extra", None)
+        self._logger.debug(message, *args, extra=self._extra(source), **kwargs)
 
     def get_child(self, name: str) -> "VOXForensicLogger":
         """Returns a new VOXForensicLogger whose records carry ``name``

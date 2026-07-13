@@ -48,12 +48,34 @@ async def _handle_start(orchestrator, args):
     return {"error": f"Command 'start' failed for '{agent_name}'."}
 
 
+async def _handle_pause(orchestrator, args):
+    if not args:
+        return {"error": "Agent name required."}
+    agent_name = args[0]
+    success = await orchestrator.pause_agent(agent_name)
+    if success:
+        return {"data": f"Agent '{agent_name}' paused.", "ok": True}
+    return {"error": f"Command 'pause' failed for '{agent_name}'."}
+
+
+async def _handle_resume(orchestrator, args):
+    if not args:
+        return {"error": "Agent name required."}
+    agent_name = args[0]
+    success = await orchestrator.resume_agent(agent_name)
+    if success:
+        return {"data": f"Agent '{agent_name}' resumed.", "ok": True}
+    return {"error": f"Command 'resume' failed for '{agent_name}'."}
+
+
 _COMMAND_HANDLERS = {
     "status": _handle_status,
     "list": _handle_list,
     "stop": _handle_stop,
     "restart": _handle_restart,
     "start": _handle_start,
+    "pause": _handle_pause,
+    "resume": _handle_resume,
 }
 
 

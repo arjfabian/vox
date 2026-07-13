@@ -1,11 +1,15 @@
-"""Voice-to-text capability runner."""
+"""comm.voicetotext — Local offline speech-to-text capability.
 
-import logging
+Orchestration layer for faster-whisper transcription.
+WhisperClient is allocated once during boot() and reused across
+all transcribe() calls, with CPU-bound inference offloaded
+to a thread pool executor.
+"""
 
 from vox.capabilities.base import VOXCapability
 
 from .client import WhisperClient
-from .models import WhisperConfig
+from .models import TranscriptionResult, WhisperConfig
 
 
 LOG_PREVIEW_LENGTH = 60
@@ -16,10 +20,12 @@ class VoiceToTextCapability(VOXCapability):
     CAPABILITY_NAME = "comm.voicetotext"
 
     PARAMS = {
-        "WHISPER_MODEL": ["faster-whisper model size", "base"],
+        "WHISPER_MODEL_SIZE": ["faster-whisper model size", "base"],
         "WHISPER_DEVICE": ["Compute device", "cpu"],
-        "WHISPER_COMPUTE": ["Compute precision", "int8"],
+        "WHISPER_COMPUTE_TYPE": ["Compute precision", "int8"],
     }
+
+    _client: WhisperClient
 
     @classmethod
     async def health_check(cls) -> bool:
@@ -27,31 +33,39 @@ class VoiceToTextCapability(VOXCapability):
             import faster_whisper  # noqa: F401
             return True
         except ImportError:
-            logger = logging.getLogger(__name__)
-            logger.error("faster-whisper not installed")
             return False
 
     def _build_client(self) -> WhisperClient:
         config = WhisperConfig(
-            model=self.PARAMS["WHISPER_MODEL"][1],
-            device=self.PARAMS["WHISPER_DEVICE"][1],
-            compute_type=self.PARAMS["WHISPER_COMPUTE"][1],
+            model=self.WHISPER_MODEL_SIZE,
+            device=self.WHISPER_DEVICE,
+            compute_type=self.WHISPER_COMPUTE_TYPE,
         )
         return WhisperClient(config)
 
-    async def transcribe(self, audio_bytes: bytes) -> str:
-        if not audio_bytes:
-            return ""
-        self.logger.info("Transcribing audio...")
-        client = self._build_client()
-        result = await client.transcribe(audio_bytes)
+    # ------------------------------------------------------------------
+    # Public operations
+    # ------------------------------------------------------------------
+
+    async def transcribe(self, file_path: str) -> TranscriptionResult:
+        self.log("Transcribing audio...")
+        with open(file_path, "rb") as f:
+            audio_bytes = f.read()
+        result = await self._client.transcribe(audio_bytes)
         preview = result.text[:LOG_PREVIEW_LENGTH]
         suffix = "..." if len(result.text) > LOG_PREVIEW_LENGTH else ""
-        self.logger.info(
+        self.log(
             f"Transcribed [{result.language} {result.confidence:.0%}]: "
             f"'{preview}{suffix}'"
         )
-        return result.text
+        return result
 
-    async def run(self, audio_bytes: bytes) -> str:
-        return await self.transcribe(audio_bytes)
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
+    async def boot(self) -> None:
+        self._client = self._build_client()
+
+    async def shutdown(self) -> None:
+        pass

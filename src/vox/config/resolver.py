@@ -27,14 +27,19 @@ def resolve_config(
         CLI args > env vars > defaults
     """
 
-    verbose_logging = DEFAULT_VERBOSE_LOGGING
-
     war_room_id = env_config.war_room_id
 
     if not war_room_id:
         raise ValueError(
             "Missing required environment variable: VOX_WAR_ROOM_ID"
         )
+
+    if cli_args.verbose is not None:
+        verbose_logging = cli_args.verbose
+    elif env_config.verbose_logging:
+        verbose_logging = True
+    else:
+        verbose_logging = DEFAULT_VERBOSE_LOGGING
 
     return VOXConfig(
         verbose_logging=verbose_logging,

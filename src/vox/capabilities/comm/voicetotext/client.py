@@ -1,9 +1,15 @@
-"""faster-whisper runtime client."""
+"""faster-whisper runtime client.
 
+Isolates the synchronous faster-whisper inference pipeline behind
+an async facade using asyncio.to_thread for CPU-bound operations.
+No top-level synchronization locks.
+"""
+
+import asyncio
 import io
+
 import numpy as np
 import soundfile as sf
-
 from faster_whisper import WhisperModel
 
 from .models import WhisperConfig, TranscriptionResult
@@ -16,11 +22,16 @@ class WhisperClient:
 
     def __init__(self, config: WhisperConfig) -> None:
         self.config = config
-        self.model = WhisperModel(
-            config.model,
-            device=config.device,
-            compute_type=config.compute_type,
-        )
+        self._model: WhisperModel | None = None
+
+    def _load_model(self) -> WhisperModel:
+        if self._model is None:
+            self._model = WhisperModel(
+                self.config.model,
+                device=self.config.device,
+                compute_type=self.config.compute_type,
+            )
+        return self._model
 
     def _preprocess(self, audio_data: np.ndarray, sample_rate: int) -> np.ndarray:
         import librosa
@@ -36,12 +47,12 @@ class WhisperClient:
             audio_data = audio_data * (0.1 / rms)
         return np.clip(audio_data, -1.0, 1.0).astype(np.float32)
 
-    async def transcribe(self, audio_bytes: bytes) -> TranscriptionResult:
-        audio_data, sample_rate = sf.read(
-            io.BytesIO(audio_bytes), dtype="float32",
-        )
+    def _transcribe_sync(self, audio_bytes: bytes) -> TranscriptionResult:
+        audio_data, sample_rate = sf.read(io.BytesIO(audio_bytes), dtype="float32")
         audio_data = self._preprocess(audio_data, sample_rate)
-        segments, info = self.model.transcribe(
+
+        model = self._load_model()
+        segments, info = model.transcribe(
             audio_data,
             beam_size=WHISPER_BEAM_SIZE,
             language=None,
@@ -52,4 +63,10 @@ class WhisperClient:
             text=text,
             language=info.language,
             confidence=info.language_probability,
+        )
+
+    async def transcribe(self, audio_bytes: bytes) -> TranscriptionResult:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            None, self._transcribe_sync, audio_bytes,
         )

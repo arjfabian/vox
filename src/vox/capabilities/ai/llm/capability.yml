@@ -1,0 +1,70 @@
+name: ai.llm
+version: 1.0.0
+
+description: |
+  Unified local/cloud LLM inference gateway.
+  Provides text generation, chat completion, and vision inference
+  through a provider-agnostic interface with built-in semantic
+  caching, prompt sanitization, RAG context injection, and
+  complexity-based routing.
+
+capability_class: LLMCapability
+
+provides:
+  - text_generation
+  - chat_completion
+  - vision_inference
+
+params:
+  LLM_API_BASE_URL:
+    description: API base URL for the LLM backend (Ollama, OpenAI-compatible)
+    type: string
+    default: http://localhost:11434
+  LLM_MODEL_NAME:
+    description: Primary model identifier for text generation
+    type: string
+    default: llama3
+  LLM_VISION_MODEL_NAME:
+    description: Model identifier for vision inference
+    type: string
+    default: llava
+  LLM_TEMPERATURE:
+    description: Generation temperature (0.0 - 1.0)
+    type: float
+    default: 0.7
+  LLM_MAX_TOKENS:
+    description: Maximum generated tokens per response
+    type: int
+    default: 2048
+  LLM_TIMEOUT:
+    description: Request timeout in seconds
+    type: float
+    default: 60.0
+  LLM_CACHE_ENABLED:
+    description: Enable semantic response cache
+    type: bool
+    default: true
+  LLM_CACHE_TTL:
+    description: Cache entry TTL in seconds
+    type: int
+    default: 3600
+  LLM_RAG_ENABLED:
+    description: Enable RAG context injection from agent memory
+    type: bool
+    default: true
+  LLM_RAG_MAX_SNIPPETS:
+    description: Maximum RAG snippets to inject into system prompt
+    type: int
+    default: 5
+  LLM_MAX_INPUT_TOKENS:
+    description: Maximum prompt characters before truncation
+    type: int
+    default: 16384
+  LLM_FORCE_LOCAL:
+    description: Always route to local backend
+    type: bool
+    default: false
+  LLM_FORCE_CLOUD:
+    description: Always route to cloud backend
+    type: bool
+    default: false

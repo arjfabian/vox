@@ -1,7 +1,3 @@
-"""
-Voice-to-text capability models.
-"""
-
 from dataclasses import dataclass
 
 

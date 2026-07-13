@@ -6,11 +6,61 @@ They do NOT self-discover; they declare capabilities.
 """
 
 import weakref
+from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Dict
+
+
+# ---------------------------------------------------------------------------
+# Command marker — used by the @command decorator
+# ---------------------------------------------------------------------------
+
+_COMMAND_MARKER = "_vox_command_meta"
+
+
+def command(name: str, description: str = "", **metadata):
+    """
+    Decorator that marks a method as an explicit command handler.
+
+    The handler is routed under the clean command name (no prefix).
+    Usage::
+
+        class MyRole(VOXRole):
+            @command("do_thing", description="Does a thing")
+            async def do_thing(self, ...): ...
+    """
+    def decorator(fn):
+        fn._vox_command_meta = (name, description, metadata)
+        return fn
+    return decorator
+
+
+# ---------------------------------------------------------------------------
+# Data classes
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class CommandInfo:
+    """Metadata for an explicitly registered command handler."""
+    handler: Callable[..., Awaitable[Any]]
+    description: str = ""
+    params: Dict[str, str] = field(default_factory=dict)
+    sample_prompts: list | None = None
+
+
+
+# ---------------------------------------------------------------------------
+# Exceptions
+# ---------------------------------------------------------------------------
 
 
 class AgentHostDeadError(Exception):
     pass
+
+
+# ---------------------------------------------------------------------------
+# VOXRole
+# ---------------------------------------------------------------------------
 
 
 class VOXRole:
@@ -19,13 +69,36 @@ class VOXRole:
 
     Responsibilities:
     - Handle events
-    - Expose command handlers explicitly
+    - Expose command handlers explicitly via ``@command`` decorator
     - Access agent via safe weakref
+
+    Class variables:
+      REQUIRES: set[str] — capability IDs this role must be mounted with.
+      PREFERRED_MODEL: str | None — which Ollama model this role prefers,
+          or None to use the agent's default.
     """
+
+    REQUIRES: set[str] = set()
+    PREFERRED_MODEL: str | None = None
 
     def __init__(self, agent: Any) -> None:
         self._agent_ref = weakref.ref(agent)
         self._handlers: Dict[str, Callable[..., Awaitable[None]]] = {}
+        self._commands: Dict[str, CommandInfo] = {}
+        self._discover_commands()
+
+    def _discover_commands(self) -> None:
+        """Scans the class hierarchy for ``@command``-decorated methods."""
+        for attr_name in dir(self.__class__):
+            attr = self.__class__.__dict__.get(attr_name)
+            meta = getattr(attr, _COMMAND_MARKER, None)
+            if meta:
+                name, description, metadata = meta
+                bound = getattr(self, attr_name)
+                self._handlers[name] = bound
+                self._commands[name] = CommandInfo(
+                    handler=bound, description=description, **metadata,
+                )
 
     @property
     def agent(self) -> Any:
@@ -35,6 +108,12 @@ class VOXRole:
         return inst
 
     def on(self, event: str):
+        """
+        Register an event handler.
+
+        Use this for non-command events (``on_boot``, ``inbound_message``,
+        etc.). For command handlers prefer the ``@command`` decorator.
+        """
         def decorator(fn):
             self._handlers[event] = fn
             return fn
@@ -47,5 +126,6 @@ class VOXRole:
         await handler(**kwargs)
         return True
 
-    def get_event_map(self) -> Dict[str, Callable]:
-        return dict(self._handlers)
+    def get_commands(self) -> Dict[str, CommandInfo]:
+        """Returns {command_name: CommandInfo} for all registered commands."""
+        return dict(self._commands)

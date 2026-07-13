@@ -7,7 +7,8 @@ A capability is split into:
 """
 
 import inspect
-from typing import Any, Dict, List, Tuple, TYPE_CHECKING
+from pathlib import Path
+from typing import Any, Dict, List, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from vox.agents.base import VOXAgent
@@ -22,6 +23,7 @@ class VOXCapability:
 
     CAPABILITY_NAME: str = ""
     PARAMS: Dict[str, List[Any]] = {}
+    SENSITIVE_PARAMS: set[str] = set()
 
     id: str
     logger: "VOXForensicLogger"
@@ -47,20 +49,6 @@ class VOXCapability:
         return "\n".join(lines)
 
     @classmethod
-    def validate_and_extract(
-        cls,
-        config: Dict[str, Any],
-    ) -> Tuple[Dict[str, Any], List[str]]:
-        extracted: Dict[str, Any] = {}
-        missing:   List[str]      = []
-        for param, (_, default) in cls.PARAMS.items():
-            value = config.get(param)
-            if value is None and default is None:
-                missing.append(param)
-            extracted[param] = value if value is not None else default
-        return extracted, missing
-
-    @classmethod
     async def health_check(cls) -> bool:
         return True
 
@@ -70,25 +58,15 @@ class VOXCapability:
     async def shutdown(self) -> None:
         pass
 
-    async def run(
-        self,
-        bound: "VOXBoundCapability",
-        tool: str,
-        **kwargs: Any,
-    ) -> Any:
-        raise NotImplementedError(
-            f"{self.name} does not implement tool execution"
-        )
-
     def mount(
         self,
         agent: "VOXAgent",
         config: Dict[str, Any],
     ) -> "VOXBoundCapability":
-        sanitized, missing = self.validate_and_extract(config)
-        if missing:
-            raise ValueError(f"Missing params for {self.name}: {missing}")
-        return VOXBoundCapability(self, agent, sanitized)
+        extracted: Dict[str, Any] = {}
+        for param, (_, default) in self.PARAMS.items():
+            extracted[param] = config.get(param) if config.get(param) is not None else default
+        return VOXBoundCapability(self, agent, extracted)
 
 
 class VOXBoundCapability:
@@ -113,6 +91,9 @@ class VOXBoundCapability:
 
     def error(self, message: str) -> None:
         self.logger.error(f"[{self.name}] {message}")
+
+    def ok(self, message: str) -> None:
+        self.logger.ok(f"[{self.name}] {message}")
 
     def __setattr__(self, name: str, value: Any) -> None:
         if self._frozen and not name.startswith("_"):
@@ -146,8 +127,33 @@ class VOXBoundCapability:
                 return raw(self, *args, **kwargs)
         return _wrapper
 
-    async def run(self, tool: str, **kwargs: Any) -> Any:
-        return await self._capability.run(self, tool, **kwargs)
+    def get_safe_path(self, sub_dir: str, filename: str) -> "Path":
+        return self._agent.get_safe_path(sub_dir, filename)
+
+    async def emit(self, event_name: str, **kwargs) -> None:
+        orch = self._agent.orchestrator
+        if orch:
+            await orch.dispatch_inbound_message(
+                source=self._capability.CAPABILITY_NAME,
+                payload=kwargs,
+            )
+        else:
+            await self._agent.emit(event_name, **kwargs)
+
+    def get_capability(self, cap_id: str) -> object | None:
+        return self._agent.capabilities.get(cap_id)
+
+    def validate_params(self) -> list[str]:
+        return [
+            param for param, (_, default) in self._capability.PARAMS.items()
+            if self._params.get(param) is None and default is None
+        ]
+
+    async def initialize(self) -> None:
+        missing = self.validate_params()
+        if missing:
+            raise ValueError(f"Missing required params for {self.name}: {missing}")
+        self.ok("Capability initialized")
 
     def freeze(self) -> None:
         object.__setattr__(self, "_frozen", True)

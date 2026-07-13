@@ -3,7 +3,7 @@ from pathlib import Path
 from vox.config import VOXConfig
 from vox.observability import VOXForensicLogger
 from vox.orchestration import VOXOrchestrator
-from vox.services.api_server import VOXAPIServer
+from vox.api_server import VOXAPIServer
 
 
 @dataclass(frozen=True)
@@ -16,4 +16,4 @@ class VOXRuntime:
     config: VOXConfig
     logger: VOXForensicLogger
     orchestrator: VOXOrchestrator
-    api_server: VOXAPIServer | None = None
+    api_server: VOXAPIServer

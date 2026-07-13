@@ -28,4 +28,4 @@ dependencies:
   system:
     - playwright
   capabilities:
-    - ai.ollama
+    - ai.llm

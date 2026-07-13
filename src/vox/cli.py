@@ -5,11 +5,14 @@ runtime.  Invoked by the ``vox`` console-script (``main()``) or
 ``python -m vox`` (via :mod:`vox.__main__`).
 """
 import asyncio
+import json
 import logging
+import os
 import signal
 import sys
 
 from vox.config import load_config
+from vox.config.from_cli import load_cli_args
 from vox.observability import (
     VOXColorFormatter,
     VOXForensicLogger,
@@ -17,10 +20,26 @@ from vox.observability import (
 )
 from vox.runtime import build_vox, run_vox
 
+_DEFAULT_UDS_PATH = "/tmp/vox.sock"
+
 
 def main() -> None:
     """Synchronous entry point for the ``vox`` CLI binary."""
     asyncio.run(_main())
+
+
+async def _send_uds_command(cmd: str, args: list[str]) -> dict:
+    uds_path = os.environ.get("VOX_UDS_PATH", _DEFAULT_UDS_PATH)
+    reader, writer = await asyncio.open_unix_connection(uds_path)
+    try:
+        payload = json.dumps({"cmd": cmd, "args": args}) + "\n"
+        writer.write(payload.encode())
+        await writer.drain()
+        response = await reader.readline()
+        return json.loads(response.decode().strip())
+    finally:
+        writer.close()
+        await writer.wait_closed()
 
 
 def _cancel_child_tasks() -> None:
@@ -33,6 +52,29 @@ def _cancel_child_tasks() -> None:
 
 async def _main() -> None:
     """Bootstrap config, logging and runtime, then start VOX."""
+
+    cli_args = load_cli_args()
+    if cli_args.command:
+        try:
+            resp = await _send_uds_command(cli_args.command, [cli_args.agent_name] if cli_args.agent_name else [])
+            if resp.get("ok"):
+                print(resp["data"])
+            else:
+                print(f"Error: {resp.get('error', resp)}", file=sys.stderr)
+                sys.exit(1)
+        except FileNotFoundError:
+            print(
+                "Error: VOX control plane socket not found. Is VOX running?",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        except ConnectionRefusedError:
+            print(
+                "Error: Connection refused. Is VOX running?",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        return
 
     # Logger isn't ready yet — use print for early diagnostics.
     print("Loading config")

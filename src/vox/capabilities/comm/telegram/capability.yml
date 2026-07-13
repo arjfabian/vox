@@ -3,8 +3,9 @@ version: 1.0.0
 
 description: |
   Telegram communication bridge for VOX agents.
+  Provides bidirectional messaging, long-polling, and media delivery.
 
-capability_class: Capability
+capability_class: TelegramCapability
 
 provides:
   - messaging
@@ -12,12 +13,18 @@ provides:
   - notifications
   - voice_input
 
-requires:
-  - TELEGRAM_BOT_TOKEN
-  - TELEGRAM_USER_ID
+params:
+  TELEGRAM_BOT_TOKEN:
+    description: Telegram Bot API token
+    type: secret
+    default: null
+    sensitive: true
+  TELEGRAM_USER_ID:
+    description: Authorized Telegram user identifier
+    type: string
+    default: null
+  TELEGRAM_LONG_TIMEOUT:
+    description: Long polling timeout in seconds
+    type: int
+    default: 20
 
-optional:
-  TELEGRAM_LONG_TIMEOUT: 20
-
-singleton: true
-stateless: false

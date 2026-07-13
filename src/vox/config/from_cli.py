@@ -18,8 +18,9 @@ class VOXCliArgs:
     Fields are None when not provided on the command line.
     """
 
-    command    : str | None
-    agent_name : str | None
+    command         : str | None
+    agent_name      : str | None
+    verbose         : bool | None = None
 
 
 def load_cli_args() -> VOXCliArgs:
@@ -39,7 +40,7 @@ def load_cli_args() -> VOXCliArgs:
     parser.add_argument(
         "command",
         nargs="?",
-        choices=["start", "stop", "restart"],
+        choices=["start", "stop", "restart", "pause", "resume"],
         help="Agent lifecycle command.",
     )
 
@@ -49,9 +50,16 @@ def load_cli_args() -> VOXCliArgs:
         help="Target agent name.",
     )
 
+    parser.add_argument(
+        "-v", "--verbose",
+        action="store_true",
+        help="Enable verbose debug logging.",
+    )
+
     args = parser.parse_args()
 
     return VOXCliArgs(
         command    = args.command,
         agent_name = args.agent_name,
+        verbose    = args.verbose,
     )
