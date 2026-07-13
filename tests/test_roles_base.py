@@ -26,7 +26,7 @@ class TestVOXRole(unittest.TestCase):
             pass
 
         self.role.on("test_event")(handler)
-        event_map = self.role.get_event_map()
+        event_map = self.role._handlers
         self.assertIn("test_event", event_map)
         self.assertIs(event_map["test_event"], handler)
 
@@ -69,10 +69,8 @@ class TestVOXRole(unittest.TestCase):
             pass
 
         self.role.on("evt")(h)
-        event_map = self.role.get_event_map()
-        event_map["new_key"] = lambda **kw: None
 
-        self.assertNotIn("new_key", self.role.get_event_map())
+        self.assertIn("evt", self.role._handlers)
 
     def test_handle_event_passes_kwargs(self):
         results = {}

@@ -1,6 +1,6 @@
 import asyncio
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 from vox.capabilities.base import VOXCapability, VOXBoundCapability
 
@@ -33,13 +33,16 @@ class TestVOXCapability(unittest.TestCase):
         bound = cap.mount(agent, {})
         self.assertIsInstance(bound, VOXBoundCapability)
 
-    def test_mount_with_missing_required_params(self):
+    def test_initialize_raises_for_missing_required_params(self):
         class StrictCap(VOXCapability):
             PARAMS = {"REQUIRED_KEY": ["desc", None]}
         cap = StrictCap()
+        cap.id = "test"
+        cap.logger = MagicMock()
         agent = MagicMock()
+        bound = cap.mount(agent, {})
         with self.assertRaises(ValueError):
-            cap.mount(agent, {})
+            asyncio.run(bound.initialize())
 
     def test_explain_config_returns_string(self):
         text = VOXCapability.explain_config()
@@ -58,6 +61,7 @@ class TestVOXBoundCapability(unittest.TestCase):
     def setUp(self):
         self.agent = MagicMock()
         self.agent.logger = MagicMock()
+        self.agent.emit = AsyncMock()
         self.cap = VOXCapability()
         self.cap.id = "test"
         self.cap.logger = MagicMock()
@@ -95,3 +99,58 @@ class TestVOXBoundCapability(unittest.TestCase):
         self.bound.freeze()
         with self.assertRaises(AttributeError):
             self.bound.new_attr = "forbidden"
+
+    def test_ok_delegates_to_logger(self):
+        self.bound.ok("all good")
+        self.bound.logger.ok.assert_called_once()
+
+    def test_get_safe_path_delegates_to_agent(self):
+        self.agent.get_safe_path.return_value = "/safe/path"
+        result = self.bound.get_safe_path("evidence", "test.png")
+        self.agent.get_safe_path.assert_called_once_with("evidence", "test.png")
+        self.assertEqual(result, "/safe/path")
+
+    def test_emit_delegates_to_agent(self):
+        self.agent.orchestrator = None
+        asyncio.run(self.bound.emit("inbound_message", content="hi"))
+        self.agent.emit.assert_called_once_with("inbound_message", content="hi")
+
+    def test_get_capability_found(self):
+        self.agent.capabilities = {"ollama": "ollama_instance"}
+        result = self.bound.get_capability("ollama")
+        self.assertEqual(result, "ollama_instance")
+
+    def test_get_capability_not_found(self):
+        self.agent.capabilities = {}
+        result = self.bound.get_capability("nonexistent")
+        self.assertIsNone(result)
+
+
+class TestVOXBoundCapabilityEdgeCases(unittest.TestCase):
+
+    def setUp(self):
+        self.agent = MagicMock()
+        self.agent.logger = MagicMock()
+        self.cap = VOXCapability()
+        self.cap.id = "test"
+        self.cap.logger = MagicMock()
+
+    def test_ok_without_logger_set(self):
+        bound = VOXBoundCapability(self.cap, self.agent, {})
+        bound.logger = MagicMock()
+        bound.ok("ok msg")
+        bound.logger.ok.assert_called_once()
+
+    def test_get_safe_path_no_agent_get_safe_path(self):
+        del self.agent.get_safe_path
+        bound = VOXBoundCapability(self.cap, self.agent, {})
+        with self.assertRaises(AttributeError):
+            bound.get_safe_path("a", "b")
+
+    def test_emit_with_orchestrator_delegates_to_dispatch(self):
+        self.agent.orchestrator = MagicMock()
+        self.agent.orchestrator.dispatch_inbound_message = AsyncMock()
+        bound = VOXBoundCapability(self.cap, self.agent, {})
+        bound.logger = MagicMock()
+        asyncio.run(bound.emit("evt"))
+        self.agent.orchestrator.dispatch_inbound_message.assert_awaited_once()

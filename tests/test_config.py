@@ -44,6 +44,30 @@ class TestResolveConfig(unittest.TestCase):
         with self.assertRaises(ValueError):
             resolve_config(cli, env)
 
+    def test_cli_verbose_overrides_default(self):
+        cli = VOXCliArgs(command=None, agent_name=None, verbose=True)
+        env = VOXEnvConfig(war_room_id="-100")
+        cfg = resolve_config(cli, env)
+        self.assertTrue(cfg.verbose_logging)
+
+    def test_env_verbose_used_when_cli_not_set(self):
+        cli = VOXCliArgs(command=None, agent_name=None)
+        env = VOXEnvConfig(war_room_id="-100", verbose_logging=True)
+        cfg = resolve_config(cli, env)
+        self.assertTrue(cfg.verbose_logging)
+
+    def test_cli_verbose_overrides_env(self):
+        cli = VOXCliArgs(command=None, agent_name=None, verbose=False)
+        env = VOXEnvConfig(war_room_id="-100", verbose_logging=True)
+        cfg = resolve_config(cli, env)
+        self.assertFalse(cfg.verbose_logging)
+
+    def test_default_verbose_when_none_set(self):
+        cli = VOXCliArgs(command=None, agent_name=None)
+        env = VOXEnvConfig(war_room_id="-100")
+        cfg = resolve_config(cli, env)
+        self.assertFalse(cfg.verbose_logging)
+
 
 class TestLoadEnvConfig(unittest.TestCase):
 
@@ -68,6 +92,34 @@ class TestLoadEnvConfig(unittest.TestCase):
         cfg = load_env_config()
         self.assertEqual(cfg.war_room_id, "-200")
 
+    @patch("vox.config.from_env.dotenv_values", return_value={})
+    @patch.dict(os.environ, {}, clear=True)
+    def test_verbose_logging_default_false(self, mock_dotenv):
+        from vox.config.from_env import load_env_config
+        cfg = load_env_config()
+        self.assertFalse(cfg.verbose_logging)
+
+    @patch("vox.config.from_env.dotenv_values", return_value={"VOX_VERBOSE_LOGGING": "true"})
+    @patch.dict(os.environ, {}, clear=True)
+    def test_reads_verbose_from_dotenv(self, mock_dotenv):
+        from vox.config.from_env import load_env_config
+        cfg = load_env_config()
+        self.assertTrue(cfg.verbose_logging)
+
+    @patch("vox.config.from_env.dotenv_values", return_value={})
+    @patch.dict(os.environ, {"VOX_VERBOSE_LOGGING": "1"})
+    def test_verbose_logging_from_environ(self, mock_dotenv):
+        from vox.config.from_env import load_env_config
+        cfg = load_env_config()
+        self.assertTrue(cfg.verbose_logging)
+
+    @patch("vox.config.from_env.dotenv_values", return_value={"VOX_VERBOSE_LOGGING": "false"})
+    @patch.dict(os.environ, {"VOX_VERBOSE_LOGGING": "true"})
+    def test_environ_overrides_dotenv_verbose(self, mock_dotenv):
+        from vox.config.from_env import load_env_config
+        cfg = load_env_config()
+        self.assertTrue(cfg.verbose_logging)
+
 
 class TestLoadCliArgs(unittest.TestCase):
 
@@ -90,6 +142,32 @@ class TestLoadCliArgs(unittest.TestCase):
             from vox.config.from_cli import load_cli_args
             with self.assertRaises(SystemExit):
                 load_cli_args()
+
+    def test_verbose_flag(self):
+        with patch("sys.argv", ["vox", "-v"]):
+            from vox.config.from_cli import load_cli_args
+            args = load_cli_args()
+            self.assertTrue(args.verbose)
+
+    def test_verbose_long_flag(self):
+        with patch("sys.argv", ["vox", "--verbose"]):
+            from vox.config.from_cli import load_cli_args
+            args = load_cli_args()
+            self.assertTrue(args.verbose)
+
+    def test_verbose_default_false(self):
+        with patch("sys.argv", ["vox"]):
+            from vox.config.from_cli import load_cli_args
+            args = load_cli_args()
+            self.assertFalse(args.verbose)
+
+    def test_verbose_with_command(self):
+        with patch("sys.argv", ["vox", "-v", "start", "tina"]):
+            from vox.config.from_cli import load_cli_args
+            args = load_cli_args()
+            self.assertTrue(args.verbose)
+            self.assertEqual(args.command, "start")
+            self.assertEqual(args.agent_name, "tina")
 
 
 class TestLoadConfig(unittest.TestCase):

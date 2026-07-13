@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, AsyncMock, patch
 from vox.runtime.models import VOXRuntimeConfig, VOXRuntime
 from vox.runtime.control_plane import handle_control_command
 from vox.runtime.daemon import run_vox
+from vox.runtime.factory import build_vox
 
 
 class TestVOXRuntimeConfig(unittest.TestCase):
@@ -27,15 +28,7 @@ class TestVOXRuntimeConfig(unittest.TestCase):
 
 class TestVOXRuntime(unittest.TestCase):
 
-    def test_api_server_defaults_to_none(self):
-        runtime = VOXRuntime(
-            config=MagicMock(),
-            logger=MagicMock(),
-            orchestrator=MagicMock(),
-        )
-        self.assertIsNone(runtime.api_server)
-
-    def test_api_server_can_be_set(self):
+    def test_api_server_required(self):
         server = MagicMock()
         runtime = VOXRuntime(
             config=MagicMock(),
@@ -44,6 +37,39 @@ class TestVOXRuntime(unittest.TestCase):
             api_server=server,
         )
         self.assertIs(runtime.api_server, server)
+
+    def test_runtime_rejects_missing_api_server(self):
+        with self.assertRaises(TypeError):
+            VOXRuntime(
+                config=MagicMock(),
+                logger=MagicMock(),
+                orchestrator=MagicMock(),
+            )
+
+
+class TestBuildVox(unittest.TestCase):
+
+    def setUp(self):
+        self.config = MagicMock()
+        self.config.log_path = "/tmp/vox-test.log"
+        self.config.uds_path = "/tmp/vox-test.sock"
+        self.logger = MagicMock()
+        self.orchestrator = MagicMock()
+        self.api_server = MagicMock()
+
+    @patch("vox.runtime.factory.VOXOrchestrator")
+    @patch("vox.runtime.factory.VOXAPIServer")
+    def test_build_vox_wires_components(self, mock_api_cls, mock_orc_cls):
+        mock_orc_cls.return_value = self.orchestrator
+        mock_api_cls.return_value = self.api_server
+
+        runtime = asyncio.run(build_vox(config=self.config, logger=self.logger))
+
+        mock_orc_cls.assert_called_once_with(config=self.config, logger=self.logger)
+        mock_api_cls.assert_called_once_with(self.orchestrator)
+        self.assertIs(runtime.config, self.config)
+        self.assertIs(runtime.orchestrator, self.orchestrator)
+        self.assertIs(runtime.api_server, self.api_server)
 
 
 class TestHandleControlCommand(unittest.TestCase):
@@ -113,6 +139,30 @@ class TestHandleControlCommand(unittest.TestCase):
         resp = self._decode_response()
         self.assertTrue(resp["ok"])
 
+    def test_pause_command(self):
+        self.runtime.orchestrator.pause_agent = AsyncMock(return_value=True)
+        asyncio.run(self._send_command("pause", ["tina"]))
+        resp = self._decode_response()
+        self.assertTrue(resp["ok"])
+        self.assertIn("tina", resp["data"])
+
+    def test_pause_command_without_args(self):
+        asyncio.run(self._send_command("pause"))
+        resp = self._decode_response()
+        self.assertIsNone(resp.get("ok"))
+
+    def test_resume_command(self):
+        self.runtime.orchestrator.resume_agent = AsyncMock(return_value=True)
+        asyncio.run(self._send_command("resume", ["tina"]))
+        resp = self._decode_response()
+        self.assertTrue(resp["ok"])
+        self.assertIn("tina", resp["data"])
+
+    def test_resume_command_without_args(self):
+        asyncio.run(self._send_command("resume"))
+        resp = self._decode_response()
+        self.assertIsNone(resp.get("ok"))
+
     def test_unknown_command(self):
         asyncio.run(self._send_command("fly"))
         resp = self._decode_response()
@@ -143,6 +193,7 @@ class TestRunVox(unittest.TestCase):
         self.runtime.orchestrator.boot = AsyncMock()
         self.runtime.orchestrator.shutdown = AsyncMock()
         self.runtime.api_server.start = AsyncMock()
+        self.runtime.api_server.shutdown = AsyncMock()
         self.logger = MagicMock()
 
     def test_run_vox_boots_orchestrator(self):

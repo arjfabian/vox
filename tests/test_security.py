@@ -21,11 +21,19 @@ class TestVOXSpeakerProfile(unittest.TestCase):
         mock_resemblyzer.preprocess_wav = MagicMock()
         sys.modules["resemblyzer"] = mock_resemblyzer
 
+        self._orig_soundfile = sys.modules.get("soundfile")
+        mock_soundfile = MagicMock()
+        sys.modules["soundfile"] = mock_soundfile
+
     def tearDown(self):
         if self._orig_resemblyzer is not None:
             sys.modules["resemblyzer"] = self._orig_resemblyzer
         else:
             sys.modules.pop("resemblyzer", None)
+        if self._orig_soundfile is not None:
+            sys.modules["soundfile"] = self._orig_soundfile
+        else:
+            sys.modules.pop("soundfile", None)
 
     def test_not_enrolled_by_default(self):
         self.assertFalse(self.profile.is_enrolled)
