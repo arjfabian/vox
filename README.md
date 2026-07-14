@@ -96,6 +96,12 @@ capabilities and assigns them to agents at mount time. The orchestrator
 does not execute workload logic — it governs the conditions under which
 workloads execute.
 
+An optional file watcher (`AgentFileWatcher`) polls agent directories for
+SHA-256 hash changes on `agent.yml` and role files. When a change is
+detected the orchestrator performs an isolated hot-restart of only the
+affected agent — graceful shutdown, re-hire from disk with fresh manifest
+and roles, then boot. Enabled by default; disable via `VOX_WATCH_DISABLED=true`.
+
 ### Capabilities
 
 Capabilities are infrastructure resources — compute, communication, I/O —
@@ -181,6 +187,14 @@ structured.
   leaves the machine.
 - **Explicit role loading.** Only roles listed in the agent's manifest are
   loaded. Code in the roles directory not listed in the manifest is ignored.
+- **Input sanitization.** Every inbound payload passes through a pattern
+  scanner (`InputSanitizer`) before reaching any agent. SQLi, XSS, command
+  injection, path traversal and code execution signatures are blocked at the
+  orchestrator and HTTP API entrypoints.
+- **Per-agent rate limiting.** Each agent enforces a sliding-window rate
+  limit (`RateLimiter`) on event emissions. Limits are configurable per agent
+  via manifest keys (`rate_limit_max_calls`, `rate_limit_window`); on breach
+  the event is dropped and a critical alert is logged.
 - **Append-only audit.** Forensic logs cannot be modified or deleted after
   creation. Every record carries the agent identity.
 
@@ -211,6 +225,15 @@ VOX_WAR_ROOM_ID=123456789
 VOX_OLLAMA_URL=http://localhost:11434
 VOX_API_PORT=8000
 ```
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `VOX_WAR_ROOM_ID` | — | Telegram chat ID for FleetMessenger alerts |
+| `VOX_OLLAMA_URL` | `http://localhost:11434` | Ollama endpoint for LLM capability |
+| `VOX_API_PORT` | `8000` | HTTP API port |
+| `VOX_API_HOST` | `127.0.0.1` | HTTP API bind address |
+| `VOX_API_TOKEN` | — | Bearer token for API authentication |
+| `VOX_WATCH_DISABLED` | — | Set to `true` to disable the agent file watcher |
 
 Configuration precedence: **CLI args > Environment variables (`.env` + `os.environ`) > Code defaults**.
 
@@ -249,13 +272,20 @@ vox resume <name>         Replay buffered events
 ```
 agents/
   my_agent/
-    agent.yml          name, id, master_id, roles, personality
+    agent.yml          name, id, master_id, roles, personality, rate limits
     roles/
       handler.py       VOXRole subclass with @command handlers
 ```
 
 The manifest declares the agent's identity and which roles to load.
 Capability requirements are inferred from role source code at bootstrap.
+
+Optional manifest keys for per-agent tuning:
+
+| Key | Type | Default | Purpose |
+|---|---|---|---|
+| `rate_limit_max_calls` | int | 30 | Max events per window |
+| `rate_limit_window` | int | 60 | Sliding window in seconds |
 
 ## Project structure
 
@@ -274,11 +304,16 @@ vox/
 │   ├── config/                        configuration loading and resolution
 │   ├── messaging/                     inter-agent message envelope schema
 │   ├── observability/                 forensic logger, formatters
-│   ├── orchestration/                 fleet controller, capability gating
+│   ├── orchestration/                 fleet controller, capability gating, file watcher
+│   │   └── watcher.py                 hot-reload agent file monitor
 │   ├── roles/                         VOXRole base, @command decorator
 │   ├── runtime/                       bootstrap, control plane
-│   ├── security/                      voice verification
-│   └── services/api_server/           HTTP API
+│   ├── security/                      input sanitizer, rate limiter, vault, voice verification
+│   │   ├── guardrails.py              inbound dangerous-pattern scanner
+│   │   └── rate_limiter.py            sliding-window event rate limiter
+│   ├── services/                      fleet-wide communication
+│   │   └── fleet_messenger.py         War Room alert broadcast
+│   └── api_server.py                  HTTP API (auth + guardrail middleware)
 ├── tests/
 ├── pyproject.toml
 └── todo.md
