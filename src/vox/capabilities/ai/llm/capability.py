@@ -36,7 +36,7 @@ class LLMCapability(VOXCapability):
 
     PARAMS = {
         "LLM_API_BASE_URL":     ["API base URL", "http://localhost:11434"],
-        "LLM_MODEL_NAME":       ["Primary model", "llama3"],
+        "LLM_MODEL_NAME":       ["Primary model", "llama3.2:3b"],
         "LLM_VISION_MODEL_NAME": ["Vision model", "llava"],
         "LLM_TEMPERATURE":      ["Temperature (0.0-1.0)", 0.7],
         "LLM_MAX_TOKENS":       ["Max generated tokens", 2048],

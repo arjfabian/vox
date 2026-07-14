@@ -6,18 +6,22 @@ and agent lifecycle management.
 
 import asyncio
 import importlib
+import os
 import yaml
 
 from dataclasses import dataclass
+from dotenv import dotenv_values
 from pathlib import Path
 from typing import Optional
 
+from vox.orchestration.watcher import AgentFileWatcher
 from vox.provider import CapabilityProviderProtocol
 from vox.agents import VOXAgent
 from vox.capabilities import VOXCapability
 from vox.config import VOXConfig
 from vox.observability import VOXForensicLogger
-from vox.security import VOXSpeakerProfile
+from vox.security import InputSanitizer, SecurityError, VOXSpeakerProfile
+from vox.services import FleetMessenger
 
 
 @dataclass
@@ -54,6 +58,24 @@ class VOXOrchestrator:
         self.identity_dir = resolved_identity
         self.speaker_profile = VOXSpeakerProfile(self.identity_dir, self.logger)
         self.speaker_profile.load()
+        self._guardrail = InputSanitizer(self.logger)
+
+        env = {**dotenv_values(".env"), **os.environ}
+        bot_token = env.get("TELEGRAM_BOT_TOKEN")
+        if bot_token and config.war_room_id:
+            self.fleet_messenger = FleetMessenger(
+                bot_token=bot_token,
+                channel_id=config.war_room_id,
+                logger=self.logger,
+            )
+        else:
+            self.fleet_messenger = None
+            if not bot_token:
+                self.logger.warning(
+                    "FleetMessenger disabled — no TELEGRAM_BOT_TOKEN in environment"
+                )
+
+        self._watcher: AgentFileWatcher | None = None
 
     def _get_agent_lock(self, agent_id: str) -> asyncio.Lock:
         if agent_id not in self._agent_locks:
@@ -81,9 +103,16 @@ class VOXOrchestrator:
         if degraded_count:
             msg += f", {degraded_count} degraded"
         self.logger.ok(msg)
+
+        if os.environ.get("VOX_WATCH_DISABLED", "").lower() not in ("1", "true", "yes"):
+            self._watcher = AgentFileWatcher(self, self.agents_dir)
+            await self._watcher.start()
+
         return True
 
     async def shutdown(self) -> None:
+        if self._watcher is not None:
+            await self._watcher.stop()
         self.logger.info("Shutting down VOX fleet")
         all_agents = (
             list(self.active_agents.values())
@@ -107,6 +136,11 @@ class VOXOrchestrator:
                     self.logger.error(
                         f"Capability shutdown failed [{cap_id}]: {e}"
                     )
+        if self.fleet_messenger is not None:
+            try:
+                await self.fleet_messenger.shutdown()
+            except Exception as e:
+                self.logger.error(f"FleetMessenger shutdown failed: {e}")
         self.logger.ok("VOX fleet shut down.")
 
     def get_fleet_snapshot(self) -> dict:
@@ -248,7 +282,7 @@ class VOXOrchestrator:
         pending = list(agent_specs)
 
         def _can_create(spec):
-            master = spec["master_id"]
+            master = spec["master_id"] or ""
             return master == "" or master in created
 
         while pending:
@@ -314,7 +348,17 @@ class VOXOrchestrator:
 
     def _hire_agent(self, folder: Path, agent_id: str | None = None):
         try:
-            agent = VOXAgent(folder, orchestrator=self, logger=self.logger)
+            env = {**dotenv_values(".env"), **os.environ}
+            global_env = {}
+            for key in VOXAgent.GLOBAL_AGENT_KEYS:
+                if key in env:
+                    global_env[key] = env[key]
+            agent = VOXAgent(
+                folder,
+                orchestrator=self,
+                logger=self.logger,
+                global_env=global_env,
+            )
             return agent
         except Exception as e:
             self.logger.error(f"hire_agent failed for {folder}: {e}")
@@ -345,6 +389,11 @@ class VOXOrchestrator:
     async def dispatch_inbound_message(
         self, source: str, payload: dict
     ) -> None:
+        try:
+            payload = self._guardrail.sanitize(payload)
+        except SecurityError:
+            return
+
         # Source is a capability ID (e.g. "comm.telegram") —
         # match directly against capability keys.
         for agent in self.active_agents.values():
@@ -381,19 +430,44 @@ class VOXOrchestrator:
             self.logger.error(f"Agent '{agent_name}' not found")
             return False
         async with self._get_agent_lock(agent_id):
-            agent = self.active_agents.get(agent_id) or self.inactive_agents.get(agent_id)
+            agent = (
+                self.active_agents.get(agent_id)
+                or self.inactive_agents.get(agent_id)
+                or self.degraded_agents.get(agent_id)
+            )
             if not agent:
                 self.logger.error(f"Agent '{agent_name}' not found in fleet")
                 return False
-            if agent_id in self.active_agents:
-                await agent.stop()
-                self.active_agents.pop(agent_id)
-                self.inactive_agents[agent_id] = agent
-            ok = await agent.boot()
+
+            folder = agent.dir
+
+            await agent.shutdown()
+            self.active_agents.pop(agent_id, None)
+            self.inactive_agents.pop(agent_id, None)
+            self.degraded_agents.pop(agent_id, None)
+            self._agent_locks.pop(agent_id, None)
+
+            new_agent = self._hire_agent(folder)
+            if not new_agent:
+                self.logger.error(f"Failed to re-hire agent '{agent_name}'")
+                return False
+
+            if new_agent._degraded or not new_agent.health_check():
+                self.degraded_agents[new_agent.id] = new_agent
+                self.logger.warning(
+                    f"Agent '{agent_name}' restarted in DEGRADED state"
+                )
+                return True
+
+            ok = await new_agent.boot()
             if ok:
-                self.inactive_agents.pop(agent_id)
-                self.active_agents[agent_id] = agent
-                self.logger.ok(f"Agent '{agent.name}' restarted")
+                self.active_agents[new_agent.id] = new_agent
+                self.logger.ok(f"Agent '{agent_name}' restarted and active")
+            else:
+                self.degraded_agents[new_agent.id] = new_agent
+                self.logger.warning(
+                    f"Agent '{agent_name}' restarted in DEGRADED state (boot failed)"
+                )
             return ok
 
     async def start_agent_by_name(self, agent_name: str) -> bool:

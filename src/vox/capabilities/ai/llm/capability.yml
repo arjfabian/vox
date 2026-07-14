@@ -23,7 +23,7 @@ params:
   LLM_MODEL_NAME:
     description: Primary model identifier for text generation
     type: string
-    default: llama3
+    default: llama3.2:3b
   LLM_VISION_MODEL_NAME:
     description: Model identifier for vision inference
     type: string

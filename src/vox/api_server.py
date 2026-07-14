@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING, Any, Dict
 
 from aiohttp import web
 
+from vox.security import SecurityError
+
 if TYPE_CHECKING:
     from vox.orchestration import VOXOrchestrator
 
@@ -20,7 +22,10 @@ class VOXAPIServer:
     def __init__(self, orchestrator: VOXOrchestrator, port: int = 8000) -> None:
         self._orc = orchestrator
         self._port = port
-        self._app = web.Application(middlewares=[self._auth_middleware])
+        self._app = web.Application(middlewares=[
+            self._auth_middleware,
+            self._guardrail_middleware,
+        ])
         self._register_routes()
 
     @web.middleware
@@ -31,6 +36,22 @@ class VOXAPIServer:
             auth_header = request.headers.get("Authorization")
             if not auth_header or not hmac.compare_digest(auth_header, f"Bearer {token}"):
                 return self._json({"error": "unauthorized"}, status=401)
+        return await handler(request)
+
+    @web.middleware
+    async def _guardrail_middleware(self, request: web.Request, handler) -> web.Response:
+        """Check POST request bodies against the inbound security guardrail."""
+        if request.method != "POST":
+            return await handler(request)
+        try:
+            raw = await request.text()
+        except Exception:
+            raw = ""
+        if raw.strip():
+            try:
+                self._orc._guardrail.sanitize(raw)
+            except SecurityError:
+                return self._json({"error": "request blocked by security policy"}, status=400)
         return await handler(request)
 
     async def start(self) -> None:

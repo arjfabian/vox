@@ -46,7 +46,7 @@ async def run_vox(runtime: VOXRuntime, logger: VOXForensicLogger) -> None:
     asyncio.create_task(runtime.api_server.start())
 
     logger.info("Starting control plane")
-    logger.ok("SYSTEM READY. VOX is monitoring in the background.")
+    logger.ok("System ready. VOX is monitoring in the background.")
 
     try:
         await asyncio.gather(

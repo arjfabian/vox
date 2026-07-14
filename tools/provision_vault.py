@@ -23,12 +23,17 @@ import sys
 from getpass import getpass
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+ROOT_DIR = Path(__file__).resolve().parent.parent
+AGENTS_DIR = ROOT_DIR / "agents"
+CAPABILITIES_DIR = ROOT_DIR / "src" / "vox" / "capabilities"
+sys.path.insert(0, str(ROOT_DIR / "src"))
+sys.path.insert(1, str(ROOT_DIR))
 
 from vox.security import AgentVault
 
-AGENTS_DIR = Path(__file__).resolve().parent.parent / "agents"
-CAPABILITIES_DIR = Path(__file__).resolve().parent.parent / "src" / "vox" / "capabilities"
+FLEET_MANDATORY: list[tuple[str, str]] = [
+    ("comm.telegram", "TELEGRAM_BOT_TOKEN"),
+]
 
 
 def _load_capability_class(cap_id: str):
@@ -49,11 +54,22 @@ def _load_capability_class(cap_id: str):
 
 def _discover_sensitive_params(agent_dir: Path) -> dict[str, dict]:
     """Scan agent roles and return ``{cap_id: {sensitive: [keys], all: {key: desc}}}``."""
+    result: dict[str, dict] = {}
+
+    # Fleet-mandatory capabilities — always provisioned regardless of roles
+    for cap_id, _ in FLEET_MANDATORY:
+        if cap_id not in result:
+            cls, err = _load_capability_class(cap_id)
+            if cls is not None:
+                result[cap_id] = {
+                    "sensitive": list(getattr(cls, "SENSITIVE_PARAMS", set())),
+                    "all": {k: v[0] for k, v in cls.PARAMS.items()},
+                }
+
+    # Role-based discovery
     roles_dir = agent_dir / "roles"
     if not roles_dir.exists():
-        return {}
-
-    result: dict[str, dict] = {}
+        return result
 
     role_files = sorted(
         f for f in roles_dir.glob("*.py")
@@ -61,10 +77,15 @@ def _discover_sensitive_params(agent_dir: Path) -> dict[str, dict]:
     )
     for rf in role_files:
         role_name = rf.stem
-        module_path = f"vox.agents.{agent_dir.name}.roles.{role_name}"
+        
+        import importlib.util
         try:
-            mod = importlib.import_module(module_path)
-        except ImportError as e:
+            spec = importlib.util.spec_from_file_location(role_name, rf)
+            if spec is None or spec.loader is None:
+                raise ImportError(f"Cannot create spec for {rf}")
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+        except Exception as e:
             print(f"  [!] Skipping role '{role_name}' (import error: {e})")
             continue
 
@@ -168,7 +189,7 @@ def main() -> None:
         print(f"Error: agent '{args.agent}' has no 'id' in manifest")
         sys.exit(2)
 
-    print(f"Scanning roles for '{args.agent}'...")
+    print(f"Scanning agent '{args.agent}' (fleet-mandatory: {[c for c, _ in FLEET_MANDATORY]})...")
     desired = _discover_sensitive_params(agent_dir)
 
     if not desired:

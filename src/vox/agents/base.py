@@ -19,7 +19,7 @@ from vox.agents.lifecycle import AgentState, EventQueue
 from vox.agents.memory import VOXAgentMemory
 from vox.agents.store import VOXAgentStore
 from vox.roles import VOXRole
-from vox.security import AgentVault
+from vox.security import AgentVault, RateLimitError, RateLimiter
 
 
 class AgentProvisionError(Exception):
@@ -28,17 +28,21 @@ class AgentProvisionError(Exception):
 
 class VOXAgent:
 
+    GLOBAL_AGENT_KEYS: tuple[str, ...] = ("TELEGRAM_USER_ID",)
+
     def __init__(
         self,
         agent_dir: Path,
         logger: VOXForensicLogger,
         orchestrator: CapabilityProviderProtocol | None = None,
+        global_env: dict[str, Any] | None = None,
     ) -> None:
         self.dir = agent_dir
         self._capability_provider = orchestrator
         self.logger = logger
 
         self.config: Dict[str, Any] = {}
+        self._global_env = global_env or {}
         self.roles: Dict[str, Any] = {}
         self.capabilities: Dict[str, Any] = {}
         self.event_router: dict[str, list[Any]] = {}
@@ -46,6 +50,7 @@ class VOXAgent:
         self.commands: set[str] = set()
         self.events: set[str] = set()
         self._capability_commands: Dict[str, Callable] = {}
+        self._system_capabilities: set[str] = {"comm.telegram"}
 
         self._state = AgentState.BOOTING
         self._tasks: List[asyncio.Task] = []
@@ -57,6 +62,12 @@ class VOXAgent:
         self._degraded = False
 
         self._bootstrap()
+
+        self._rate_limiter = RateLimiter(
+            max_calls=self.config.get("rate_limit_max_calls", 30),
+            window_seconds=self.config.get("rate_limit_window", 60),
+        )
+
         self._state = AgentState.IDLE
 
     @property
@@ -111,6 +122,10 @@ class VOXAgent:
         else:
             print(f"[{self.__class__.__name__}] {message}")
 
+    @property
+    def rate_limiter_utilization(self) -> float:
+        return self._rate_limiter.get_utilization()
+
     def health_check(self) -> bool:
         return len(self.roles) > 0 and not self._degraded
 
@@ -123,6 +138,7 @@ class VOXAgent:
             "autostart": self.must_start,
             "health": self.health_check(),
             "degraded": self._degraded,
+            "rate_limiter_utilization_pct": round(self.rate_limiter_utilization, 1),
             "capabilities": list(self.capabilities.keys()),
             "commands": sorted(self.commands),
             "events": sorted(self.events),
@@ -154,9 +170,12 @@ class VOXAgent:
         self.logger = self.logger.get_child(self.name.lower())
         if not self._load_env():
             self.logger.warning(f"[{self.dir.name}] No .env found (optional)")
+        if self._global_env:
+            self.config.update(self._global_env)
         if not self._validate_identity(["name", "id"]):
             raise AgentProvisionError("Invalid agent identity")
         self.logger.ok(f"Identity verified: {self.id}")
+        self._init_vault_sync()
         self._load_roles()
         self._discover_and_mount_capabilities()
         if not self.roles:
@@ -175,6 +194,8 @@ class VOXAgent:
         "conversational":  (bool,  False, "Allow free-form LLM conversation"),
         "roles":        (list,  False, "Explicit role allow-list"),
         "personality":  (dict,  False, "Personality config dict"),
+        "rate_limit_max_calls": (int, False, "Max events per rate-limit window"),
+        "rate_limit_window":   (int, False, "Rate-limit window in seconds"),
     }
 
     def _validate_manifest(self, data: dict) -> None:
@@ -218,6 +239,8 @@ class VOXAgent:
                 "autostart": data.get("autostart", False),
                 "roles": data.get("roles", []),
                 "personality": data.get("personality", {}),
+                "rate_limit_max_calls": data.get("rate_limit_max_calls", 30),
+                "rate_limit_window": data.get("rate_limit_window", 60),
             })
             return True
         except AgentProvisionError:
@@ -286,7 +309,7 @@ class VOXAgent:
         return cap_ids
 
     def _discover_and_mount_capabilities(self) -> None:
-        needed: set[str] = set()
+        needed: set[str] = set(self._system_capabilities)
         roles_dir = self.dir / "roles"
         if roles_dir.exists():
             for role_file in roles_dir.glob("*.py"):
@@ -297,6 +320,9 @@ class VOXAgent:
             return
         self.logger.info(f"Capabilities required by roles: {sorted(needed)}")
         for cap_id in sorted(needed):
+            if self._capability_provider is None:
+                self._degraded = True
+                continue
             cap = self._capability_provider.get_capability_instance(cap_id)
             if not cap:
                 self.logger.warning(
@@ -308,6 +334,7 @@ class VOXAgent:
             bound = cap.mount(self, self.config)
             bound.logger = self.logger
             self.capabilities[cap_id] = bound
+            self._inject_vault_for_capability(cap_id, bound)
             missing_params = bound.validate_params()
             if missing_params:
                 self.logger.warning(
@@ -406,12 +433,24 @@ class VOXAgent:
     # Vault integration
     # ------------------------------------------------------------------
 
-    async def _init_vault(self) -> None:
+    def _init_vault_sync(self) -> None:
         try:
             self._vault = AgentVault(self.dir, self.id, config=self.config)
         except RuntimeError as e:
             self.logger.warning(f"Vault unavailable: {e}")
             self._vault = None
+
+    def _inject_vault_for_capability(self, cap_id: str, bound: "VOXBoundCapability") -> None:
+        if self._vault is None:
+            return
+        sensitive = getattr(type(bound._capability), "SENSITIVE_PARAMS", set())
+        for key in sensitive:
+            vault_val = self._vault.get(cap_id, key)
+            if vault_val is not None:
+                bound._params[key] = vault_val
+
+    async def _init_vault(self) -> None:
+        self._init_vault_sync()
 
     def _inject_vault_secrets(self) -> None:
         if self._vault is None:
@@ -525,6 +564,16 @@ class VOXAgent:
             return
         if self._state != AgentState.ACTIVE:
             return
+
+        try:
+            self._rate_limiter.check_limit()
+        except RateLimitError:
+            self.logger.critical(
+                "Rate limit exceeded for Agent %s — dropping event '%s'",
+                self.name, event_name,
+            )
+            return
+
         targets = self.event_router.get(event_name, [])
         for role in targets:
             try:

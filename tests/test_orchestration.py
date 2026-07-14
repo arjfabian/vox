@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch, AsyncMock
 
+from vox.agents.base import VOXAgent
 from vox.orchestration.base import (
     VOXOrchestrator,
     CapabilityEntry,
@@ -198,12 +199,42 @@ class TestVOXOrchestratorLifecycleMethods(unittest.TestCase):
         self.config = MagicMock()
         self.logger = MagicMock()
         self.orc = VOXOrchestrator(config=self.config, logger=self.logger)
+        self._tmp_agents: list[Path] = []
+
+    def tearDown(self):
+        import shutil
+        for p in self._tmp_agents:
+            shutil.rmtree(p, ignore_errors=True)
 
     def _make_agent(self, name: str, agent_id: str):
         agent = MagicMock()
         agent.name = name
         agent.id = agent_id
         return agent
+
+    def _make_real_agent_dir(self, name: str, agent_id: str) -> tuple[Path, MagicMock]:
+        tmp = Path("/tmp") / f"test_orc_agent_{id(self)}_{name}"
+        (tmp / "roles").mkdir(parents=True, exist_ok=True)
+        (tmp / "agent.yml").write_text(
+            f"name: {name}\nid: {agent_id}\nautostart: true\n"
+        )
+        (tmp / "roles" / "main.py").write_text(
+            "from vox.roles import VOXRole\n"
+            "REQUIRES = set()\n"
+            "class MainRole(VOXRole):\n"
+            "    def __init__(self, agent): super().__init__(agent)\n"
+            "    def get_commands(self): return {}\n"
+        )
+        (tmp / ".env").write_text(
+            "TELEGRAM_BOT_TOKEN=dummy\nTELEGRAM_USER_ID=dummy\n"
+        )
+        self._tmp_agents.append(tmp)
+        agent = VOXAgent(
+            tmp,
+            logger=self.logger,
+            orchestrator=MagicMock(),
+        )
+        return tmp, agent
 
     def test_resolve_agent_id_by_name(self):
         agent = self._make_agent("tina", "a1")
@@ -262,23 +293,34 @@ class TestVOXOrchestratorLifecycleMethods(unittest.TestCase):
         self.assertFalse(result)
 
     def test_restart_agent(self):
-        agent = self._make_agent("tina", "a1")
-        agent.stop = AsyncMock()
-        agent.boot = AsyncMock(return_value=True)
+        from vox.capabilities.comm.telegram.capability import TelegramCapability
+        self.orc.capability_registry["comm.telegram"] = CapabilityEntry(
+            cls=TelegramCapability, healthy=True,
+        )
+        self.orc.get_capability_instance("comm.telegram")
+
+        folder, agent = self._make_real_agent_dir("tina", "a1")
+        agent.shutdown = AsyncMock()
         self.orc.active_agents["a1"] = agent
         result = asyncio.run(self.orc.restart_agent("tina"))
         self.assertTrue(result)
-        agent.stop.assert_awaited_once()
-        agent.boot.assert_awaited_once()
+        agent.shutdown.assert_awaited_once()
 
     def test_restart_agent_from_inactive(self):
-        agent = self._make_agent("leah", "a2")
-        agent.boot = AsyncMock(return_value=True)
+        from vox.capabilities.comm.telegram.capability import TelegramCapability
+        self.orc.capability_registry["comm.telegram"] = CapabilityEntry(
+            cls=TelegramCapability, healthy=True,
+        )
+        self.orc.get_capability_instance("comm.telegram")
+
+        folder, agent = self._make_real_agent_dir("leah", "a2")
+        agent.shutdown = AsyncMock()
         self.orc.inactive_agents["a2"] = agent
         result = asyncio.run(self.orc.restart_agent("leah"))
         self.assertTrue(result)
-        self.assertIn("a2", self.orc.active_agents)
-        agent.boot.assert_awaited_once()
+        new_agent = self.orc.active_agents.get("a2")
+        self.assertIsNotNone(new_agent)
+        agent.shutdown.assert_awaited_once()
 
     def test_restart_agent_not_found(self):
         result = asyncio.run(self.orc.restart_agent("ghost"))

@@ -123,7 +123,23 @@ class TestVOXAgentManifest(unittest.TestCase):
         self.assertEqual(src.source_name, "testagent")
 
 
-class TestVOXAgentStateTransitions(unittest.TestCase):
+class _TelegramMockMixin:
+    """Provide a working comm.telegram mock for agents that need it during boot."""
+
+    @staticmethod
+    def _make_telegram_mocks():
+        mock_cap = MagicMock()
+        mock_bound = MagicMock()
+        mock_bound.initialize = AsyncMock()
+        mock_bound.boot = AsyncMock()
+        mock_bound.validate_params = MagicMock(return_value=[])
+        mock_cap.mount.return_value = mock_bound
+        mock_cap.CAPABILITY_NAME = "comm.telegram"
+        type(mock_cap).EXPOSED_COMMANDS = []
+        return mock_cap, mock_bound
+
+
+class TestVOXAgentStateTransitions(_TelegramMockMixin, unittest.TestCase):
 
     def setUp(self):
         self.tmp = Path("/tmp") / f"test_vox_state_{id(self)}"
@@ -131,6 +147,8 @@ class TestVOXAgentStateTransitions(unittest.TestCase):
         (self.tmp / "agent.yml").write_text("name: TestAgent\nid: test-uuid-1234\n")
         self.logger = MagicMock()
         self.orchestrator = MagicMock()
+        mock_cap, _ = self._make_telegram_mocks()
+        self.orchestrator.get_capability_instance.return_value = mock_cap
         self.agent = VOXAgent(self.tmp, self.logger, self.orchestrator)
 
     def tearDown(self):
@@ -167,14 +185,17 @@ class TestVOXAgentStateTransitions(unittest.TestCase):
         self.assertEqual(self.agent.state, AgentState.ACTIVE)
 
 
-class TestVOXAgentSafePath(unittest.TestCase):
+class TestVOXAgentSafePath(_TelegramMockMixin, unittest.TestCase):
 
     def setUp(self):
         self.tmp = Path("/tmp") / f"test_vox_path_{id(self)}"
         (self.tmp / "roles").mkdir(parents=True, exist_ok=True)
         (self.tmp / "agent.yml").write_text("name: TestAgent\nid: test-uuid-1234\n")
         self.logger = MagicMock()
-        self.agent = VOXAgent(self.tmp, self.logger, MagicMock())
+        orchestrator = MagicMock()
+        mock_cap, _ = self._make_telegram_mocks()
+        orchestrator.get_capability_instance.return_value = mock_cap
+        self.agent = VOXAgent(self.tmp, self.logger, orchestrator)
 
     def tearDown(self):
         import shutil
@@ -220,8 +241,9 @@ class TestVOXAgentBootCapabilities(unittest.TestCase):
         agent = VOXAgent(self.tmp, self.logger, self.orchestrator)
         result = asyncio.run(agent.boot())
         self.assertTrue(result)
-        self.mock_bound.initialize.assert_awaited_once()
-        self.mock_bound.boot.assert_awaited_once()
+        # initialize/boot is called once per mounted capability (test_cap + comm.telegram)
+        self.assertEqual(self.mock_bound.initialize.await_count, 2)
+        self.assertEqual(self.mock_bound.boot.await_count, 2)
 
     def test_boot_failure_when_capability_fails(self):
         self.mock_bound.initialize.side_effect = Exception("fail")
