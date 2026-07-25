@@ -1,76 +1,119 @@
-import asyncio
 import time
-import unittest
+import uuid
+
+import pytest
+
 from pathlib import Path
 from unittest.mock import patch
 
 from vox.capabilities.ai.llm.cache import SemanticCache, _sha256
 
 
-class TestSHA256(unittest.TestCase):
-
-    def test_deterministic(self):
-        a = _sha256("sys", "prompt", "model")
-        b = _sha256("sys", "prompt", "model")
-        self.assertEqual(a, b)
-
-    def test_different_inputs_different_hashes(self):
-        a = _sha256("sys1", "prompt", "model")
-        b = _sha256("sys2", "prompt", "model")
-        self.assertNotEqual(a, b)
+# ---------------------------------------------------------------------------
+# _sha256 unit tests (pure, no DB)
+# ---------------------------------------------------------------------------
 
 
-class TestSemanticCache(unittest.TestCase):
+def test_sha256_deterministic():
+    a = _sha256("sys", "prompt", "model")
+    b = _sha256("sys", "prompt", "model")
+    assert a == b
 
-    def setUp(self):
-        self.tmp = Path("/tmp") / f"test_cache_{id(self)}.db"
-        if self.tmp.exists():
-            self.tmp.unlink()
-        self.cache = SemanticCache(db_path=self.tmp, ttl=3600)
 
-    def tearDown(self):
-        if self.tmp.exists():
-            self.tmp.unlink()
+def test_sha256_different_inputs_different_hashes():
+    a = _sha256("sys1", "prompt", "model")
+    b = _sha256("sys2", "prompt", "model")
+    assert a != b
 
-    def _run(self, coro):
-        return asyncio.run(coro)
 
-    def test_lookup_miss_returns_none(self):
-        result = self._run(self.cache.lookup("sys", "prompt", "model"))
-        self.assertIsNone(result)
+# ---------------------------------------------------------------------------
+# SemanticCache tests
+# ---------------------------------------------------------------------------
 
-    def test_store_and_lookup_hit(self):
-        self._run(self.cache.store("sys", "prompt", "model", "response content"))
-        result = self._run(self.cache.lookup("sys", "prompt", "model"))
-        self.assertIsNotNone(result)
-        self.assertEqual(result.content, "response content")
-        self.assertEqual(result.model, "model")
 
-    def test_lookup_expired_entry_returns_none(self):
-        self._run(self.cache.store("sys", "prompt", "model", "content"))
-        self._run(self.cache.invalidate("sys", "prompt", "model"))  # just clear it
-        result = self._run(self.cache.lookup("sys", "prompt", "model"))
-        self.assertIsNone(result)
+@pytest.fixture
+def db_path():
+    path = Path(f"/tmp/test_cache_{uuid.uuid4().hex[:8]}.db")
+    if path.exists():
+        path.unlink()
+    yield path
+    if path.exists():
+        path.unlink()
 
-    def test_invalidate_removes_entry(self):
-        self._run(self.cache.store("sys", "prompt", "model", "content"))
-        self._run(self.cache.invalidate("sys", "prompt", "model"))
-        result = self._run(self.cache.lookup("sys", "prompt", "model"))
-        self.assertIsNone(result)
 
-    def test_clear_expired_removes_old_entries(self):
-        self._run(self.cache.store("sys", "prompt", "model", "content"))
-        self._run(self.cache.invalidate("sys", "prompt", "model"))
-        removed = self._run(self.cache.clear_expired())
-        self.assertGreaterEqual(removed, 0)
+@pytest.fixture
+async def cache(db_path):
+    c = SemanticCache(db_path=db_path, ttl=3600)
+    await c.init_db()
+    return c
 
-    def test_close_is_noop(self):
-        self._run(self.cache.close())
 
-    def test_multiple_store_and_lookup(self):
-        self._run(self.cache.store("sys1", "p1", "m1", "r1"))
-        self._run(self.cache.store("sys2", "p2", "m2", "r2"))
-        r1 = self._run(self.cache.lookup("sys1", "p1", "m1"))
-        r2 = self._run(self.cache.lookup("sys2", "p2", "m2"))
-        self.assertEqual(r1.content, "r1")
-        self.assertEqual(r2.content, "r2")
+@pytest.mark.asyncio
+async def test_lookup_miss_returns_none(cache):
+    result = await cache.lookup("sys", "prompt", "model")
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_store_and_lookup_hit(cache):
+    await cache.store("sys", "prompt", "model", "response content")
+    result = await cache.lookup("sys", "prompt", "model")
+    assert result is not None
+    assert result.content == "response content"
+    assert result.model == "model"
+
+
+@pytest.mark.asyncio
+async def test_lookup_expired_entry_returns_none(cache):
+    await cache.store("sys", "prompt", "model", "content")
+    await cache.invalidate("sys", "prompt", "model")
+    result = await cache.lookup("sys", "prompt", "model")
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_invalidate_removes_entry(cache):
+    await cache.store("sys", "prompt", "model", "content")
+    await cache.invalidate("sys", "prompt", "model")
+    result = await cache.lookup("sys", "prompt", "model")
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_clear_expired_removes_old_entries(cache):
+    await cache.store("sys", "prompt", "model", "content")
+    await cache.invalidate("sys", "prompt", "model")
+    removed = await cache.clear_expired()
+    assert removed >= 0
+
+
+@pytest.mark.asyncio
+async def test_close_is_noop(cache):
+    await cache.close()
+
+
+@pytest.mark.asyncio
+async def test_multiple_store_and_lookup(cache):
+    await cache.store("sys1", "p1", "m1", "r1")
+    await cache.store("sys2", "p2", "m2", "r2")
+    r1 = await cache.lookup("sys1", "p1", "m1")
+    r2 = await cache.lookup("sys2", "p2", "m2")
+    assert r1.content == "r1"
+    assert r2.content == "r2"
+
+
+@pytest.mark.asyncio
+async def test_auto_init_on_first_use():
+    """Cache created without explicit init_db() should self-heal."""
+    path = Path(f"/tmp/test_cache_auto_{uuid.uuid4().hex[:8]}.db")
+    try:
+        c = SemanticCache(db_path=path, ttl=3600)
+        assert not c._initialized
+        await c.store("sys", "prompt", "model", "content")
+        assert c._initialized
+        result = await c.lookup("sys", "prompt", "model")
+        assert result is not None
+        assert result.content == "content"
+    finally:
+        if path.exists():
+            path.unlink()

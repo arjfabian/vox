@@ -3,7 +3,7 @@ verifies incoming audio against it using cosine similarity.
 
 System-level infrastructure, not an agent capability.
 VOXOrchestrator owns one instance and exposes it to capabilities that
-need speaker verification (e.g. comm.telegram).
+need speaker verification (e.g. comm.gateway).
 """
 
 import io

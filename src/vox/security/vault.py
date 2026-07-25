@@ -3,12 +3,18 @@
 Uses AES-256-GCM with PBKDF2HMAC key derivation.
 Each agent gets an isolated ``secrets.vault`` SQLite file.
 Fallback chain: vault → local ``.env`` (via config dict).
+
+Synchronous ``sqlite3`` is used only inside ``__init__`` for schema
+creation and salt derivation (one-time bootstrap path).  All runtime
+public methods use ``aiosqlite`` and are fully async.
 """
 
 import os
-import sqlite3
+import sqlite3 as _sync_sqlite3
 from pathlib import Path
 from typing import Optional
+
+import aiosqlite
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives import hashes
@@ -18,6 +24,11 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 _VAULT_FILENAME = "secrets.vault"
 _PBKDF2_ITERATIONS = 200_000
 _AES_KEY_SIZE = 32
+
+
+class VaultAccessError(RuntimeError):
+    """Raised when the vault is required but cannot be initialised
+    (e.g. missing VOX_MASTER_KEY)."""
 
 
 class AgentVault:
@@ -32,14 +43,50 @@ class AgentVault:
         master_key = self._check_master_key_presence()
 
         # 2. Initialize storage and derive key cleanly passing the validated token
-        self._ensure_db()
+        self._ensure_db_sync()
         self._key = self._derive_key(master_key)
 
     # ------------------------------------------------------------------
-    # Public API
+    # Public API — async runtime path
     # ------------------------------------------------------------------
 
-    def get(self, capability_name: str, secret_key: str) -> Optional[str]:
+    async def init_db(self) -> None:
+        """Async schema creation (runtime path)."""
+        self._vault_path.parent.mkdir(parents=True, exist_ok=True)
+        async with aiosqlite.connect(self._vault_path) as conn:
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS vault_meta (
+                    key   TEXT PRIMARY KEY,
+                    value BLOB NOT NULL
+                )
+            """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS secrets (
+                    capability_name TEXT NOT NULL,
+                    secret_key      TEXT NOT NULL,
+                    encrypted_value BLOB NOT NULL,
+                    status          TEXT NOT NULL DEFAULT 'active',
+                    PRIMARY KEY (capability_name, secret_key)
+                )
+            """)
+            await conn.commit()
+
+            # --- one-time capability rename migration -------------------
+            # comm.messenger → comm.gateway (v0.5.0)
+            async with conn.execute(
+                "SELECT COUNT(*) FROM secrets WHERE capability_name = ?",
+                ("comm.messenger",),
+            ) as cursor:
+                row = await cursor.fetchone()
+                if row and row[0] > 0:
+                    await conn.execute(
+                        "UPDATE secrets SET capability_name = ? "
+                        "WHERE capability_name = ?",
+                        ("comm.gateway", "comm.messenger"),
+                    )
+                    await conn.commit()
+
+    async def get(self, capability_name: str, secret_key: str) -> Optional[str]:
         """Return decrypted value from vault, falling back to config/.env.
 
         If the key exists in the database but is marked *inactive*, returns
@@ -48,7 +95,7 @@ class AgentVault:
         all.
         """
         if self.exists():
-            row = self._query(
+            row = await self._query(
                 "SELECT encrypted_value, status FROM secrets "
                 "WHERE capability_name = ? AND secret_key = ?",
                 (capability_name, secret_key),
@@ -61,24 +108,24 @@ class AgentVault:
 
         return self._config.get(secret_key)
 
-    def set(self, capability_name: str, secret_key: str, value: str, status: str = "active") -> None:
+    async def set(self, capability_name: str, secret_key: str, value: str, status: str = "active") -> None:
         encrypted = self._encrypt(value)
-        self._execute(
+        await self._execute(
             "INSERT OR REPLACE INTO secrets (capability_name, secret_key, encrypted_value, status) "
             "VALUES (?, ?, ?, ?)",
             (capability_name, secret_key, encrypted, status),
         )
 
-    def list_inactive(self) -> set[tuple[str, str]]:
+    async def list_inactive(self) -> set[tuple[str, str]]:
         """Return ``{(capability_name, secret_key)}`` for all inactive rows."""
-        rows = self._query_all(
+        rows = await self._query_all(
             "SELECT capability_name, secret_key FROM secrets WHERE status = 'inactive'"
         )
         return {(cap, key) for cap, key in rows}
 
-    def list_active(self) -> dict[str, dict[str, str]]:
+    async def list_active(self) -> dict[str, dict[str, str]]:
         """Return ``{capability_name: {secret_key: value}}`` for all active entries."""
-        rows = self._query_all(
+        rows = await self._query_all(
             "SELECT capability_name, secret_key, encrypted_value FROM secrets WHERE status = 'active'"
         )
         result: dict[str, dict[str, str]] = {}
@@ -89,19 +136,46 @@ class AgentVault:
     def exists(self) -> bool:
         return self._vault_path.exists()
 
-    def disable(self, capability_name: str, secret_key: str) -> None:
-        self._execute(
+    async def disable(self, capability_name: str, secret_key: str) -> None:
+        await self._execute(
             "UPDATE secrets SET status = 'inactive' "
             "WHERE capability_name = ? AND secret_key = ?",
             (capability_name, secret_key),
         )
 
-    def activate(self, capability_name: str, secret_key: str) -> None:
-        self._execute(
+    async def activate(self, capability_name: str, secret_key: str) -> None:
+        await self._execute(
             "UPDATE secrets SET status = 'active' "
             "WHERE capability_name = ? AND secret_key = ?",
             (capability_name, secret_key),
         )
+
+    # ------------------------------------------------------------------
+    # Synchronous get() for bootstrap path
+    # ------------------------------------------------------------------
+
+    def get_sync(self, capability_name: str, secret_key: str) -> Optional[str]:
+        """Synchronous get() variant for use during ``__init__``-time bootstrap.
+
+        Shares the exact same decryption logic as the async ``get()``.
+        """
+        if self.exists():
+            conn = _sync_sqlite3.connect(self._vault_path)
+            try:
+                row = conn.execute(
+                    "SELECT encrypted_value, status FROM secrets "
+                    "WHERE capability_name = ? AND secret_key = ?",
+                    (capability_name, secret_key),
+                ).fetchone()
+            finally:
+                conn.close()
+            if row:
+                value, status = row
+                if status == "active":
+                    return self._decrypt(value)
+                return None
+
+        return self._config.get(secret_key)
 
     # ------------------------------------------------------------------
     # Internal — encryption
@@ -119,8 +193,8 @@ class AgentVault:
 
     def _derive_key(self, master_key: str) -> bytes:
         """Derive the encryption key using the persistent unique salt."""
-        salt = self._get_or_create_salt()
-        
+        salt = self._get_or_create_salt_sync()
+
         kdf = PBKDF2HMAC(
             algorithm=hashes.SHA256(),
             length=_AES_KEY_SIZE,
@@ -129,33 +203,30 @@ class AgentVault:
         )
         return kdf.derive(master_key.encode())
 
-    def _get_or_create_salt(self) -> bytes:
+    def _get_or_create_salt_sync(self) -> bytes:
         """Retrieve the existing salt or safely insert a new one, avoiding race conditions."""
-        with sqlite3.connect(self._vault_path) as conn:
-            # First, check if a salt already exists
+        conn = _sync_sqlite3.connect(self._vault_path)
+        try:
             row = conn.execute(
                 "SELECT value FROM vault_meta WHERE key = 'salt'"
             ).fetchone()
             if row:
                 return row[0]
-            
-            # If not, generate a new high-entropy candidate
+
             candidate_salt = os.urandom(16)
-            
-            # Use INSERT OR IGNORE to guarantee atomicity at the database level.
-            # SQLite's internal locking makes this safe. Real structural failures (disk full, etc.)
-            # will cleanly propagate instead of failing downstream with a NoneType error.
+
             conn.execute(
                 "INSERT OR IGNORE INTO vault_meta (key, value) VALUES ('salt', ?)",
                 (candidate_salt,)
             )
             conn.commit()
-            
-            # Final fetch ensures we always return the definitive winning row from the DB
+
             final_row = conn.execute(
                 "SELECT value FROM vault_meta WHERE key = 'salt'"
             ).fetchone()
             return final_row[0]
+        finally:
+            conn.close()
 
     def _encrypt(self, plaintext: str) -> bytes:
         aesgcm = AESGCM(self._key)
@@ -170,21 +241,19 @@ class AgentVault:
         return aesgcm.decrypt(nonce, ciphertext, None).decode()
 
     # ------------------------------------------------------------------
-    # Internal — storage
+    # Internal — storage (sync bootstrap)
     # ------------------------------------------------------------------
 
-    def _ensure_db(self) -> None:
+    def _ensure_db_sync(self) -> None:
         self._vault_path.parent.mkdir(parents=True, exist_ok=True)
-        with sqlite3.connect(self._vault_path) as conn:
-            # Create metadata table for non-encrypted structural values like salt
+        conn = _sync_sqlite3.connect(self._vault_path)
+        try:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS vault_meta (
                     key   TEXT PRIMARY KEY,
                     value BLOB NOT NULL
                 )
             """)
-            
-            # Encrypted secrets table mapping capabilities to credentials
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS secrets (
                     capability_name TEXT NOT NULL,
@@ -196,19 +265,37 @@ class AgentVault:
             """)
             conn.commit()
 
-    def _query(self, sql: str, params: tuple = ()) -> Optional[tuple]:
-        # Removed redundant self._ensure_db() since __init__ guarantees layout
-        with sqlite3.connect(self._vault_path) as conn:
-            rows = conn.execute(sql, params).fetchmany(1)
+            # --- one-time capability rename migration -------------------
+            # comm.messenger → comm.gateway (v0.5.0)
+            cursor = conn.execute(
+                "SELECT COUNT(*) FROM secrets WHERE capability_name = ?",
+                ("comm.messenger",),
+            )
+            if cursor.fetchone()[0] > 0:
+                conn.execute(
+                    "UPDATE secrets SET capability_name = ? WHERE capability_name = ?",
+                    ("comm.gateway", "comm.messenger"),
+                )
+                conn.commit()
+        finally:
+            conn.close()
+
+    # ------------------------------------------------------------------
+    # Internal — storage (async runtime)
+    # ------------------------------------------------------------------
+
+    async def _query(self, sql: str, params: tuple = ()) -> Optional[tuple]:
+        async with aiosqlite.connect(self._vault_path) as conn:
+            cursor = await conn.execute(sql, params)
+            rows = await cursor.fetchmany(1)
             return rows[0] if rows else None
 
-    def _query_all(self, sql: str, params: tuple = ()) -> list[tuple]:
-        # Removed redundant self._ensure_db()
-        with sqlite3.connect(self._vault_path) as conn:
-            return conn.execute(sql, params).fetchall()
+    async def _query_all(self, sql: str, params: tuple = ()) -> list[tuple]:
+        async with aiosqlite.connect(self._vault_path) as conn:
+            cursor = await conn.execute(sql, params)
+            return await cursor.fetchall()
 
-    def _execute(self, sql: str, params: tuple = ()) -> None:
-        # Removed redundant self._ensure_db()
-        with sqlite3.connect(self._vault_path) as conn:
-            conn.execute(sql, params)
-            conn.commit()
+    async def _execute(self, sql: str, params: tuple = ()) -> None:
+        async with aiosqlite.connect(self._vault_path) as conn:
+            await conn.execute(sql, params)
+            await conn.commit()

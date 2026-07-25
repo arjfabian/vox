@@ -292,12 +292,21 @@ class TestVOXOrchestratorLifecycleMethods(unittest.TestCase):
         result = asyncio.run(self.orc.start_agent_by_name("tina"))
         self.assertFalse(result)
 
-    def test_restart_agent(self):
-        from vox.capabilities.comm.telegram.capability import TelegramCapability
-        self.orc.capability_registry["comm.telegram"] = CapabilityEntry(
-            cls=TelegramCapability, healthy=True,
+    def _register_mock_system_cap(self):
+        """Register a lightweight mock capability for system-cap mounting."""
+        mock_bound = MagicMock()
+        mock_bound.initialize = AsyncMock()
+        mock_bound.boot = AsyncMock()
+        mock_bound.validate_params = MagicMock(return_value=[])
+        mock_bound._params = {}
+        mock_cap = MagicMock()
+        mock_cap.mount.return_value = mock_bound
+        self.orc.capability_registry["comm.gateway"] = CapabilityEntry(
+            cls=type(mock_cap), healthy=True, instance=mock_cap,
         )
-        self.orc.get_capability_instance("comm.telegram")
+
+    def test_restart_agent(self):
+        self._register_mock_system_cap()
 
         folder, agent = self._make_real_agent_dir("tina", "a1")
         agent.shutdown = AsyncMock()
@@ -307,11 +316,7 @@ class TestVOXOrchestratorLifecycleMethods(unittest.TestCase):
         agent.shutdown.assert_awaited_once()
 
     def test_restart_agent_from_inactive(self):
-        from vox.capabilities.comm.telegram.capability import TelegramCapability
-        self.orc.capability_registry["comm.telegram"] = CapabilityEntry(
-            cls=TelegramCapability, healthy=True,
-        )
-        self.orc.get_capability_instance("comm.telegram")
+        self._register_mock_system_cap()
 
         folder, agent = self._make_real_agent_dir("leah", "a2")
         agent.shutdown = AsyncMock()

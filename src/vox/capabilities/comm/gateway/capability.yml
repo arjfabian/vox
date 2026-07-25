@@ -1,0 +1,40 @@
+name: comm.gateway
+version: 0.1.0
+
+description: |
+  Multi-channel communication gateway for VOX agents.
+  Provides inbound webhook ingestion and outbound message delivery
+  with a unified adapter abstraction (Telegram, generic HTTP webhook).
+
+capability_class: CommGatewayCapability
+
+provides:
+  - messaging
+  - ingress
+  - egress
+  - webhook
+
+params:
+  GATEWAY_PORT:
+    description: HTTP listen port for webhooks
+    type: integer
+    default: 8001
+  GATEWAY_HOST:
+    description: HTTP bind address
+    type: string
+    default: "0.0.0.0"
+  GATEWAY_WEBHOOK_SECRET:
+    description: Shared secret for generic webhook validation
+    type: secret
+    default: null
+    sensitive: true
+  TELEGRAM_BOT_TOKEN:
+    description: Telegram Bot API token for inbound/outbound
+    type: secret
+    default: null
+    sensitive: true
+  TELEGRAM_WEBHOOK_SECRET:
+    description: Telegram webhook secret token (X-Telegram-Bot-Api-Secret-Token)
+    type: secret
+    default: null
+    sensitive: true

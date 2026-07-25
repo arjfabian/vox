@@ -18,6 +18,7 @@ sensitive params, then performs a delta sync against the vault:
 """
 
 import argparse
+import asyncio
 import importlib
 import sys
 from getpass import getpass
@@ -32,7 +33,7 @@ sys.path.insert(1, str(ROOT_DIR))
 from vox.security import AgentVault
 
 FLEET_MANDATORY: list[tuple[str, str]] = [
-    ("comm.telegram", "TELEGRAM_BOT_TOKEN"),
+    ("comm.gateway", "TELEGRAM_BOT_TOKEN"),
 ]
 
 
@@ -53,8 +54,19 @@ def _load_capability_class(cap_id: str):
 
 
 def _discover_sensitive_params(agent_dir: Path) -> dict[str, dict]:
-    """Scan agent roles and return ``{cap_id: {sensitive: [keys], all: {key: desc}}}``."""
+    """Scan agent roles and return ``{cap_id: {sensitive: [keys], all: {key: desc}}}``.
+
+    ``sensitive`` contains ``(key, required)`` tuples where *required* is
+    ``True`` when the PARAMS default is ``None`` (no implicit value).
+    """
     result: dict[str, dict] = {}
+
+    def _categorise_sensitive(cls) -> list[tuple[str, bool]]:
+        """Return ``(key, required)`` pairs for sensitive params."""
+        return [
+            (key, cls.PARAMS.get(key, [None, None])[1] is None)
+            for key in getattr(cls, "SENSITIVE_PARAMS", set())
+        ]
 
     # Fleet-mandatory capabilities — always provisioned regardless of roles
     for cap_id, _ in FLEET_MANDATORY:
@@ -62,7 +74,7 @@ def _discover_sensitive_params(agent_dir: Path) -> dict[str, dict]:
             cls, err = _load_capability_class(cap_id)
             if cls is not None:
                 result[cap_id] = {
-                    "sensitive": list(getattr(cls, "SENSITIVE_PARAMS", set())),
+                    "sensitive": _categorise_sensitive(cls),
                     "all": {k: v[0] for k, v in cls.PARAMS.items()},
                 }
 
@@ -106,24 +118,27 @@ def _discover_sensitive_params(agent_dir: Path) -> dict[str, dict]:
                 print(f"  [!] Skipping capability '{cap_id}' (load error: {err})")
                 continue
             result[cap_id] = {
-                "sensitive": list(getattr(cls, "SENSITIVE_PARAMS", set())),
+                "sensitive": _categorise_sensitive(cls),
                 "all": {k: v[0] for k, v in cls.PARAMS.items()},
             }
     return result
 
 
-def _sync_vault(vault: AgentVault, desired: dict[str, dict]) -> None:
+async def _sync_vault(vault: AgentVault, desired: dict[str, dict]) -> None:
     """Delta-sync vault contents against desired capability-param map."""
-    active = vault.list_active()
+    active = await vault.list_active()
 
     # Collect all desired (cap, key) pairs that are sensitive
     desired_active: set[tuple[str, str]] = set()
     desired_info: dict[tuple[str, str], str] = {}
+    optional_keys: set[tuple[str, str]] = set()
 
     for cap_id, info in desired.items():
-        for key in info["sensitive"]:
+        for key, required in info["sensitive"]:
             desired_active.add((cap_id, key))
             desired_info[(cap_id, key)] = info["all"].get(key, key)
+            if not required:
+                optional_keys.add((cap_id, key))
 
     # Existing vault entries
     existing_active: set[tuple[str, str]] = set()
@@ -134,7 +149,7 @@ def _sync_vault(vault: AgentVault, desired: dict[str, dict]) -> None:
             existing_active.add((cap_id, key))
 
     try:
-        existing_inactive = vault.list_inactive()
+        existing_inactive = await vault.list_inactive()
     except Exception:
         pass
 
@@ -142,32 +157,38 @@ def _sync_vault(vault: AgentVault, desired: dict[str, dict]) -> None:
     missing = desired_active - existing_active - existing_inactive
     for cap_id, key in sorted(missing):
         desc = desired_info.get((cap_id, key), key)
+        is_optional = (cap_id, key) in optional_keys
         while True:
             try:
-                prompt = f"  {cap_id}.{key} ({desc}): "
+                tag = " [OPTIONAL]" if is_optional else ""
+                prompt = f"  {cap_id}.{key}{tag} ({desc}): "
                 val = getpass(prompt)
             except (KeyboardInterrupt, EOFError):
                 print("\n  Aborted by user.")
                 sys.exit(0)
             if val:
                 break
-        vault.set(cap_id, key, val, status="active")
-        print(f"    ✓ {cap_id}.{key} saved to vault")
+            if is_optional:
+                print(f"    — skipped (optional)")
+                break
+        if val:
+            await vault.set(cap_id, key, val, status="active")
+            print(f"    ✓ {cap_id}.{key} saved to vault")
 
     # 2. Inactive but now required → reactivate
     to_reactivate = desired_active & existing_inactive
     for cap_id, key in sorted(to_reactivate):
-        vault.activate(cap_id, key)
+        await vault.activate(cap_id, key)
         print(f"  → {cap_id}.{key} re-activated")
 
     # 3. Active but no longer desired → deactivate
     orphaned = existing_active - desired_active
     for cap_id, key in sorted(orphaned):
-        vault.disable(cap_id, key)
+        await vault.disable(cap_id, key)
         print(f"  → {cap_id}.{key} orphaned — marked inactive")
 
 
-def main() -> None:
+async def main() -> None:
     parser = argparse.ArgumentParser(description="Provision secrets into agent vault")
     parser.add_argument("--agent", required=True, help="Agent folder name (e.g. tina, leah)")
     args = parser.parse_args()
@@ -208,10 +229,10 @@ def main() -> None:
         sys.exit(3)
 
     print("\nSynchronizing vault...")
-    _sync_vault(vault, desired)
+    await _sync_vault(vault, desired)
 
     print("\nDone. Restart VOX for changes to take effect.")
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

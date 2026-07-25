@@ -4,26 +4,23 @@ Agent = configuration + mounted capabilities + explicit roles.
 No auto-discovery, no implicit filesystem magic.
 """
 
-import ast
 import asyncio
 import importlib
-import yaml
+import sys
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
-
-from dotenv import dotenv_values
 
 from vox.provider import CapabilityProviderProtocol
 from vox.observability import VOXForensicLogger, VOXLogSource
 from vox.agents.lifecycle import AgentState, EventQueue
 from vox.agents.memory import VOXAgentMemory
 from vox.agents.store import VOXAgentStore
+from vox.agents.loader import AgentLoader, AgentProvisionError
+from vox.agents.ast_analyzer import ASTAgentAnalyzer
+from vox.agents.capability_binder import CapabilityBinder
 from vox.roles import VOXRole
-from vox.security import AgentVault, RateLimitError, RateLimiter
-
-
-class AgentProvisionError(Exception):
-    pass
+from vox.security import RateLimitError, RateLimiter
+from vox.security.vault import VaultAccessError
 
 
 class VOXAgent:
@@ -50,7 +47,7 @@ class VOXAgent:
         self.commands: set[str] = set()
         self.events: set[str] = set()
         self._capability_commands: Dict[str, Callable] = {}
-        self._system_capabilities: set[str] = {"comm.telegram"}
+        self._system_capabilities: set[str] = {"comm.gateway"}
 
         self._state = AgentState.BOOTING
         self._tasks: List[asyncio.Task] = []
@@ -58,8 +55,12 @@ class VOXAgent:
 
         self.memory = VOXAgentMemory(self.dir)
         self.store = VOXAgentStore(self.dir)
-        self._vault: AgentVault | None = None
+        self._vault = None
         self._degraded = False
+
+        self._loader = AgentLoader(self.dir, self.logger, self._global_env)
+        self._ast_analyzer = ASTAgentAnalyzer()
+        self._capability_binder = CapabilityBinder(self, self.logger)
 
         self._bootstrap()
 
@@ -104,7 +105,7 @@ class VOXAgent:
             self._state = value
         else:
             raise RuntimeError(
-                f"Invalid state transition: {self._state} → {value}"
+                f"Invalid state transition: {self._state} \u2192 {value}"
             )
 
     @property
@@ -164,201 +165,30 @@ class VOXAgent:
             raise PermissionError("Sandbox escape attempt")
         return final_path
 
+    # ------------------------------------------------------------------
+    # Bootstrap — orchestrates loader, roles, and capability binder
+    # ------------------------------------------------------------------
+
     def _bootstrap(self) -> None:
-        if not self._load_manifest():
-            raise AgentProvisionError("Missing or invalid agent.yml")
+        config = self._loader.load_and_validate()
+        self.config = config
         self.logger = self.logger.get_child(self.name.lower())
-        if not self._load_env():
-            self.logger.warning(f"[{self.dir.name}] No .env found (optional)")
-        if self._global_env:
-            self.config.update(self._global_env)
-        if not self._validate_identity(["name", "id"]):
-            raise AgentProvisionError("Invalid agent identity")
-        self.logger.ok(f"Identity verified: {self.id}")
-        self._init_vault_sync()
+        self._capability_binder.logger = self.logger
+        self._capability_binder.init_vault_sync()
         self._load_roles()
-        self._discover_and_mount_capabilities()
+        self._capability_binder.discover_and_mount(
+            self.dir / "roles", self._system_capabilities
+        )
         if not self.roles:
             self.logger.warning(
-                f"[{self.name}] Agent DEGRADED — No active roles available."
+                f"[{self.name}] Agent DEGRADED \u2014 No active roles available."
             )
             self._degraded = True
             return
         self.logger.ok("Agent ready")
 
-    MANIFEST_SCHEMA: Dict[str, tuple] = {
-        "name":         (str,   True,  "Agent display name"),
-        "id":           (str,   True,  "Unique agent UUID"),
-        "master_id":    (str,   False, "Parent agent UUID (empty = root)"),
-        "autostart":       (bool,  False, "Start on orchestrator boot"),
-        "conversational":  (bool,  False, "Allow free-form LLM conversation"),
-        "roles":        (list,  False, "Explicit role allow-list"),
-        "personality":  (dict,  False, "Personality config dict"),
-        "rate_limit_max_calls": (int, False, "Max events per rate-limit window"),
-        "rate_limit_window":   (int, False, "Rate-limit window in seconds"),
-    }
-
-    def _validate_manifest(self, data: dict) -> None:
-        errors: list[str] = []
-        warnings: list[str] = []
-        for field, (expected_type, required, desc) in self.MANIFEST_SCHEMA.items():
-            val = data.get(field)
-            if val is None:
-                if required:
-                    errors.append(f"Missing required field '{field}' ({desc})")
-                continue
-            if not isinstance(val, expected_type):
-                errors.append(
-                    f"Field '{field}' must be {expected_type.__name__}, "
-                    f"got {type(val).__name__}"
-                )
-        unknown = set(data.keys()) - set(self.MANIFEST_SCHEMA.keys())
-        for field in sorted(unknown):
-            warnings.append(f"Unknown field '{field}' in agent.yml")
-        if errors:
-            raise AgentProvisionError(
-                f"Manifest validation failed for {self.dir.name}: " +
-                "; ".join(errors)
-            )
-        for w in warnings:
-            self.logger.warning(f"[manifest] {w}")
-
-    def _load_manifest(self) -> bool:
-        manifest_path = self.dir / "agent.yml"
-        if not manifest_path.exists():
-            self.logger.error(f"Missing agent.yml in {self.dir}")
-            return False
-        try:
-            with open(manifest_path, "r") as f:
-                data = yaml.safe_load(f) or {}
-            self._validate_manifest(data)
-            self.config.update({
-                "name": data.get("name"),
-                "id": data.get("id"),
-                "master_id": data.get("master_id"),
-                "autostart": data.get("autostart", False),
-                "roles": data.get("roles", []),
-                "personality": data.get("personality", {}),
-                "rate_limit_max_calls": data.get("rate_limit_max_calls", 30),
-                "rate_limit_window": data.get("rate_limit_window", 60),
-            })
-            return True
-        except AgentProvisionError:
-            raise
-        except Exception as e:
-            self.logger.error(f"Manifest load error: {e}")
-            return False
-
-    def _load_env(self) -> bool:
-        dotenv_path = self.dir / ".env"
-        if not dotenv_path.exists():
-            return False
-        try:
-            env_data = dotenv_values(dotenv_path)
-            self.config.update(env_data)
-            return True
-        except Exception as e:
-            self.logger.error(f"Env load error: {e}")
-            return False
-
-    def _validate_identity(self, required: List[str]) -> bool:
-        missing = [k for k in required if not self.config.get(k)]
-        for m in missing:
-            self.logger.error(f"Missing identity field: {m}")
-        return len(missing) == 0
-
-    # ------------------------------------------------------------------
-    # Capability discovery — AST-based role scanning
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _is_capabilities_chain(node: ast.AST) -> bool:
-        if isinstance(node, ast.Attribute) and node.attr == "capabilities":
-            inner = node.value
-            return isinstance(inner, ast.Attribute) or isinstance(inner, ast.Name)
-        return False
-
-    @staticmethod
-    def _scan_role_capabilities(role_file: Path) -> set[str]:
-        cap_ids: set[str] = set()
-        try:
-            with open(role_file) as f:
-                tree = ast.parse(f.read())
-        except SyntaxError:
-            return cap_ids
-        for node in ast.iter_child_nodes(tree):
-            if isinstance(node, ast.Assign) and len(node.targets) == 1:
-                target = node.targets[0]
-                if isinstance(target, ast.Name) and target.id == "REQUIRES":
-                    if isinstance(node.value, (ast.Set, ast.List, ast.Tuple)):
-                        for elt in node.value.elts:
-                            if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
-                                cap_ids.add(elt.value)
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Subscript):
-                slice_val = node.slice
-                if isinstance(slice_val, ast.Constant) and isinstance(slice_val.value, str):
-                    if VOXAgent._is_capabilities_chain(node.value):
-                        cap_ids.add(slice_val.value)
-            elif isinstance(node, ast.Call):
-                func = node.func
-                if isinstance(func, ast.Attribute) and func.attr == "get":
-                    if VOXAgent._is_capabilities_chain(func.value):
-                        if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
-                            cap_ids.add(node.args[0].value)
-        return cap_ids
-
-    def _discover_and_mount_capabilities(self) -> None:
-        needed: set[str] = set(self._system_capabilities)
-        roles_dir = self.dir / "roles"
-        if roles_dir.exists():
-            for role_file in roles_dir.glob("*.py"):
-                if role_file.name.startswith("_"):
-                    continue
-                needed |= self._scan_role_capabilities(role_file)
-        if not needed:
-            return
-        self.logger.info(f"Capabilities required by roles: {sorted(needed)}")
-        for cap_id in sorted(needed):
-            if self._capability_provider is None:
-                self._degraded = True
-                continue
-            cap = self._capability_provider.get_capability_instance(cap_id)
-            if not cap:
-                self.logger.warning(
-                    f"Security warning: capability '{cap_id}' not found — "
-                    f"roles depending on it will be disabled"
-                )
-                self._degraded = True
-                continue
-            bound = cap.mount(self, self.config)
-            bound.logger = self.logger
-            self.capabilities[cap_id] = bound
-            self._inject_vault_for_capability(cap_id, bound)
-            missing_params = bound.validate_params()
-            if missing_params:
-                self.logger.warning(
-                    f"Capability '{cap_id}' missing required params: {missing_params} — "
-                    f"agent will be degraded"
-                )
-                self._degraded = True
-            self.logger.ok(f"Mounted capability: {cap_id}")
-            exposed = getattr(type(cap), "EXPOSED_COMMANDS", [])
-            for cmd_def in exposed:
-                cmd_name = cmd_def["name"]
-                method_name = cmd_def.get("method", cmd_name)
-                handler = getattr(bound, method_name)
-                self._capability_commands[cmd_name] = handler
-                self.commands.add(cmd_name)
-                self.logger.info(f"  Exposed command: {cmd_name} (via {cap_id}.{method_name})")
-        missing = needed - set(self.capabilities.keys())
-        if missing:
-            self._degraded = True
-            self._disable_roles_with_missing_capabilities(missing)
-
     def _load_roles(self) -> None:
         import importlib.util
-        import sys
 
         roles_dir = self.dir / "roles"
         if not roles_dir.exists():
@@ -375,18 +205,13 @@ class VOXAgent:
         for role_file in role_files:
             role_name = role_file.stem
             try:
-                # Generamos un nombre de espacio único para evitar colisiones en sys.modules
                 spec_name = f"vox_runtime.agents.{self.name.lower()}.roles.{role_name}"
-                
-                # Cargamos el rol apuntando directamente al archivo en disco
                 spec = importlib.util.spec_from_file_location(spec_name, role_file)
                 if spec is None or spec.loader is None:
                     raise ImportError(f"Cannot create spec for {role_file}")
-                
                 module = importlib.util.module_from_spec(spec)
                 sys.modules[spec_name] = module
                 spec.loader.exec_module(module)
-
                 role_class = next(
                     (obj for obj in module.__dict__.values()
                      if isinstance(obj, type)
@@ -404,16 +229,6 @@ class VOXAgent:
             except Exception as exc:
                 self.logger.error(f"Role load failed [{role_name}]: {exc}")
 
-    def _disable_roles_with_missing_capabilities(self, missing: set[str]) -> None:
-        for role_name, role in list(self.roles.items()):
-            requires = getattr(type(role), "REQUIRES", set())
-            if requires & missing:
-                self.roles.pop(role_name)
-                self.logger.warning(
-                    f"Role '{role_name}' disabled — missing capabilities: "
-                    f"{sorted(requires & missing)}"
-                )
-
     def _register_role_routes(self, role: Any) -> None:
         handlers = getattr(role, "_handlers", {})
         command_names = set(role.get_commands().keys())
@@ -430,56 +245,8 @@ class VOXAgent:
                 self.logger.info(f"Route registered: {route_name}")
 
     # ------------------------------------------------------------------
-    # Vault integration
+    # Lifecycle — state transitions
     # ------------------------------------------------------------------
-
-    def _init_vault_sync(self) -> None:
-        try:
-            self._vault = AgentVault(self.dir, self.id, config=self.config)
-        except RuntimeError as e:
-            self.logger.warning(f"Vault unavailable: {e}")
-            self._vault = None
-
-    def _inject_vault_for_capability(self, cap_id: str, bound: "VOXBoundCapability") -> None:
-        if self._vault is None:
-            return
-        sensitive = getattr(type(bound._capability), "SENSITIVE_PARAMS", set())
-        for key in sensitive:
-            vault_val = self._vault.get(cap_id, key)
-            if vault_val is not None:
-                bound._params[key] = vault_val
-
-    async def _init_vault(self) -> None:
-        self._init_vault_sync()
-
-    def _inject_vault_secrets(self) -> None:
-        if self._vault is None:
-            return
-        for cap_id, bound in self.capabilities.items():
-            sensitive = getattr(type(bound._capability), "SENSITIVE_PARAMS", set())
-            missing = []
-            for key in sensitive:
-                vault_val = self._vault.get(cap_id, key)
-                if vault_val is not None:
-                    bound._params[key] = vault_val
-                    self.logger.info(f"Injected vault secret: {cap_id}.{key}")
-                elif bound._params.get(key) is None:
-                    missing.append(key)
-            if not missing:
-                continue
-            self.logger.warning(
-                f"Sensitive params missing for {cap_id}: {', '.join(missing)}. "
-                f"Run 'python tools/provision_vault.py --agent {self.name.lower()}' "
-                f"to provision them."
-            )
-            self._disable_roles_for_capability(cap_id)
-
-    def _disable_roles_for_capability(self, cap_id: str) -> None:
-        for role_name, role in list(self.roles.items()):
-            requires = getattr(type(role), "REQUIRES", set())
-            if cap_id in requires:
-                self.roles.pop(role_name)
-                self.logger.warning(f"Role '{role_name}' disabled due to missing secrets")
 
     async def boot(self) -> bool:
         if self._state == AgentState.ACTIVE:
@@ -490,8 +257,16 @@ class VOXAgent:
         self._state = AgentState.BOOTING
         self.logger.info("Booting agent...")
 
-        await self._init_vault()
-        self._inject_vault_secrets()
+        await self._capability_binder.init_vault()
+        try:
+            await self._capability_binder.inject_vault_secrets()
+        except VaultAccessError as e:
+            self.logger.error(str(e))
+            self._state = AgentState.FAILED
+            return False
+
+        await self.store.init_db()
+        await self.memory.init_db()
 
         ok = True
         for cap in self.capabilities.values():
@@ -503,7 +278,7 @@ class VOXAgent:
                 ok = False
         if not ok:
             self._state = AgentState.FAILED
-            self.logger.error("Agent boot FAILED — one or more capabilities failed")
+            self.logger.error("Agent boot FAILED \u2014 one or more capabilities failed")
             return False
         self._state = AgentState.ACTIVE
         await self.emit("on_boot")
@@ -558,6 +333,10 @@ class VOXAgent:
         self._state = AgentState.STOPPED
         self.logger.warning("Agent shutdown complete")
 
+    # ------------------------------------------------------------------
+    # Event emission
+    # ------------------------------------------------------------------
+
     async def emit(self, event_name: str, **kwargs) -> None:
         if self._state in (AgentState.PAUSED, AgentState.PAUSING):
             self._event_queue.enqueue(event_name, kwargs)
@@ -569,7 +348,7 @@ class VOXAgent:
             self._rate_limiter.check_limit()
         except RateLimitError:
             self.logger.critical(
-                "Rate limit exceeded for Agent %s — dropping event '%s'",
+                "Rate limit exceeded for Agent %s \u2014 dropping event '%s'",
                 self.name, event_name,
             )
             return

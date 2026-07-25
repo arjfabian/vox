@@ -3,6 +3,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
+import os
+
 from vox.agents.base import VOXAgent, AgentProvisionError
 from vox.agents.lifecycle import AgentState
 from vox.capabilities.base import VOXCapability
@@ -123,23 +125,23 @@ class TestVOXAgentManifest(unittest.TestCase):
         self.assertEqual(src.source_name, "testagent")
 
 
-class _TelegramMockMixin:
-    """Provide a working comm.telegram mock for agents that need it during boot."""
+class _MessengerMockMixin:
+    """Provide a working comm.gateway mock for agents that need it during boot."""
 
     @staticmethod
-    def _make_telegram_mocks():
+    def _make_messenger_mocks():
         mock_cap = MagicMock()
         mock_bound = MagicMock()
         mock_bound.initialize = AsyncMock()
         mock_bound.boot = AsyncMock()
         mock_bound.validate_params = MagicMock(return_value=[])
         mock_cap.mount.return_value = mock_bound
-        mock_cap.CAPABILITY_NAME = "comm.telegram"
+        mock_cap.CAPABILITY_NAME = "comm.gateway"
         type(mock_cap).EXPOSED_COMMANDS = []
         return mock_cap, mock_bound
 
 
-class TestVOXAgentStateTransitions(_TelegramMockMixin, unittest.TestCase):
+class TestVOXAgentStateTransitions(_MessengerMockMixin, unittest.TestCase):
 
     def setUp(self):
         self.tmp = Path("/tmp") / f"test_vox_state_{id(self)}"
@@ -147,7 +149,7 @@ class TestVOXAgentStateTransitions(_TelegramMockMixin, unittest.TestCase):
         (self.tmp / "agent.yml").write_text("name: TestAgent\nid: test-uuid-1234\n")
         self.logger = MagicMock()
         self.orchestrator = MagicMock()
-        mock_cap, _ = self._make_telegram_mocks()
+        mock_cap, _ = self._make_messenger_mocks()
         self.orchestrator.get_capability_instance.return_value = mock_cap
         self.agent = VOXAgent(self.tmp, self.logger, self.orchestrator)
 
@@ -185,7 +187,7 @@ class TestVOXAgentStateTransitions(_TelegramMockMixin, unittest.TestCase):
         self.assertEqual(self.agent.state, AgentState.ACTIVE)
 
 
-class TestVOXAgentSafePath(_TelegramMockMixin, unittest.TestCase):
+class TestVOXAgentSafePath(_MessengerMockMixin, unittest.TestCase):
 
     def setUp(self):
         self.tmp = Path("/tmp") / f"test_vox_path_{id(self)}"
@@ -193,7 +195,7 @@ class TestVOXAgentSafePath(_TelegramMockMixin, unittest.TestCase):
         (self.tmp / "agent.yml").write_text("name: TestAgent\nid: test-uuid-1234\n")
         self.logger = MagicMock()
         orchestrator = MagicMock()
-        mock_cap, _ = self._make_telegram_mocks()
+        mock_cap, _ = self._make_messenger_mocks()
         orchestrator.get_capability_instance.return_value = mock_cap
         self.agent = VOXAgent(self.tmp, self.logger, orchestrator)
 
@@ -241,7 +243,7 @@ class TestVOXAgentBootCapabilities(unittest.TestCase):
         agent = VOXAgent(self.tmp, self.logger, self.orchestrator)
         result = asyncio.run(agent.boot())
         self.assertTrue(result)
-        # initialize/boot is called once per mounted capability (test_cap + comm.telegram)
+        # initialize/boot is called once per mounted capability (test_cap + comm.gateway)
         self.assertEqual(self.mock_bound.initialize.await_count, 2)
         self.assertEqual(self.mock_bound.boot.await_count, 2)
 
@@ -308,3 +310,72 @@ class TestVOXAgentDegradedParams(unittest.TestCase):
         self.assertFalse(agent.health_check())
         self.assertNotIn("missing_cap", agent.capabilities)
         self.assertIn("strict_cap", agent.capabilities)
+
+
+class _SensitiveCapForTest(VOXCapability):
+    CAPABILITY_NAME = "sensitive_cap"
+    SENSITIVE_PARAMS = {"API_KEY"}
+
+
+class _PlainCapForTest(VOXCapability):
+    CAPABILITY_NAME = "plain_cap"
+    SENSITIVE_PARAMS = set()
+
+
+class TestVOXAgentVaultFailFast(_MessengerMockMixin, unittest.TestCase):
+
+    def setUp(self):
+        self.tmp = Path("/tmp") / f"test_vox_vault_fail_{id(self)}"
+        (self.tmp / "roles").mkdir(parents=True, exist_ok=True)
+        (self.tmp / "agent.yml").write_text("name: TestAgent\nid: test-uuid-1234\n")
+        self._saved_key = os.environ.pop("VOX_MASTER_KEY", None)
+        self.logger = MagicMock()
+        self.orchestrator = MagicMock()
+        self.mock_messenger_cap, _ = self._make_messenger_mocks()
+
+    def tearDown(self):
+        if self._saved_key is not None:
+            os.environ["VOX_MASTER_KEY"] = self._saved_key
+        import shutil
+        if self.tmp.exists():
+            shutil.rmtree(self.tmp)
+
+    def test_boot_fails_when_vault_missing_with_sensitive_params(self):
+        (self.tmp / "roles" / "chat.py").write_text(
+            'REQUIRES = {"sensitive_cap"}\n'
+        )
+
+        sensitive_cap = _SensitiveCapForTest()
+        sensitive_cap.id = "sensitive_cap"
+        sensitive_cap.logger = self.logger
+
+        def _get_cap(cap_id):
+            if cap_id == "comm.gateway":
+                return self.mock_messenger_cap
+            return sensitive_cap
+        self.orchestrator.get_capability_instance.side_effect = _get_cap
+
+        agent = VOXAgent(self.tmp, self.logger, self.orchestrator)
+        result = asyncio.run(agent.boot())
+        self.assertFalse(result)
+        self.assertEqual(agent.state, AgentState.FAILED)
+
+    def test_boot_succeeds_without_vault_when_no_sensitive_params(self):
+        (self.tmp / "roles" / "chat.py").write_text(
+            'REQUIRES = {"plain_cap"}\n'
+        )
+
+        plain_cap = _PlainCapForTest()
+        plain_cap.id = "plain_cap"
+        plain_cap.logger = self.logger
+
+        def _get_cap(cap_id):
+            if cap_id == "comm.gateway":
+                return self.mock_messenger_cap
+            return plain_cap
+        self.orchestrator.get_capability_instance.side_effect = _get_cap
+
+        agent = VOXAgent(self.tmp, self.logger, self.orchestrator)
+        result = asyncio.run(agent.boot())
+        self.assertTrue(result)
+        self.assertEqual(agent.state, AgentState.ACTIVE)

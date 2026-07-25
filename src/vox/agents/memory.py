@@ -7,13 +7,11 @@ debugging, auditability, and event reconstruction.
 
 import json
 import logging
-import sqlite3
 import time
 import uuid
-
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-
+import aiosqlite
 
 logger = logging.getLogger(__name__)
 
@@ -25,11 +23,11 @@ class VOXAgentMemory:
     def __init__(self, agent_dir: Path) -> None:
         self._db_path = agent_dir / "memory" / "logs.db"
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._init_db()
 
-    def _init_db(self) -> None:
-        with sqlite3.connect(self._db_path) as conn:
-            conn.execute("""
+    async def init_db(self) -> None:
+        """Asynchronously initialize database schema and indexes."""
+        async with aiosqlite.connect(self._db_path) as conn:
+            await conn.execute("""
                 CREATE TABLE IF NOT EXISTS activity_log (
                     id TEXT PRIMARY KEY,
                     timestamp REAL NOT NULL,
@@ -41,11 +39,12 @@ class VOXAgentMemory:
                     status TEXT NOT NULL DEFAULT 'COMPLETED'
                 )
             """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_timestamp ON activity_log(timestamp)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_event_type ON activity_log(event_type)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_ref_id ON activity_log(ref_id)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_timestamp ON activity_log(timestamp)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_event_type ON activity_log(event_type)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_ref_id ON activity_log(ref_id)")
+            await conn.commit()
 
-    def record(
+    async def record(
         self,
         event_type: str,
         action: str,
@@ -56,24 +55,26 @@ class VOXAgentMemory:
     ) -> str:
         event_id = str(uuid.uuid4())
         try:
-            with sqlite3.connect(self._db_path) as conn:
-                conn.execute(
+            async with aiosqlite.connect(self._db_path) as conn:
+                await conn.execute(
                     "INSERT INTO activity_log (id, timestamp, event_type, actor, action, details, ref_id, status) "
                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     (event_id, time.time(), event_type, actor, action,
                      json.dumps(details or {}), ref_id, status),
                 )
+                await conn.commit()
         except Exception as e:
             logger.exception("Forensic record failed [%s]: %s", event_type, e)
         return event_id
 
-    def get_recent(self, limit: int = _DEFAULT_LOG_LIMIT) -> List[Dict[str, Any]]:
+    async def get_recent(self, limit: int = _DEFAULT_LOG_LIMIT) -> List[Dict[str, Any]]:
         try:
-            with sqlite3.connect(self._db_path) as conn:
-                conn.row_factory = sqlite3.Row
-                rows = conn.execute(
+            async with aiosqlite.connect(self._db_path) as conn:
+                conn.row_factory = aiosqlite.Row
+                async with conn.execute(
                     "SELECT * FROM activity_log ORDER BY timestamp DESC LIMIT ?", (limit,),
-                ).fetchall()
+                ) as cursor:
+                    rows = await cursor.fetchall()
             result = []
             for row in rows:
                 item = dict(row)
@@ -84,13 +85,14 @@ class VOXAgentMemory:
             logger.exception("get_recent failed: %s", exc)
             return [{"error": str(exc)}]
 
-    def get_thread(self, ref_id: str) -> List[Dict[str, Any]]:
+    async def get_thread(self, ref_id: str) -> List[Dict[str, Any]]:
         try:
-            with sqlite3.connect(self._db_path) as conn:
-                conn.row_factory = sqlite3.Row
-                rows = conn.execute(
+            async with aiosqlite.connect(self._db_path) as conn:
+                conn.row_factory = aiosqlite.Row
+                async with conn.execute(
                     "SELECT * FROM activity_log WHERE ref_id = ? ORDER BY timestamp ASC", (ref_id,),
-                ).fetchall()
+                ) as cursor:
+                    rows = await cursor.fetchall()
             result = []
             for row in rows:
                 item = dict(row)
@@ -101,13 +103,14 @@ class VOXAgentMemory:
             logger.exception("get_thread failed: %s", exc)
             return [{"error": str(exc)}]
 
-    def get_pending(self) -> List[Dict[str, Any]]:
+    async def get_pending(self) -> List[Dict[str, Any]]:
         try:
-            with sqlite3.connect(self._db_path) as conn:
-                conn.row_factory = sqlite3.Row
-                rows = conn.execute(
+            async with aiosqlite.connect(self._db_path) as conn:
+                conn.row_factory = aiosqlite.Row
+                async with conn.execute(
                     "SELECT * FROM activity_log WHERE status IN ('PENDING', 'RUNNING') ORDER BY timestamp ASC",
-                ).fetchall()
+                ) as cursor:
+                    rows = await cursor.fetchall()
             result = []
             for row in rows:
                 item = dict(row)

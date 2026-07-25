@@ -9,7 +9,7 @@ to the agent object — preserving strict zero-coupling.
 """
 
 import logging
-import sqlite3
+import aiosqlite
 import json
 
 from pathlib import Path
@@ -42,14 +42,14 @@ class RAGRetriever:
         snippets: list[tuple[str, float]] = []
 
         try:
-            with sqlite3.connect(db_path) as conn:
-                conn.row_factory = sqlite3.Row
+            async with aiosqlite.connect(db_path) as conn:
+                conn.row_factory = aiosqlite.Row
 
-                fts_rows = self._fts_search(conn, tokens)
+                fts_rows = await self._fts_search(conn, tokens)
                 snippets.extend(fts_rows)
 
                 if len(snippets) < self._max_snippets:
-                    asset_rows = self._asset_search(conn, tokens)
+                    asset_rows = await self._asset_search(conn, tokens)
                     snippets.extend(asset_rows)
         except Exception as exc:
             logger.warning("RAG retrieve failed: %s", exc)
@@ -68,29 +68,31 @@ class RAGRetriever:
     def _tokenize(self, text: str) -> list[str]:
         return [w.strip(".,!?;:()[]{}") for w in text.lower().split() if len(w) > 2]
 
-    def _fts_search(self, conn: sqlite3.Connection, tokens: list[str]) -> list[tuple[str, float]]:
+    async def _fts_search(self, conn: aiosqlite.Connection, tokens: list[str]) -> list[tuple[str, float]]:
         try:
             query = " OR ".join(tokens)
-            rows = conn.execute(
+            cursor = await conn.execute(
                 "SELECT details, rank FROM activity_log_fts "
                 "WHERE details MATCH ? ORDER BY rank LIMIT ?",
                 (query, self._max_snippets),
-            ).fetchall()
+            )
+            rows = await cursor.fetchall()
             return [
                 (json.dumps(row["details"]), float(row["rank"]))
                 for row in rows
             ]
-        except (sqlite3.OperationalError, sqlite3.ProgrammingError):
+        except (aiosqlite.OperationalError, aiosqlite.ProgrammingError):
             return []
 
-    def _asset_search(self, conn: sqlite3.Connection, tokens: list[str]) -> list[tuple[str, float]]:
+    async def _asset_search(self, conn: aiosqlite.Connection, tokens: list[str]) -> list[tuple[str, float]]:
         results: list[tuple[str, int]] = []
         for token in tokens:
             like = f"%{token}%"
-            rows = conn.execute(
+            cursor = await conn.execute(
                 "SELECT name, tags FROM asset_index WHERE name LIKE ? OR tags LIKE ?",
                 (like, like),
-            ).fetchall()
+            )
+            rows = await cursor.fetchall()
             for row in rows:
                 text = f"asset:{row['name']} tags:{row['tags']}"
                 results.append((text, len(token)))

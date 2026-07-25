@@ -6,13 +6,11 @@ Each agent owns its own isolated SQLite workspace and asset sandbox.
 import hashlib
 import json
 import logging
-import sqlite3
 import time
 import uuid
-
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-
+import aiosqlite
 
 logger = logging.getLogger(__name__)
 
@@ -27,11 +25,11 @@ class VOXAgentStore:
         self._db_path = agent_dir / "memory" / "memory.db"
         self._assets_dir.mkdir(parents=True, exist_ok=True)
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._init_db()
 
-    def _init_db(self) -> None:
-        with sqlite3.connect(self._db_path) as conn:
-            conn.execute("""
+    async def init_db(self) -> None:
+        """Asynchronously initialize database, indexes and perform dedup migrations."""
+        async with aiosqlite.connect(self._db_path) as conn:
+            await conn.execute("""
                 CREATE TABLE IF NOT EXISTS asset_index (
                     id TEXT PRIMARY KEY,
                     archived_at REAL NOT NULL,
@@ -45,64 +43,57 @@ class VOXAgentStore:
                     tags TEXT NOT NULL DEFAULT '[]'
                 )
             """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_asset_type ON asset_index(asset_type)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_checksum ON asset_index(checksum)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_name ON asset_index(name)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_asset_type ON asset_index(asset_type)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_checksum ON asset_index(checksum)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_name ON asset_index(name)")
 
-            # If a UNIQUE index on checksum already exists, skip migration.
-            existing_indexes = {
-                row[2] for row in conn.execute("PRAGMA index_list(asset_index)").fetchall()
-            }
+            # Check for unique index migration requirements
+            async with conn.execute("PRAGMA index_list(asset_index)") as cursor:
+                existing_indexes = {row[2] for row in await cursor.fetchall()}
+
             if "idx_checksum_unique" not in existing_indexes:
-                self._dedup_checksums(conn)
+                await self._dedup_checksums(conn)
                 try:
-                    conn.execute(
+                    await conn.execute(
                         "CREATE UNIQUE INDEX IF NOT EXISTS idx_checksum_unique "
                         "ON asset_index(checksum)"
                     )
-                except sqlite3.OperationalError as e:
+                except aiosqlite.OperationalError as e:
                     logger.error("Failed to create unique index on checksum: %s", e)
                     raise
+            await conn.commit()
 
-    def _dedup_checksums(self, conn: sqlite3.Connection) -> None:
-        """Remove duplicate-checkum rows so a UNIQUE index can be created.
-
-        Keeps the row with the earliest *archived_at* for each checksum.
-        Orphaned files on disk for removed rows are deleted.
-        Safe to re-run (idempotent): already-cleaned checksums produce no rows.
-
-        Crash between a group's DELETE and its succeeding unlink leaves a
-        transient dangling DB row (file gone, row present) until the next
-        VOXAgentStore() construction.  This is acceptable because
-        retrieve_file() returns None on missing files and _dedup_checksums
-        re-processes the group idempotently (the second unlink is a no-op
-        via fp.exists()).
-        """
-        dup_rows = conn.execute("""
+    async def _dedup_checksums(self, conn: aiosqlite.Connection) -> None:
+        """Remove duplicate-checksum rows asynchronously."""
+        async with conn.execute("""
             SELECT checksum, COUNT(*) AS cnt
             FROM asset_index
             GROUP BY checksum
             HAVING cnt > 1
-        """).fetchall()
+        """) as cursor:
+            dup_rows = await cursor.fetchall()
 
         for (checksum, _cnt) in dup_rows:
-            survivor = conn.execute("""
+            async with conn.execute("""
                 SELECT id, file_path FROM asset_index
                 WHERE checksum = ?
                 ORDER BY archived_at ASC
                 LIMIT 1
-            """, (checksum,)).fetchone()
+            """, (checksum,)) as cursor:
+                survivor = await cursor.fetchone()
+            
             if not survivor:
                 continue
             keep_id, _keep_path = survivor
 
-            to_remove = conn.execute("""
+            async with conn.execute("""
                 SELECT id, file_path FROM asset_index
                 WHERE checksum = ? AND id != ?
-            """, (checksum, keep_id)).fetchall()
+            """, (checksum, keep_id)) as cursor:
+                to_remove = await cursor.fetchall()
 
             for row_id, file_path in to_remove:
-                conn.execute("DELETE FROM asset_index WHERE id = ?", (row_id,))
+                await conn.execute("DELETE FROM asset_index WHERE id = ?", (row_id,))
                 fp = self._assets_dir / file_path
                 try:
                     if fp.exists():
@@ -114,46 +105,51 @@ class VOXAgentStore:
                     row_id, checksum, keep_id,
                 )
 
-    def create_table(self, ddl: str) -> bool:
+    async def create_table(self, ddl: str) -> bool:
         try:
-            with sqlite3.connect(self._db_path) as conn:
-                conn.execute(ddl)
+            async with aiosqlite.connect(self._db_path) as conn:
+                await conn.execute(ddl)
+                await conn.commit()
             return True
         except Exception as e:
             logger.exception("Table creation failed: %s", e)
             return False
 
-    def execute(self, sql: str, params: Tuple = ()) -> bool:
+    async def execute(self, sql: str, params: Tuple = ()) -> bool:
         try:
-            with sqlite3.connect(self._db_path) as conn:
-                conn.execute(sql, params)
+            async with aiosqlite.connect(self._db_path) as conn:
+                await conn.execute(sql, params)
+                await conn.commit()
             return True
         except Exception as e:
             logger.exception("SQL execute failed: %s", e)
             return False
 
-    def query(self, sql: str, params: Tuple = ()) -> List[Dict[str, Any]]:
+    async def query(self, sql: str, params: Tuple = ()) -> List[Dict[str, Any]]:
         try:
-            with sqlite3.connect(self._db_path) as conn:
-                conn.row_factory = sqlite3.Row
-                rows = conn.execute(sql, params).fetchall()
+            async with aiosqlite.connect(self._db_path) as conn:
+                conn.row_factory = aiosqlite.Row
+                async with conn.execute(sql, params) as cursor:
+                    rows = await cursor.fetchall()
                 return [dict(r) for r in rows]
         except Exception as exc:
             logger.exception("query failed: %s", exc)
             return [{"error": str(exc)}]
 
-    def store_file(
+    async def store_file(
         self, data: bytes, filename: str, origin: str, asset_type: str,
         tags: Optional[List[str]] = None,
     ) -> Optional[Dict[str, Any]]:
         checksum = hashlib.sha256(data).hexdigest()
         path = None
         try:
-            with sqlite3.connect(self._db_path) as conn:
-                conn.row_factory = sqlite3.Row
-                existing = conn.execute(
+            async with aiosqlite.connect(self._db_path) as conn:
+                conn.row_factory = aiosqlite.Row
+                async with conn.execute(
                     "SELECT * FROM asset_index WHERE checksum = ?", (checksum,)
-                ).fetchone()
+                ) as cursor:
+                    existing = await cursor.fetchone()
+                
                 if existing:
                     item = dict(existing)
                     item["duplicate"] = True
@@ -163,27 +159,27 @@ class VOXAgentStore:
                 stored_name = f"{asset_id}{Path(filename).suffix}"
                 path = self._assets_dir / stored_name
                 path.write_bytes(data)
+                
                 try:
-                    conn.execute(
+                    await conn.execute(
                         "INSERT INTO asset_index (id, archived_at, name, asset_type, origin, file_path, file_size, checksum, last_accessed, tags) "
                         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                         (asset_id, time.time(), filename, asset_type, origin, stored_name,
                          len(data), checksum, None, json.dumps(tags or [])),
                     )
-                except sqlite3.IntegrityError:
-                    # Race lost: another connection inserted this checksum first.
-                    # Clean up our file and return the existing record.
+                except aiosqlite.IntegrityError:
                     if path.exists():
                         path.unlink()
-                    existing = conn.execute(
+                    async with conn.execute(
                         "SELECT * FROM asset_index WHERE checksum = ?", (checksum,)
-                    ).fetchone()
+                    ) as cursor:
+                        existing = await cursor.fetchone()
                     if existing:
                         item = dict(existing)
                         item["duplicate"] = True
                         return item
                     raise
-                conn.commit()
+                await conn.commit()
             return {
                 "id": asset_id,
                 "name": filename,
@@ -202,18 +198,18 @@ class VOXAgentStore:
                     pass
             return None
 
-    def retrieve_file(self, asset_id: str) -> Optional[bytes]:
-        rows = self.query("SELECT file_path FROM asset_index WHERE id = ?", (asset_id,))
+    async def retrieve_file(self, asset_id: str) -> Optional[bytes]:
+        rows = await self.query("SELECT file_path FROM asset_index WHERE id = ?", (asset_id,))
         if not rows or "error" in rows[0]:
             return None
         path = self._assets_dir / rows[0]["file_path"]
         if not path.exists():
             return None
         data = path.read_bytes()
-        self.execute("UPDATE asset_index SET last_accessed = ? WHERE id = ?", (time.time(), asset_id))
+        await self.execute("UPDATE asset_index SET last_accessed = ? WHERE id = ?", (time.time(), asset_id))
         return data
 
-    def search_files(
+    async def search_files(
         self, asset_type: Optional[str] = None, name: Optional[str] = None,
         tag: Optional[str] = None, limit: int = _DEFAULT_SEARCH_LIMIT,
     ) -> List[Dict[str, Any]]:
@@ -230,18 +226,18 @@ class VOXAgentStore:
             params.append(f'%"{tag}"%')
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         params.append(limit)
-        rows = self.query(f"SELECT * FROM asset_index {where} ORDER BY archived_at DESC LIMIT ?", tuple(params))
+        rows = await self.query(f"SELECT * FROM asset_index {where} ORDER BY archived_at DESC LIMIT ?", tuple(params))
         for row in rows:
             if "tags" in row:
                 row["tags"] = json.loads(row["tags"])
         return rows
 
-    def delete_file(self, asset_id: str) -> bool:
-        rows = self.query("SELECT file_path FROM asset_index WHERE id = ?", (asset_id,))
+    async def delete_file(self, asset_id: str) -> bool:
+        rows = await self.query("SELECT file_path FROM asset_index WHERE id = ?", (asset_id,))
         if not rows or "error" in rows[0]:
             return False
         path = self._assets_dir / rows[0]["file_path"]
-        ok = self.execute("DELETE FROM asset_index WHERE id = ?", (asset_id,))
+        ok = await self.execute("DELETE FROM asset_index WHERE id = ?", (asset_id,))
         if ok and path.exists():
             path.unlink()
         return ok

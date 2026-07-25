@@ -50,11 +50,10 @@ identity and resource envelope assigned to it.
 
 The runtime exposes two control interfaces:
 
-- **Unix domain socket** — operator lifecycle commands (`start`, `stop`,
-  `pause`, `resume`, `status`, `list`). Access is restricted to the owning
-  user.
+- **Unix domain socket** (`/tmp/vox.sock`, owner-only) — operator lifecycle
+  commands (`start`, `stop`, `restart`, `pause`, `resume`, `status`, `list`).
 - **HTTP API** on port 8000 — fleet queries and lifecycle control for
-  external tooling.
+  external tooling, authenticated via `VOX_API_TOKEN` Bearer token.
 
 ## Design principles
 
@@ -97,7 +96,7 @@ does not execute workload logic — it governs the conditions under which
 workloads execute.
 
 An optional file watcher (`AgentFileWatcher`) polls agent directories for
-SHA-256 hash changes on `agent.yml` and role files. When a change is
+SHA-256 hash changes on `agent.yml` and `roles/**/*.py`. When a change is
 detected the orchestrator performs an isolated hot-restart of only the
 affected agent — graceful shutdown, re-hire from disk with fresh manifest
 and roles, then boot. Enabled by default; disable via `VOX_WATCH_DISABLED=true`.
@@ -115,13 +114,22 @@ capability set, and mounts the matching instances from the registry. If a
 capability is unavailable, affected roles are disabled and the agent runs
 in degraded mode.
 
+A **Pub/Sub War Room** (`VOXWarRoom`) provides async incident notification.
+Alerts published by any agent or the system are fanned out to all active
+agents and mirrored to an external channel via `comm.gateway` — a domain-agnostic
+multi-channel gateway with adapter-driven outbound (Telegram, generic webhook).
+The orchestrator owns a `FleetMessenger` singleton
+for boot-level alerts; per-agent `CommGatewayCapability` mounts provide
+role-level broadcasts via `send_broadcast()`.
+
 Built-in capabilities:
 
 | Capability | ID | Backend |
 |---|---|---|
-| LLM text generation | `ai.ollama` | Ollama |
+| LLM text generation | `ai.llm` | Ollama (local) routed via complexity classifier (optional cloud fallback) |
 | Headless browser | `net.browser` | Playwright (Firefox) |
-| Messaging | `comm.telegram` | Telegram Bot API |
+| Messaging (broadcast) | `comm.gateway` | Telegram / generic webhook |
+| Email dispatch | `comm.email` | SMTP |
 | Speech-to-text | `comm.voicetotext` | faster-whisper |
 
 The LLM is one capability among several. Capabilities are interchangeable.
@@ -143,10 +151,11 @@ Agents follow a defined state machine:
 
 `BOOTING → IDLE → ACTIVE ⇄ PAUSED → STOPPED ← FAILED`
 
-The `PAUSED` state transfers authority from the workload back to a human
-operator. While paused, inbound events are buffered in a bounded queue
-(default 256 entries). On resume, buffered events replay in order. This
-allows an operator to review decisions before they take effect.
+Transitions pass through intermediate states (`PAUSING`, `STOPPING`,
+`RESUMING`). The `PAUSED` state transfers authority from the workload back
+to a human operator. While paused, inbound events are buffered in a bounded
+queue (default 256 entries). On resume, buffered events replay in order.
+This allows an operator to review decisions before they take effect.
 
 The orchestrator initiates and controls all lifecycle transitions. Agents do
 not self-start or self-stop. Every transition is an authorisation decision
@@ -154,9 +163,28 @@ made by the orchestrator.
 
 ### Observability and forensics
 
-Every agent maintains an append-only SQLite activity log. Records are never
-modified or deleted after creation. Each record carries the agent's identity
-and a causality chain.
+Every agent maintains two private SQLite databases:
+
+| Database | Class | File | Purpose |
+|---|---|---|---|
+| Activity log | `VOXAgentMemory` | `memory/logs.db` | Append-only structured event log |
+| Asset store | `VOXAgentStore` | `memory/memory.db` | File asset index with checksum dedup |
+
+Both databases are backed by **`aiosqlite`** — all I/O is fully asynchronous and
+non-blocking. Every operation must be prefixed with `await`:
+
+```python
+event_id = await agent.memory.record("cmd", "execute", ref_id="...")
+rows = await agent.store.query("SELECT * FROM asset_index WHERE asset_type = ?", ("text",))
+result = await agent.store.store_file(data, "report.pdf", "my_agent", "document")
+```
+
+Database schemas are created lazily during the agent's boot cycle via
+`await agent.store.init_db()` and `await agent.memory.init_db()`, which run
+after vault initialisation and before capability boot in `VOXAgent.boot()`.
+Object instantiation and connection setup are decoupled — the `VOXAgentStore`
+and `VOXAgentMemory` objects are created in `__init__`, but the actual
+database files and tables are not created until the async boot phase.
 
 Console output uses coloured ANSI formatters; file output uses plain text.
 
@@ -182,9 +210,9 @@ structured.
   owning user.
 - **Hierarchical communication isolation.** Agents communicate only with
   their direct parent or direct children, never laterally.
-- **Operator authentication.** Speaker verification (Resemblyzer) is
-  required before privileged operations. All processing is local — no data
-  leaves the machine.
+- **Operator authentication.** A pre-enrolled voice embedding
+  (`VOXSpeakerProfile`) is verified via cosine similarity before privileged
+  operations. All processing is local — no data leaves the machine.
 - **Explicit role loading.** Only roles listed in the agent's manifest are
   loaded. Code in the roles directory not listed in the manifest is ignored.
 - **Input sanitization.** Every inbound payload passes through a pattern
@@ -197,15 +225,18 @@ structured.
   the event is dropped and a critical alert is logged.
 - **Append-only audit.** Forensic logs cannot be modified or deleted after
   creation. Every record carries the agent identity.
+- **Encrypted secret vault.** Per-agent AES-256-GCM vault (`AgentVault`) with
+  PBKDF2HMAC key derivation. Each agent gets an isolated `secrets.vault`
+  SQLite file. Fallback chain: vault → local `.env`.
 
 ## Getting started
 
 ### Prerequisites
 
 - Python 3.11+
-- [Ollama](https://ollama.ai) (for LLM capability)
+- [Ollama](https://ollama.ai) (for `ai.llm` capability)
 - [Playwright](https://playwright.dev) browsers: `playwright install firefox`
-- Telegram Bot Token (for `comm.telegram`)
+- Telegram Bot Token (for `comm.gateway` Telegram adapter)
 
 ### Installation
 
@@ -222,18 +253,23 @@ Minimal `.env` in the project root:
 
 ```
 VOX_WAR_ROOM_ID=123456789
-VOX_OLLAMA_URL=http://localhost:11434
-VOX_API_PORT=8000
+TELEGRAM_BOT_TOKEN=...
+TELEGRAM_USER_ID=...
 ```
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `VOX_WAR_ROOM_ID` | — | Telegram chat ID for FleetMessenger alerts |
-| `VOX_OLLAMA_URL` | `http://localhost:11434` | Ollama endpoint for LLM capability |
+| `VOX_MASTER_KEY` | — | Master passphrase for the per-agent encrypted vault (`AgentVault`). Required when capabilities declare `SENSITIVE_PARAMS` that are not provided via `.env`. |
+| `VOX_WAR_ROOM_ID` | — | Telegram chat ID for War Room alert mirroring |
+| `TELEGRAM_BOT_TOKEN` | — | Telegram Bot API token for messenger connectors |
+| `TELEGRAM_USER_ID` | — | Telegram chat/user ID for per-agent broadcast delivery |
+| `VOX_OLLAMA_URL` | `http://localhost:11434` | Ollama endpoint for `ai.llm` capability |
 | `VOX_API_PORT` | `8000` | HTTP API port |
 | `VOX_API_HOST` | `127.0.0.1` | HTTP API bind address |
 | `VOX_API_TOKEN` | — | Bearer token for API authentication |
 | `VOX_WATCH_DISABLED` | — | Set to `true` to disable the agent file watcher |
+| `VOX_VERBOSE_LOGGING` | `false` | Enable verbose debug logging |
+| `VOX_UDS_PATH` | `/tmp/vox.sock` | Unix domain socket path |
 
 Configuration precedence: **CLI args > Environment variables (`.env` + `os.environ`) > Code defaults**.
 
@@ -273,50 +309,109 @@ vox resume <name>         Replay buffered events
 agents/
   my_agent/
     agent.yml          name, id, master_id, roles, personality, rate limits
+    .env               optional per-agent secrets override
     roles/
       handler.py       VOXRole subclass with @command handlers
 ```
 
 The manifest declares the agent's identity and which roles to load.
-Capability requirements are inferred from role source code at bootstrap.
+Capability requirements are inferred from role source code at bootstrap
+via AST analysis. Required identity fields: `name`, `id`.
 
-Optional manifest keys for per-agent tuning:
+## Storage architecture
 
-| Key | Type | Default | Purpose |
-|---|---|---|---|
-| `rate_limit_max_calls` | int | 30 | Max events per window |
-| `rate_limit_window` | int | 60 | Sliding window in seconds |
+All SQLite storage is fully asynchronous via `aiosqlite`:
+
+| Class | File | Module |
+|---|---|---|
+| `VOXAgentStore` | `memory/memory.db` | `src/vox/agents/store.py` |
+| `VOXAgentMemory` | `memory/logs.db` | `src/vox/agents/memory.py` |
+| `SemanticCache` | `llm_cache.db` | `src/vox/capabilities/ai/llm/cache.py` |
+| `AgentVault` | `secrets.vault` | `src/vox/security/vault.py` |
+| `RAGRetriever` | agent `memory.db` | `src/vox/capabilities/ai/llm/rag.py` |
+
+`AgentVault` retains synchronous `sqlite3` inside `__init__` only (one-time
+bootstrap — schema creation + salt derivation). All runtime public methods
+(`get()`, `set()`, etc.) are async via `aiosqlite`.
 
 ## Project structure
 
 ```
 vox/
-├── identity/                          enrolled operator voice embedding
-├── tools/enroll_speaker.py            voice enrolment utility
+├── identity/                            enrolled operator voice embedding
+├── tools/enroll_speaker.py              voice enrolment utility
 ├── src/vox/
-│   ├── cli.py                         CLI entry point, UDS client
-│   ├── agents/                        agent, memory, store, lifecycle
-│   ├── capabilities/                  capability definitions and backends
-│   │   ├── ai/ollama/                 LLM via Ollama
-│   │   ├── net/browser/               headless browser via Playwright
-│   │   ├── comm/telegram/             Telegram messaging
-│   │   └── comm/voicetotext/          speech-to-text via faster-whisper
-│   ├── config/                        configuration loading and resolution
-│   ├── messaging/                     inter-agent message envelope schema
-│   ├── observability/                 forensic logger, formatters
-│   ├── orchestration/                 fleet controller, capability gating, file watcher
-│   │   └── watcher.py                 hot-reload agent file monitor
-│   ├── roles/                         VOXRole base, @command decorator
-│   ├── runtime/                       bootstrap, control plane
-│   ├── security/                      input sanitizer, rate limiter, vault, voice verification
-│   │   ├── guardrails.py              inbound dangerous-pattern scanner
-│   │   └── rate_limiter.py            sliding-window event rate limiter
-│   ├── services/                      fleet-wide communication
-│   │   └── fleet_messenger.py         War Room alert broadcast
-│   └── api_server.py                  HTTP API (auth + guardrail middleware)
+│   ├── cli.py                           CLI entry point, UDS client
+│   ├── __main__.py                      python -m vox entry point
+│   ├── agents/                          agent runtime, loader, AST analyzer
+│   │   ├── base.py                      VOXAgent core
+│   │   ├── loader.py                    manifest parsing & identity validation
+│   │   ├── ast_analyzer.py              static capability dependency scanner
+│   │   ├── capability_binder.py         mounts capabilities to agent roles
+│   │   ├── lifecycle.py                 state machine (BOOTING…FAILED)
+│   │   ├── memory.py                    VOXAgentMemory — append-only event log
+│   │   └── store.py                     VOXAgentStore — file asset index
+│   ├── capabilities/                    capability definitions and backends
+│   │   ├── base.py                      VOXCapability, VOXBoundCapability
+│   │   ├── ai/llm/                      unified LLM pipeline
+│   │   │   ├── capability.py            ai.llm capability entry point
+│   │   │   ├── client.py                Ollama HTTP client
+│   │   │   ├── cache.py                 semantic response cache (SHA-256 + TTL)
+│   │   │   ├── rag.py                   FTS5 retrieval-augmented generation
+│   │   │   ├── router.py                complexity classifier (local vs cloud)
+│   │   │   ├── sanitizer.py             input control-char/boilerplate cleaning
+│   │   │   └── models.py                LLM request/response types
+│   │   ├── net/browser/                 headless browser via Playwright
+│   │   ├── comm/gateway/                  multi-channel communication gateway
+│   │   │   ├── capability.py            CommGatewayCapability wrapper
+│   │   │   ├── models.py                VOXInboundMessage / VOXOutboundMessage
+│   │   │   ├── server.py                IngressServer (shared aiohttp listener)
+│   │   │   ├── adapters/
+│   │   │   │   ├── base.py              BaseAdapter ABC
+│   │   │   │   ├── telegram.py          Telegram Bot API adapter
+│   │   │   │   └── webhook.py           generic HTTP webhook adapter
+│   │   │   └── capability.yml           capability manifest
+│   │   ├── comm/email/                  SMTP email dispatch
+│   │   └── comm/voicetotext/            speech-to-text via faster-whisper
+│   ├── config/                          configuration loading & resolution
+│   │   ├── models.py                    VOXConfig dataclass
+│   │   ├── from_env.py                  .env / os.environ parsing
+│   │   ├── from_cli.py                  argparse CLI argument parsing
+│   │   ├── resolver.py                  merge CLI + env → VOXConfig
+│   │   └── loader.py                    load_config() convenience entry
+│   ├── messaging/                       inter-agent message envelope schema
+│   │   └── models.py                    VOXMessage dataclass
+│   ├── observability/                   forensic logger, ANSI formatters
+│   │   ├── models.py                    VOXForensicLogger, VOXLogSource
+│   │   ├── formatters.py                colourized console / plain file formatters
+│   │   └── constants.py                 custom log levels
+│   ├── orchestration/                   registry, graph, controller, war room
+│   │   ├── base.py                      VOXOrchestrator — fleet coordinator
+│   │   ├── registry.py                  capability & agent discovery from disk
+│   │   ├── graph.py                     agent hierarchy resolver
+│   │   ├── controller.py                per-agent lifecycle (stop/restart/pause)
+│   │   ├── war_room.py                  VOXWarRoom — async Pub/Sub alert queue
+│   │   └── watcher.py                   AgentFileWatcher — hot-reload monitor
+│   ├── roles/                           VOXRole base, @command decorator
+│   ├── runtime/                         bootstrap, control plane, daemon
+│   │   ├── models.py                    VOXRuntime container dataclass
+│   │   ├── daemon.py                    async main loop, start API + UDS
+│   │   ├── control_plane.py             UDS request handlers
+│   │   └── factory.py                   build_vox() wiring assembly
+│   ├── security/                        input sanitizer, rate limiter, vault, voice
+│   │   ├── vault.py                     AgentVault — AES-256-GCM per-agent store
+│   │   ├── guardrails.py                InputSanitizer — WAF pattern scanner
+│   │   ├── rate_limiter.py              sliding-window event rate limiter
+│   │   └── speaker_profile.py           VOXSpeakerProfile — cosine-similarity verification
+│   ├── services/                        fleet-wide infrastructure
+│   │   └── fleet_messenger.py           FleetMessenger — boot-level Telegram broadcast
+│   ├── api_server.py                    HTTP API (aiohttp, auth + guardrail middleware)
+│   └── provider.py                      CapabilityProviderProtocol protocol
+├── docs/
+│   └── internal/
+│       └── todo.md                      roadmap
 ├── tests/
-├── pyproject.toml
-└── todo.md
+└── pyproject.toml
 ```
 
 ## Development

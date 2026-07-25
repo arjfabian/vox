@@ -32,7 +32,7 @@ def main():
     if args.purge:
         confirm = input("[!] WARNING: This will delete ALL encrypted secrets for this agent. Proceed? [y/N]: ")
         if confirm.lower() == 'y':
-            cursor.execute("DELETE FROM vault_secrets;")
+            cursor.execute("DELETE FROM secrets;")
             conn.commit()
             print("[+] Vault secrets database purged. Ready for fresh provision_vault run.")
             conn.close()

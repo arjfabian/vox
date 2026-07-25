@@ -93,7 +93,7 @@ class TestAgentRateLimiterIntegration(unittest.TestCase):
         mock_bound.boot = AsyncMock()
         mock_bound.validate_params = MagicMock(return_value=[])
         mock_cap.mount.return_value = mock_bound
-        mock_cap.CAPABILITY_NAME = "comm.telegram"
+        mock_cap.CAPABILITY_NAME = "comm.gateway"
         type(mock_cap).EXPOSED_COMMANDS = []
         self.orchestrator.get_capability_instance.return_value = mock_cap
 

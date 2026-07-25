@@ -7,52 +7,104 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > **Note**: No API stability guarantees are implied — VOX remains pre-1.0.
 
+## [0.5.0] - 2026.07.25
+
+### Added
+- **Pub/Sub War Room** — `VOXWarRoom` (async incident queue) and `VOXWarRoomMaster` (reactive dispatcher) in `src/vox/orchestration/war_room.py`. Alerts are fanned out to all active agents via `agent.emit("on_war_room_alert", ...)` and mirrored to an external messenger channel — no polling.
+- **`comm.gateway` capability** — domain-agnostic multi-channel gateway with `IngressServer` (shared singleton, ref-counted lifecycle), adapter-driven outbound (`TelegramAdapter`, `WebhookAdapter`), and `send_broadcast()` convenience for agents. Replaces both `comm.telegram` and `comm.messenger`.
+- **`VOXOrchestrator.panic_shutdown()`** — synchronous emergency stop that cancels agent tasks, purges `AgentVault._key` from all agents, and flushes the war room queue. Triggered on core-compromise detection.
+- **Alert routing** — `dispatch_inbound_message()` now detects `payload["type"] == "alert"` and routes to the war room instead of agent-to-agent delivery.
+- 27 new tests covering `VOXWarRoom`, `VOXWarRoomMaster`, all three messenger connectors, factory resolution, panic shutdown, and alert routing.
+- `VaultAccessError` exception class in `vox.security.vault` — a dedicated, catchable exception for vault initialisation failures.
+- Fail-fast vault check in `CapabilityBinder.inject_vault_secrets()`: when `VOX_MASTER_KEY` is unset and a capability's `SENSITIVE_PARAMS` values are not provided via config/`.env`, a `VaultAccessError` is raised immediately, transitioning the agent to `FAILED` state with a clear error message. Previously the missing key was silently swallowed and only manifested as "zero operative agents" at the fleet level.
+- `test_boot_fails_when_vault_missing_with_sensitive_params` and `test_boot_succeeds_without_vault_when_no_sensitive_params` in `tests/test_agents_base.py` covering both fail-fast and graceful-degradation paths.
+- Support for asynchronous SQLite storage via `aiosqlite` in `VOXAgentStore` (`memory.db`) and `VOXAgentMemory` (`logs.db`).
+- `init_db()` method on `VOXAgentStore` and `VOXAgentMemory` to decouple object instantiation from database connection / schema creation.
+- `asyncio_mode = "auto"` and `asyncio_default_fixture_loop_scope = "function"` to `pyproject.toml` for pytest-asyncio integration.
+- `async init_db()` on `SemanticCache` and `AgentVault` — deferred schema creation for the three remaining modules.
+- `SemanticCache._initialized` auto-heal flag: `lookup()`/`store()`/etc. self-initialize on first use if `init_db()` was never called.
+- `AgentVault.get_sync()` — synchronous `get()` variant for the bootstrap path, sharing the same `_decrypt()` helper as the async `get()`.
+
+### Changed
+- **`comm.messenger` → `comm.gateway` migration:** Deprecated `comm.messenger` capability deleted. All agents now mount the `comm.gateway` capability via `VOXAgent._system_capabilities`. `VOXWarRoomMaster` accepts a plain-text broadcast callback instead of `MessengerBase`. Agent roles reference `comm.gateway` directly.
+- **Async persistence migration:** `VOXAgentStore` and `VOXAgentMemory` fully migrated from synchronous `sqlite3` to `aiosqlite`. All public methods (`query()`, `execute()`, `store_file()`, `retrieve_file()`, `delete_file()`, `search_files()`, `record()`, `get_recent()`, `get_thread()`, `get_pending()`) are now `async def` and must be called with `await`.
+- `VOXAgent.boot()` now calls `await self.store.init_db()` and `await self.memory.init_db()` during the boot cycle, initialising the agent's private databases asynchronously before capability boot.
+- Migrated `tests/test_agents_store.py` and `tests/test_agents_memory.py` from `unittest.TestCase` (synchronous) to async `pytest` tests using `pytest-asyncio`.
+- Concurrency test in `test_agents_store.py` migrated from `concurrent.futures.ThreadPoolExecutor` to `asyncio.gather`.
+- Mock-based error-path tests updated to patch `aiosqlite.connect` (via `AsyncMock` and custom `_RaisingResult` helper) instead of `sqlite3.connect`.
+- **RAG retriever** (`rag.py`): `RAGRetriever.retrieve()`, `_fts_search()`, and `_asset_search()` fully migrated from `sqlite3` to `aiosqlite`.
+- **Semantic cache** (`cache.py`): `SemanticCache._init_db()`, `_query_one()`, and `_execute()` migrated to async `aiosqlite`; DB schema creation deferred from `__init__` to `async init_db()`.
+- **Agent vault** (`vault.py`): `AgentVault.get()`, `set()`, `list_inactive()`, `list_active()`, `disable()`, `activate()` migrated to async `aiosqlite`. `__init__` retains sync `sqlite3 as _sync_sqlite3` for one-time bootstrap (schema creation + salt derivation). `inject_vault_secrets()` in `capability_binder.py` is now `async def`; `_inject_vault_for_capability()` uses the sync `get_sync()` variant.
+- **Test migrations:** `test_llm_rag.py`, `test_llm_cache.py`, `test_security_vault.py` converted from `unittest.TestCase` to async `pytest`.
+- **RuntimeWarning fix:** Changed `mock_conn` from `AsyncMock` to `MagicMock` in three error-path tests (`test_agents_store.py`) — `MagicMock` is compatible with `async with` because it returns objects directly (not coroutines) and has built-in `__aenter__`/`__aexit__`.
+- **sqlite3 ResourceWarning fix:** Replaced `with sqlite3.connect(...) as conn:` pattern with explicit `try/finally` + `conn.close()` in `vault.py` and `test_agents_store.py` helpers — `sqlite3.Connection.__exit__` does not close the connection, causing unclosed-database warnings under Python 3.14.
+- **VOXOrchestrator decomposition:** Monolithic `src/vox/orchestration/base.py` refactored into four single-responsibility modules:
+  - `src/vox/orchestration/registry.py` — `VOXRegistry`: capability discovery, capability loading, manifest scanning, agent discovery
+  - `src/vox/orchestration/graph.py` — `AgentGraph`: agent hierarchy resolution, ID lookups, children traversal
+  - `src/vox/orchestration/controller.py` — `FleetController`: per-agent lifecycle operations (stop, restart, start, pause, resume) with lock-guarded state transitions
+  - `src/vox/orchestration/base.py` — `VOXOrchestrator` reduced to a facade that wires the three services together and owns boot/shutdown/dispatch
+- `_discover_capabilities()`, `_load_capability()`, `get_capability_instance()`, `_scan_agent_manifests()`, `_discover_agents()`, and `_hire_agent()` moved to `VOXRegistry`.
+- `_all_agents`, `resolve_agent_id()`, `get_hierarchy_snapshot()`, `get_children()`, and `_resolve_agent()` moved to `AgentGraph`.
+- `stop_agent()`, `restart_agent()`, `start_agent_by_name()`, `pause_agent()`, and `resume_agent()` moved to `FleetController`.
+- Public dicts (`active_agents`, `inactive_agents`, `degraded_agents`, `capability_registry`) remain on `VOXOrchestrator` for backward compatibility.
+- `CapabilityEntry` re-exported from `vox.orchestration` for existing importers.
+- **VOXAgent decomposition:** Monolithic `src/vox/agents/base.py` (592 lines) refactored into four single-responsibility modules:
+  - `src/vox/agents/loader.py` — `AgentLoader`: manifest parsing, schema validation, identity checks
+  - `src/vox/agents/ast_analyzer.py` — `ASTAgentAnalyzer`: static AST scanning for capability discovery
+  - `src/vox/agents/capability_binder.py` — `CapabilityBinder`: capability mounting, vault injection, param validation, role disabling
+  - `src/vox/agents/base.py` — `VOXAgent` reduced to lifecycle, event routing, and rate limiting
+- `_load_manifest()`, `_validate_manifest()`, `_load_env()`, `_validate_identity()`, `MANIFEST_SCHEMA`, and `AgentProvisionError` moved to `AgentLoader`.
+- `_scan_role_capabilities()` and `_is_capabilities_chain()` moved to `ASTAgentAnalyzer`.
+- `_discover_and_mount_capabilities()`, `_init_vault()`, `_init_vault_sync()`, `_inject_vault_for_capability()`, `_inject_vault_secrets()`, `_disable_roles_with_missing_capabilities()`, and `_disable_roles_for_capability()` moved to `CapabilityBinder`.
+- `AgentLoader`, `AgentProvisionError`, `ASTAgentAnalyzer`, and `CapabilityBinder` exported from `vox.agents.__init__`.
+
+### Fixed
+- **Vault capability-name migration** — Agent vaults provisioned under `comm.messenger` (pre-v0.5.0) are automatically migrated to `comm.gateway` on first access. Both `_ensure_db_sync()` (sync path) and `init_db()` (async path) detect `comm.messenger` rows in the `secrets` table and rename them to `comm.gateway`. Idempotent — no-op when no old rows exist.
+- **Vault provisioning optional-param prompting** — `provision_vault.py` now marks optional sensitive params (non-`None` defaults like `GATEWAY_WEBHOOK_SECRET`, `TELEGRAM_WEBHOOK_SECRET`) with `[OPTIONAL]` and allows blank input to skip them. Required params (`TELEGRAM_BOT_TOKEN`) still enforce non-empty input.
+- **Broadcast delivery:** `CommGatewayCapability.send_broadcast()` now passes the channel ID to `TelegramAdapter`, enabling correct outbound routing instead of falling through to the stdout dev fallback.
+- **Telegram message formatting:** `TelegramAdapter.send_outbound()` uses a smart heuristic — when `payload.text` is provided the value is sent as clean plain text; otherwise the structured alert format (`🔔 Alert: type …`) is used. Ordinary greetings and chat replies no longer render with an alert banner.
+- **Tools scripts async compatibility:** `tools/provision_vault.py` — all `AgentVault` calls (`list_active`, `list_inactive`, `set`, `activate`, `disable`) were being invoked synchronously but are `async` in `vault.py`. Converted `_sync_vault` and `main` to `async def` and wrapped the entry point in `asyncio.run()`.
+- **Tools purge table name:** `tools/inspect_vault.py` — purge query referenced a table `vault_secrets` that does not exist in the vault schema (actual name: `secrets`).
+- Eliminated blocking synchronous I/O overhead on `memory.db` and `logs.db` from within agent async execution loops.
+- Test suite no longer calls async methods without `await` (30 previously broken tests now pass).
+- **3 RuntimeWarnings** resolved: unawaited `AsyncMock` coroutines in error-path mock tests eliminated by using `MagicMock` for connection mocks (incompatible with `async with` protocol).
+- **sqlite3 ResourceWarnings:** Closed all `sqlite3.Connection` handles explicitly via `try/finally` + `conn.close()` in `vault.py` and test helpers, preventing unclosed-database warnings under Python 3.14+.
+
+### Removed
+- **Deprecated `comm.telegram` capability** — entire `src/vox/capabilities/comm/telegram/` directory deleted. Replaced by `comm.gateway` with adapter-driven architecture.
+- **Deprecated `comm.messenger` capability** — entire `src/vox/capabilities/comm/messenger/` directory deleted. All agents and the war room now use `comm.gateway` exclusively.
+
 ## [0.4.5] - 2026.07.14
 
 ### Security
-- Native security gateway/WAF in `src/vox/security/guardrails.py` using signature detection (`InputSanitizer` with
-  9 dangerous patterns — SQLi, XSS, command injection, path traversal, code execution).
-- Global inbound security checks for all external communication vectors
-  (`VOXOrchestrator.dispatch_inbound_message`).
+- Native security gateway/WAF in `src/vox/security/guardrails.py` using signature detection (`InputSanitizer` with 9 dangerous patterns — SQLi, XSS, command injection, path traversal, code execution).
+- Global inbound security checks for all external communication vectors (`VOXOrchestrator.dispatch_inbound_message`).
 - HTTP-level input sanitization middleware on POST endpoints (`VOXAPIServer._guardrail_middleware`).
 - Sliding-window rate limiter (`RateLimiter`) in `src/vox/security/rate_limiter.py`.
-- Per-agent rate-limit enforcement in `VOXAgent.emit()` — before any event dispatch, the agent checks
-  the rate limiter; on breach a CRITICAL alert is logged and the emission is dropped.
+- Per-agent rate-limit enforcement in `VOXAgent.emit()` — before any event dispatch, the agent checks the rate limiter; on breach a CRITICAL alert is logged and the emission is dropped.
 - `agent.rate_limiter_utilization` property exposing current window utilization as percentage.
 - Rate-limit telemetry in `agent.describe()` output (`rate_limiter_utilization_pct`).
-- Manifest config keys `rate_limit_max_calls` (default: 30) and `rate_limit_window` (default: 60s)
-  for per-agent tuning.
+- Manifest config keys `rate_limit_max_calls` (default: 30) and `rate_limit_window` (default: 60s) for per-agent tuning.
 
 ### Added
-- System-wide automatic injection of `comm.telegram` capability via `VOXAgent._system_capabilities`.
-- Core-level Telegram Operator identity gate mapping via `VOXAgent.GLOBAL_AGENT_KEYS` and `global_env`
-  injection from root environment into each agent's config.
-- `FleetMessenger` singleton (`src/vox/services/fleet_messenger.py`) for broadcasting operational alerts
-  to the War Room channel; wired into orchestrator init/shutdown.
+- System-wide automatic injection of `comm.messenger` capability via `VOXAgent._system_capabilities`.
+- Core-level Telegram Operator identity gate mapping via `VOXAgent.GLOBAL_AGENT_KEYS` and `global_env` injection from root environment into each agent's config.
+- `FleetMessenger` singleton (`src/vox/services/fleet_messenger.py`) for broadcasting operational alerts to the War Room channel; wired into orchestrator init/shutdown.
 - `WAR_ROOM_ID` configuration parameter for War Room target identity (`VOXConfig.war_room_id`).
-- Vault-aware capability validation: vault init moved before capability discovery (`_init_vault_sync()`),
-  per-capability vault secret injection (`_inject_vault_for_capability()`) before `validate_params()`.
-- Parameter validation lifecycle on `VOXBoundCapability` (`validate_params()`) with degraded-state
-  fallback when required params are missing.
-- `tools/provision_vault.py` sys.path fix for agent role import resolution + `FLEET_MANDATORY` list
-  for fleet-wide vault provisioning.
+- Vault-aware capability validation: vault init moved before capability discovery (`_init_vault_sync()`), per-capability vault secret injection (`_inject_vault_for_capability()`) before `validate_params()`.
+- Parameter validation lifecycle on `VOXBoundCapability` (`validate_params()`) with degraded-state fallback when required params are missing.
+- `tools/provision_vault.py` sys.path fix for agent role import resolution + `FLEET_MANDATORY` list for fleet-wide vault provisioning.
 - Asynchronous agent file watcher (`AgentFileWatcher`) in `src/vox/orchestration/watcher.py`.
-- SHA-256 based polling of `agent.yml` and `roles/**/*.py` (excluding `_test.py` and `__pycache__`);
-  detected changes trigger a hot-restart of the affected agent.
-- `restart_agent()` rewritten as a full isolated restart: graceful shutdown → re-hire from disk
-  (fresh manifest, roles, vault) → boot → ACTIVE or DEGRADED; does not disrupt other agents.
-- Watcher runs automatically on orchestrator boot; can be disabled via `VOX_WATCH_DISABLED=true`
-  environment variable.
+- SHA-256 based polling of `agent.yml` and `roles/**/*.py` (excluding `_test.py` and `__pycache__`); detected changes trigger a hot-restart of the affected agent.
+- `restart_agent()` rewritten as a full isolated restart: graceful shutdown → re-hire from disk (fresh manifest, roles, vault) → boot → ACTIVE or DEGRADED; does not disrupt other agents.
+- Watcher runs automatically on orchestrator boot; can be disabled via `VOX_WATCH_DISABLED=true` environment variable.
 
 ### Changed
-- `VOXAgent._bootstrap()` reordered: vault initialized before capabilities discovered and mounted;
-  global environment merged before identity validation.
-- Tests updated to provide `comm.telegram` mock for agents that depend on it during boot,
-  and to verify degraded-state routing on missing params.
+- `VOXAgent._bootstrap()` reordered: vault initialized before capabilities discovered and mounted; global environment merged before identity validation.
+- Tests updated to provide `comm.telegram` mock for agents that depend on it during boot, and to verify degraded-state routing on missing params.
 
 ### Fixed
-- `_discover_agents._can_create()` now treats `None` `master_id` as empty string, fixing
-  a latent bug where agents without `master_id` in their manifest were never onboarded.
+- `_discover_agents._can_create()` now treats `None` `master_id` as empty string, fixing a latent bug where agents without `master_id` in their manifest were never onboarded.
 
 ### Cleaned
 - Deprecated legacy `input_sanitizer.py` utility completely removed.

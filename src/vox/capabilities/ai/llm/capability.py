@@ -296,6 +296,7 @@ class LLMCapability(VOXCapability):
             db_path=str(cache_db_path),
             ttl=int(self.LLM_CACHE_TTL),
         )
+        await self._cache.init_db()
         self._rag = RAGRetriever(
             max_snippets=int(self.LLM_RAG_MAX_SNIPPETS),
         )
