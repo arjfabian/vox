@@ -6,7 +6,9 @@ Normalises all inbound traffic into VOXInboundMessage before dispatching
 to the orchestrator.
 
 This capability is domain-agnostic: no business logic, no ticketing, no
-CRM.  Pure channel abstraction.
+CRM.  Pure channel abstraction.  Channel-specific parameters (bot tokens,
+secrets, timeouts) are declared by each adapter in ``adapters/`` and
+aggregated here — the gateway never hardcodes a channel's keys.
 
 Architecture note: The IngressServer is shared across all agents that mount
 this capability.  The first agent to boot creates the server; subsequent
@@ -26,6 +28,7 @@ from typing import Any
 
 from vox.capabilities.base import VOXCapability
 
+from .adapters import ADAPTER_REGISTRY
 from .models import VOXInboundMessage, VOXOutboundMessage
 from .server import IngressServer
 
@@ -39,21 +42,31 @@ _mounted_agents_count: int = 0
 
 class CommGatewayCapability(VOXCapability):
     CAPABILITY_NAME = "comm.gateway"
-    # noqa: RUF012 — mutable defaults are intentional; each agent binding may
-    # override PARAMS with different channel configs (Telegram, WhatsApp, etc.).
-    PARAMS = {
+    # Mutable defaults are intentional; subclasses and the adapter aggregation
+    # below override PARAMS per channel.
+    PARAMS: dict[str, list[Any]] = {  # noqa: RUF012
         "GATEWAY_PORT": ["HTTP listen port for webhooks", 8001],
         "GATEWAY_HOST": ["HTTP bind address", "0.0.0.0"],
-        "GATEWAY_WEBHOOK_SECRET": ["Shared secret for generic webhook validation", ""],
-        "TELEGRAM_BOT_TOKEN": ["Telegram Bot API token", None],
-        "TELEGRAM_WEBHOOK_SECRET": ["Telegram webhook secret token", ""],
-        "TELEGRAM_LONG_TIMEOUT": ["Telegram getUpdates long-poll timeout (seconds)", 25],
+        **{
+            param: spec
+            for adapter in ADAPTER_REGISTRY.values()
+            for param, spec in adapter.PARAMS.items()
+        },
     }
-    SENSITIVE_PARAMS = {
-        "GATEWAY_WEBHOOK_SECRET",
-        "TELEGRAM_BOT_TOKEN",
-        "TELEGRAM_WEBHOOK_SECRET",
+    SENSITIVE_PARAMS: set[str] = {  # noqa: RUF012
+        param
+        for adapter in ADAPTER_REGISTRY.values()
+        for param in adapter.SENSITIVE_PARAMS
     }
+
+    # ------------------------------------------------------------------
+    # Adapter parameter introspection
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def adapter_param_specs(cls) -> dict[str, dict[str, list[Any]]]:
+        """Nested per-channel param specs: {channel: {param: [desc, default]}}."""
+        return {channel: dict(adapter.PARAMS) for channel, adapter in ADAPTER_REGISTRY.items()}
 
     # ------------------------------------------------------------------
     # Capability lifecycle
@@ -74,9 +87,6 @@ class CommGatewayCapability(VOXCapability):
             )
             return
 
-        from .adapters.telegram import TelegramAdapter
-        from .adapters.webhook import WebhookAdapter
-
         port = int(self.GATEWAY_PORT) if self.GATEWAY_PORT else 8001
         host = self.GATEWAY_HOST or "0.0.0.0"
         orchestrator = self._agent.orchestrator
@@ -94,23 +104,15 @@ class CommGatewayCapability(VOXCapability):
             except SecurityError as exc:
                 logger.warning("Inbound dispatch blocked by guardrail: %s", exc)
 
+        # Instantiate every registered adapter, slicing its declared params
+        # out of the bound config. A channel is skipped when it is not
+        # configured (e.g. no bot token for Telegram).
         adapters: dict[str, Any] = {}
-
-        if self.TELEGRAM_BOT_TOKEN:
-            adapters["telegram"] = TelegramAdapter(
-                {
-                    "TELEGRAM_BOT_TOKEN": self.TELEGRAM_BOT_TOKEN,
-                    "TELEGRAM_WEBHOOK_SECRET": self.TELEGRAM_WEBHOOK_SECRET,
-                    "TELEGRAM_LONG_TIMEOUT": self.TELEGRAM_LONG_TIMEOUT,
-                },
-                dispatch=dispatch,
-            )
-
-        adapters["webhook"] = WebhookAdapter(
-            {
-                "GATEWAY_WEBHOOK_SECRET": self.GATEWAY_WEBHOOK_SECRET,
-            }
-        )
+        for channel, adapter_cls in ADAPTER_REGISTRY.items():
+            adapter_config = {key: getattr(self, key) for key in adapter_cls.PARAMS}
+            if not adapter_cls.is_configured(adapter_config):
+                continue
+            adapters[channel] = adapter_cls(adapter_config, dispatch=dispatch)
 
         if not adapters:
             self.ok("No adapters configured — gateway idle")

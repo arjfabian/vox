@@ -20,15 +20,26 @@ logger = logging.getLogger(__name__)
 
 class WebhookAdapter(BaseAdapter):
     CHANNEL = "webhook"
+    WEBHOOK_PATH = "/webhook/generic"
 
-    def __init__(self, config: dict) -> None:
+    PARAMS: dict[str, list[Any]] = {  # noqa: RUF012
+        "GATEWAY_WEBHOOK_SECRET": [
+            "Shared secret for generic webhook validation",
+            "",
+        ],
+    }
+    SENSITIVE_PARAMS: set[str] = {  # noqa: RUF012
+        "GATEWAY_WEBHOOK_SECRET",
+    }
+
+    def __init__(self, config: dict, dispatch: Any | None = None) -> None:
         self._webhook_secret: str = config.get("GATEWAY_WEBHOOK_SECRET", "")
 
     # ------------------------------------------------------------------
     # Request verification
     # ------------------------------------------------------------------
 
-    def verify_request(self, request: Any) -> bool:
+    def verify_request(self, request: Any, body: bytes | None = None) -> bool:
         if not self._webhook_secret:
             return True
         token = request.headers.get("X-Webhook-Secret", "")

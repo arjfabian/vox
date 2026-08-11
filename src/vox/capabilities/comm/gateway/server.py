@@ -4,6 +4,10 @@ Starts an HTTP server on a configurable port with routes for each
 registered adapter.  Incoming payloads are parsed into VOXInboundMessage
 and dispatched to the orchestrator via a caller-supplied callback.
 
+Routes are registered generically from each adapter's ``WEBHOOK_PATH``, so a
+new channel needs no server changes. POST serves the inbound payload; GET
+serves a provider subscription handshake when the adapter implements one.
+
 The server is started by CommGatewayCapability.boot() and stopped by
 shutdown().  A single server instance serves all mounted agents — the
 orchestrator routes inbound messages to the correct agent(s).
@@ -81,21 +85,21 @@ class IngressServer:
     # ------------------------------------------------------------------
 
     def _register_routes(self) -> None:
-        if "telegram" in self._adapters:
-            self._app.router.add_post(
-                "/webhook/telegram",
-                self._make_handler("telegram"),
-            )
-            self._app.router.add_get(
-                "/webhook/telegram",
-                self._handle_get,
-            )
-
-        if "webhook" in self._adapters:
-            self._app.router.add_post(
-                "/webhook/generic",
-                self._make_handler("webhook"),
-            )
+        # Register each adapter's declared webhook path generically. POST always
+        # serves the inbound payload; GET serves the provider subscription
+        # handshake when the adapter implements one, otherwise the generic
+        # "webhook registered" response.
+        for channel, adapter in self._adapters.items():
+            path = getattr(adapter, "WEBHOOK_PATH", "")
+            if not path:
+                continue
+            self._app.router.add_post(path, self._make_handler(channel))
+            if type(adapter).handle_verification is not BaseAdapter.handle_verification:
+                self._app.router.add_get(
+                    path, self._make_verification_handler(channel)
+                )
+            else:
+                self._app.router.add_get(path, self._handle_get)
 
         self._app.router.add_get("/health", self._handle_health)
 
@@ -107,7 +111,11 @@ class IngressServer:
         adapter = self._adapters[channel]
 
         async def handler(request: web.Request) -> web.Response:
-            if not adapter.verify_request(request):
+            # Read the raw body first: body-signing channels (e.g. Meta/WhatsApp)
+            # verify against the exact bytes. aiohttp caches the payload, so
+            # request.json() below reuses what was read here.
+            body = await request.read()
+            if not adapter.verify_request(request, body):
                 return web.json_response({"error": "forbidden"}, status=403)
 
             try:
@@ -128,6 +136,18 @@ class IngressServer:
                 return web.json_response({"error": "dispatch error"}, status=500)
 
             return web.json_response({"ok": True})
+
+        return handler
+
+    def _make_verification_handler(self, channel: str) -> Callable:
+        adapter = self._adapters[channel]
+
+        async def handler(request: web.Request) -> web.Response:
+            challenge = adapter.handle_verification(dict(request.query))
+            if challenge is None:
+                return web.Response(status=403)
+            # Providers expect the raw challenge echoed back, not JSON.
+            return web.Response(text=challenge)
 
         return handler
 

@@ -23,18 +23,7 @@ params:
     description: HTTP bind address
     type: string
     default: "0.0.0.0"
-  GATEWAY_WEBHOOK_SECRET:
-    description: Shared secret for generic webhook validation
-    type: secret
-    default: null
-    sensitive: true
-  TELEGRAM_BOT_TOKEN:
-    description: Telegram Bot API token for inbound/outbound
-    type: secret
-    default: null
-    sensitive: true
-  TELEGRAM_WEBHOOK_SECRET:
-    description: Telegram webhook secret token (X-Telegram-Bot-Api-Secret-Token)
-    type: secret
-    default: null
-    sensitive: true
+
+# Channel-specific params (TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET,
+# TELEGRAM_LONG_TIMEOUT, GATEWAY_WEBHOOK_SECRET) are declared by each adapter
+# in comm/gateway/adapters/*.py and aggregated at runtime by the capability.

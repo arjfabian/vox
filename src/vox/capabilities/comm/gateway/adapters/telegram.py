@@ -22,7 +22,6 @@ from .base import BaseAdapter
 logger = logging.getLogger(__name__)
 
 _TELEGRAM_API = "https://api.telegram.org"
-_DEFAULT_LONG_TIMEOUT = 25
 _POLL_RETRY_DELAY = 5
 # The client read timeout must exceed the long-poll timeout, otherwise the
 # server's long-poll hold exceeds the client budget and every quiet poll dies
@@ -35,6 +34,20 @@ _POLL_TIMEOUT_BUFFER = 5
 
 class TelegramAdapter(BaseAdapter):
     CHANNEL = "telegram"
+    WEBHOOK_PATH = "/webhook/telegram"
+
+    PARAMS: dict[str, list[Any]] = {  # noqa: RUF012
+        "TELEGRAM_BOT_TOKEN": ["Telegram Bot API token", None],
+        "TELEGRAM_WEBHOOK_SECRET": ["Telegram webhook secret token", ""],
+        "TELEGRAM_LONG_TIMEOUT": [
+            "Telegram getUpdates long-poll timeout (seconds)",
+            25,
+        ],
+    }
+    SENSITIVE_PARAMS: set[str] = {  # noqa: RUF012
+        "TELEGRAM_BOT_TOKEN",
+        "TELEGRAM_WEBHOOK_SECRET",
+    }
 
     def __init__(
         self,
@@ -47,14 +60,20 @@ class TelegramAdapter(BaseAdapter):
         self._client: httpx.AsyncClient | None = None
         self._poll_task: asyncio.Task | None = None
         self._offset: int = 0
-        raw_long_timeout = config.get("TELEGRAM_LONG_TIMEOUT")
+        raw_long_timeout = config.get(
+            "TELEGRAM_LONG_TIMEOUT", self.PARAMS["TELEGRAM_LONG_TIMEOUT"][1]
+        )
         self._long_timeout: int = (
             int(raw_long_timeout)
             if raw_long_timeout is not None
-            else _DEFAULT_LONG_TIMEOUT
+            else self.PARAMS["TELEGRAM_LONG_TIMEOUT"][1]
         )
         self._client_timeout: int = self._long_timeout + _POLL_TIMEOUT_BUFFER
         self._validate_timeouts()
+
+    @classmethod
+    def is_configured(cls, config: dict) -> bool:
+        return bool(config.get("TELEGRAM_BOT_TOKEN"))
 
     def _validate_timeouts(self) -> None:
         """Fail fast if the poll/client timeout relationship is broken."""
@@ -74,7 +93,7 @@ class TelegramAdapter(BaseAdapter):
     # Request verification
     # ------------------------------------------------------------------
 
-    def verify_request(self, request: Any) -> bool:
+    def verify_request(self, request: Any, body: bytes | None = None) -> bool:
         if not self._webhook_secret:
             return True
         token = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
