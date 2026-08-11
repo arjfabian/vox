@@ -116,11 +116,13 @@ in degraded mode.
 
 A **Pub/Sub War Room** (`VOXWarRoom`) provides async incident notification.
 Alerts published by any agent or the system are fanned out to all active
-agents and mirrored to an external channel via `comm.gateway` — a domain-agnostic
-multi-channel gateway with adapter-driven outbound (Telegram, generic webhook).
-The orchestrator owns a `FleetMessenger` singleton
-for boot-level alerts; per-agent `CommGatewayCapability` mounts provide
-role-level broadcasts via `send_broadcast()`.
+agents and mirrored to an external channel through the orchestrator's
+`FleetMessenger` singleton (boot-level Telegram broadcast, enabled when
+`TELEGRAM_BOT_TOKEN` and `VOX_WAR_ROOM_ID` are configured). Role-level
+messaging is handled by `comm.gateway` — a domain-agnostic multi-channel
+gateway with adapter-driven inbound and outbound (Telegram via webhook or
+`getUpdates` long-polling, generic HTTP webhook) — mounted per agent as
+`CommGatewayCapability` and used via `send_broadcast()`.
 
 Built-in capabilities:
 
@@ -128,7 +130,7 @@ Built-in capabilities:
 |---|---|---|
 | LLM text generation | `ai.llm` | Ollama (local) routed via complexity classifier (optional cloud fallback) |
 | Headless browser | `net.browser` | Playwright (Firefox) |
-| Messaging (broadcast) | `comm.gateway` | Telegram / generic webhook |
+| Messaging (inbound + broadcast) | `comm.gateway` | Telegram (webhook / `getUpdates` long-poll) / generic webhook |
 | Email dispatch | `comm.email` | SMTP |
 | Speech-to-text | `comm.voicetotext` | faster-whisper |
 
@@ -175,7 +177,9 @@ non-blocking. Every operation must be prefixed with `await`:
 
 ```python
 event_id = await agent.memory.record("cmd", "execute", ref_id="...")
-rows = await agent.store.query("SELECT * FROM asset_index WHERE asset_type = ?", ("text",))
+rows = await agent.store.query(
+    "SELECT * FROM asset_index WHERE asset_type = ?", ("text",)
+)
 result = await agent.store.store_file(data, "report.pdf", "my_agent", "document")
 ```
 
@@ -260,16 +264,18 @@ TELEGRAM_USER_ID=...
 | Variable | Default | Purpose |
 |---|---|---|
 | `VOX_MASTER_KEY` | — | Master passphrase for the per-agent encrypted vault (`AgentVault`). Required when capabilities declare `SENSITIVE_PARAMS` that are not provided via `.env`. |
-| `VOX_WAR_ROOM_ID` | — | Telegram chat ID for War Room alert mirroring |
+| `VOX_WAR_ROOM_ID` | — | Telegram chat ID for War Room alert mirroring. **Required** — VOX refuses to start without it. |
 | `TELEGRAM_BOT_TOKEN` | — | Telegram Bot API token for messenger connectors |
 | `TELEGRAM_USER_ID` | — | Telegram chat/user ID for per-agent broadcast delivery |
-| `VOX_OLLAMA_URL` | `http://localhost:11434` | Ollama endpoint for `ai.llm` capability |
-| `VOX_API_PORT` | `8000` | HTTP API port |
+| `LLM_API_BASE_URL` | `http://localhost:11434` | Ollama endpoint for `ai.llm` capability (capability param) |
+| `TELEGRAM_LONG_TIMEOUT` | `25` | `comm.gateway` Telegram `getUpdates` long-poll timeout (seconds); the HTTP client read timeout is derived from it (+5s buffer) |
 | `VOX_API_HOST` | `127.0.0.1` | HTTP API bind address |
 | `VOX_API_TOKEN` | — | Bearer token for API authentication |
 | `VOX_WATCH_DISABLED` | — | Set to `true` to disable the agent file watcher |
 | `VOX_VERBOSE_LOGGING` | `false` | Enable verbose debug logging |
 | `VOX_UDS_PATH` | `/tmp/vox.sock` | Unix domain socket path |
+
+The HTTP API always binds to port `8000` (fixed in `api_server.py`, no env override).
 
 Configuration precedence: **CLI args > Environment variables (`.env` + `os.environ`) > Code defaults**.
 
@@ -294,14 +300,15 @@ agents with `autostart: true`, and serves the control interfaces.
 ### Lifecycle commands
 
 ```
-vox status                Fleet snapshot
-vox list                  Agent registry
 vox start <name>          Boot an agent
 vox stop <name>           Stop an agent
 vox restart <name>        Restart an agent
 vox pause <name>          Pause (buffers events for human review)
 vox resume <name>         Replay buffered events
 ```
+
+Fleet snapshot and registry queries (`status`, `list`) are served by the UDS
+control plane but are not currently exposed through the `vox` CLI.
 
 ### Creating an agent
 
@@ -340,6 +347,9 @@ bootstrap — schema creation + salt derivation). All runtime public methods
 vox/
 ├── identity/                            enrolled operator voice embedding
 ├── tools/enroll_speaker.py              voice enrolment utility
+├── tools/inspect_agent.py               per-agent diagnostics
+├── tools/inspect_vault.py               vault inspection / purge
+├── tools/provision_vault.py             interactive vault secret provisioning
 ├── src/vox/
 │   ├── cli.py                           CLI entry point, UDS client
 │   ├── __main__.py                      python -m vox entry point

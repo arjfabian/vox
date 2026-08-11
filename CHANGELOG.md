@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > **Note**: No API stability guarantees are implied — VOX remains pre-1.0.
 
+## [0.5.1] - 2026-08-10
+
+### Added
+- **Import of `CommandInfo` in `VOXAgent`** — `vox.agents.base` now imports and re-exports `CommandInfo` from `vox.roles`, fixing an F821 (undefined name) on `get_command_map()`.
+- **Import of `Any` in `TelegramAdapter` and `VOXOrchestrator`** — `Any` was referenced but never imported; added to `typing` imports in `gateway/adapters/telegram.py` and `orchestration/base.py`.
+- **`VOXForensicLogger` forward reference in `VOXCapability`** — Added under `TYPE_CHECKING` in `capabilities/base.py` to resolve the F821 on `logger: "VOXForensicLogger"`.
+- **`tests/test_comm_gateway.py`** — new test suite for the `comm.gateway` long-polling path: inbound `getUpdates` payload normalisation (`text` key) and outbound `sendMessage` formatting.
+
+### Changed
+- **Type annotation modernisation** — Replaced legacy `typing.Dict`, `typing.List`, `typing.Optional`, and `typing.Callable` with built-in generics (`dict`, `list`, `X | None`) and `collections.abc.Callable` across all source and test files. Removed unused `importlib` import from `agents/base.py`.
+- **Implicit `Optional` fixed** — `args: list[str] = None` in `test_runtime.py` corrected to `args: list[str] | None = None` (PEP 484).
+- **Import sorting cleaned** — Alphabetised imports in `agents/__init__.py`, `agents/base.py`, `api_server.py`, `orchestration/base.py` (I001). `runtime/__init__.py` intentionally preserved — `VOXRuntime` must import before `daemon` to avoid circular dependency.
+- **`__all__` sorted** — `agents/__init__.py` `__all__` list alphabetised (RUF022).
+- **Lint-clean codebase** — All actionable ruff errors resolved: redundant `%s` in `logger.exception()` calls (TRY401), unparenthesized implicit string concatenations (ISC004), unused variables prefixed with `_` (RUF059), nested `with` statements combined (SIM117), unused `cap` assignment removed (F841), `isinstance` calls merged and nested `if`s flattened in `ast_analyzer.py` (SIM101), stale `global` declaration cleaned (PLW0602), `time.sleep` replaced with `asyncio.sleep` in async tests (ASYNC251), `.keys()` removed from `key in dict` checks (SIM118), import sorting cleaned (I001), `__all__` sorted (RUF022).
+- **Unused exception bindings removed** — `except Exception as e:` where `e` was never referenced changed to `except Exception:` in `memory.py` and `store.py` (F841).
+- **Telegram long-polling restored in `comm.gateway`** — the `TelegramAdapter` now runs a `getUpdates` polling loop (in addition to the webhook server), feeding parsed `VOXInboundMessage`s through the same dispatch path. Replaces the old `comm.telegram` inbound transport, which was webhook-only after the migration and required an HTTPS-reachable `setWebhook` registration to receive anything. Roles consume the normalized payload via the `text` key. The HTTP client read timeout (long-poll + 5s buffer) now exceeds the long-poll hold, eliminating the empty-`ReadTimeout` "Telegram poll error" spam on every quiet poll.
+- **`TELEGRAM_LONG_TIMEOUT` configurable with fail-fast guard** — the `getUpdates` long-poll timeout is now a `comm.gateway` param (default 25s); the client read timeout is derived from it (+5s buffer) so the two can never silently drift apart, and `TelegramAdapter` validates at construction that the client timeout exceeds the long-poll timeout, failing the agent boot with a clear message instead of error-spamming on an incompatible configuration.
+
+### Fixed
+- **`inspect_vault.py` column detection** — the secrets table is now inspected against the actual vault schema: the ciphertext column lookup previously checked for `ciphertext`/`value` and fell back to an out-of-range index (`columns[3]`), crashing on the real `encrypted_value` column. It now detects `encrypted_value` first and the fallback index is corrected to `columns[2]`, so the tool reports encrypted records instead of erroring.
+- **Import order circular dependency** — Reverted `runtime/__init__.py` and `agents/__init__.py` import reorderings from the v0.5.0 refactor that broke circular import chains (e.g. `vox.runtime` → `vox.runtime.daemon` → `vox.runtime.control_plane` → `vox.runtime`).
+- **`AgentProvisionError` re-export** — Restored `AgentProvisionError` in `agents/base.py` import from `agents/loader.py` (dropped during v0.5.0 import cleanup), fixing `test_agents_base.py` collection error.
+
+### Infrastructure
+- **By-design lint suppressions** — Added `# noqa` comments with rationale to all intentional patterns: `BLE001` (defensive catches at module boundaries), `S110`/`S112` (best-effort cleanup and resilient iteration), `B017` (proxy tests asserting broad exceptions), `ASYNC230` (small file reads in async context), `DTZ006` (local-time log formatting), `TC004` (type-only import kept under `TYPE_CHECKING` to avoid circular import), `RUF012` (mutable class attributes for per-agent capability overrides — `ClassVar` rejected because it prevents instance-level param binding), `F401` (re-exported `AgentProvisionError`), `I001` (import order preserved to avoid circular dependency in `runtime/__init__.py`).
+
 ## [0.5.0] - 2026.07.25
 
 ### Added
