@@ -22,15 +22,12 @@ shuts down, preventing one agent's stop from killing inbound for the rest.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from vox.capabilities.base import VOXCapability
 
 from .models import VOXInboundMessage, VOXOutboundMessage
 from .server import IngressServer
-
-if TYPE_CHECKING:
-    from vox.observability import VOXForensicLogger
 
 logger = logging.getLogger(__name__)
 
@@ -41,14 +38,16 @@ _mounted_agents_count: int = 0
 
 
 class CommGatewayCapability(VOXCapability):
-
     CAPABILITY_NAME = "comm.gateway"
+    # noqa: RUF012 — mutable defaults are intentional; each agent binding may
+    # override PARAMS with different channel configs (Telegram, WhatsApp, etc.).
     PARAMS = {
         "GATEWAY_PORT": ["HTTP listen port for webhooks", 8001],
         "GATEWAY_HOST": ["HTTP bind address", "0.0.0.0"],
         "GATEWAY_WEBHOOK_SECRET": ["Shared secret for generic webhook validation", ""],
         "TELEGRAM_BOT_TOKEN": ["Telegram Bot API token", None],
         "TELEGRAM_WEBHOOK_SECRET": ["Telegram webhook secret token", ""],
+        "TELEGRAM_LONG_TIMEOUT": ["Telegram getUpdates long-poll timeout (seconds)", 25],
     }
     SENSITIVE_PARAMS = {
         "GATEWAY_WEBHOOK_SECRET",
@@ -78,22 +77,6 @@ class CommGatewayCapability(VOXCapability):
         from .adapters.telegram import TelegramAdapter
         from .adapters.webhook import WebhookAdapter
 
-        adapters: dict[str, Any] = {}
-
-        if self.TELEGRAM_BOT_TOKEN:
-            adapters["telegram"] = TelegramAdapter({
-                "TELEGRAM_BOT_TOKEN": self.TELEGRAM_BOT_TOKEN,
-                "TELEGRAM_WEBHOOK_SECRET": self.TELEGRAM_WEBHOOK_SECRET,
-            })
-
-        adapters["webhook"] = WebhookAdapter({
-            "GATEWAY_WEBHOOK_SECRET": self.GATEWAY_WEBHOOK_SECRET,
-        })
-
-        if not adapters:
-            self.ok("No adapters configured — gateway idle")
-            return
-
         port = int(self.GATEWAY_PORT) if self.GATEWAY_PORT else 8001
         host = self.GATEWAY_HOST or "0.0.0.0"
         orchestrator = self._agent.orchestrator
@@ -102,6 +85,7 @@ class CommGatewayCapability(VOXCapability):
             if orchestrator is None:
                 return
             from vox.security import SecurityError
+
             try:
                 await orchestrator.dispatch_inbound_message(
                     source="comm.gateway",
@@ -109,6 +93,28 @@ class CommGatewayCapability(VOXCapability):
                 )
             except SecurityError as exc:
                 logger.warning("Inbound dispatch blocked by guardrail: %s", exc)
+
+        adapters: dict[str, Any] = {}
+
+        if self.TELEGRAM_BOT_TOKEN:
+            adapters["telegram"] = TelegramAdapter(
+                {
+                    "TELEGRAM_BOT_TOKEN": self.TELEGRAM_BOT_TOKEN,
+                    "TELEGRAM_WEBHOOK_SECRET": self.TELEGRAM_WEBHOOK_SECRET,
+                    "TELEGRAM_LONG_TIMEOUT": self.TELEGRAM_LONG_TIMEOUT,
+                },
+                dispatch=dispatch,
+            )
+
+        adapters["webhook"] = WebhookAdapter(
+            {
+                "GATEWAY_WEBHOOK_SECRET": self.GATEWAY_WEBHOOK_SECRET,
+            }
+        )
+
+        if not adapters:
+            self.ok("No adapters configured — gateway idle")
+            return
 
         _shared_adapters = adapters
         _shared_server = IngressServer(
@@ -118,11 +124,14 @@ class CommGatewayCapability(VOXCapability):
             port=port,
         )
         await _shared_server.start()
+        for adapter in adapters.values():
+            if hasattr(adapter, "start"):
+                await adapter.start()
         _mounted_agents_count += 1
         self.ok(f"Gateway server listening on {host}:{port}")
 
     async def shutdown(self) -> None:
-        global _shared_server, _shared_adapters, _mounted_agents_count
+        global _shared_server, _mounted_agents_count
 
         _mounted_agents_count -= 1
 
