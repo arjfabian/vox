@@ -1,11 +1,14 @@
 import asyncio
 import unittest
 
-from vox.capabilities.ai.llm.sanitizer import sanitize, _estimate_tokens, _strip_boilerplate
+from vox.capabilities.ai.llm.sanitizer import (
+    _estimate_tokens,
+    _strip_boilerplate,
+    sanitize,
+)
 
 
 class TestEstimateTokens(unittest.TestCase):
-
     def test_empty(self):
         self.assertEqual(_estimate_tokens(""), 1)
 
@@ -17,7 +20,6 @@ class TestEstimateTokens(unittest.TestCase):
 
 
 class TestStripBoilerplate(unittest.TestCase):
-
     def test_strips_you_are_an_ai_assistant(self):
         result = _strip_boilerplate("You are an AI assistant. Help the user.")
         self.assertEqual(result, "Help the user.")
@@ -40,7 +42,6 @@ class TestStripBoilerplate(unittest.TestCase):
 
 
 class TestSanitize(unittest.TestCase):
-
     def _run(self, text: str, max_chars: int = 16384):
         return asyncio.run(sanitize(text, max_input_chars=max_chars))
 

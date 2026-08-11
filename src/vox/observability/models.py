@@ -7,7 +7,6 @@ from .constants import LOG_LEVEL_OK
 
 @dataclass(slots=True)
 class VOXLogSource:
-
     source_type: str
     source_name: str = ""
     source_uuid: str = ""
@@ -21,47 +20,71 @@ class VOXLogSource:
     @property
     def display_name(self) -> str:
         if self.source_name and self.source_uuid:
-            return (
-                f"{self.source_type}."
-                f"{self.source_name}:"
-                f"{self.short_uuid}"
-            )
+            return f"{self.source_type}.{self.source_name}:{self.short_uuid}"
 
         if self.source_name:
-            return (
-                f"{self.source_type}."
-                f"{self.source_name}"
-            )
+            return f"{self.source_type}.{self.source_name}"
 
         return self.source_type
 
 
 class VOXForensicLogger:
-
     def __init__(self, logger: logging.Logger, verbose: bool = False) -> None:
         self._logger = logger
         self.verbose = verbose
 
     def _extra(self, source: VOXLogSource | None) -> dict:
-        return { "vox_source": source }
+        return {"vox_source": source}
 
-    def ok(self, message: str, *args: Any, source: VOXLogSource | None = None, **kwargs: Any) -> None:
+    def ok(
+        self,
+        message: str,
+        *args: Any,
+        source: VOXLogSource | None = None,
+        **kwargs: Any,
+    ) -> None:
         kwargs.pop("extra", None)
-        self._logger.log(LOG_LEVEL_OK, message, *args, extra=self._extra(source), **kwargs)
+        self._logger.log(
+            LOG_LEVEL_OK, message, *args, extra=self._extra(source), **kwargs
+        )
 
-    def info(self, message: str, *args: Any, source: VOXLogSource | None = None, **kwargs: Any) -> None:
+    def info(
+        self,
+        message: str,
+        *args: Any,
+        source: VOXLogSource | None = None,
+        **kwargs: Any,
+    ) -> None:
         kwargs.pop("extra", None)
         self._logger.info(message, *args, extra=self._extra(source), **kwargs)
 
-    def warning(self, message: str, *args: Any, source: VOXLogSource | None = None, **kwargs: Any) -> None:
+    def warning(
+        self,
+        message: str,
+        *args: Any,
+        source: VOXLogSource | None = None,
+        **kwargs: Any,
+    ) -> None:
         kwargs.pop("extra", None)
         self._logger.warning(message, *args, extra=self._extra(source), **kwargs)
 
-    def error(self, message: str, *args: Any, source: VOXLogSource | None = None, **kwargs: Any) -> None:
+    def error(
+        self,
+        message: str,
+        *args: Any,
+        source: VOXLogSource | None = None,
+        **kwargs: Any,
+    ) -> None:
         kwargs.pop("extra", None)
         self._logger.error(message, *args, extra=self._extra(source), **kwargs)
 
-    def debug(self, message: str, *args: Any, source: VOXLogSource | None = None, **kwargs: Any) -> None:
+    def debug(
+        self,
+        message: str,
+        *args: Any,
+        source: VOXLogSource | None = None,
+        **kwargs: Any,
+    ) -> None:
         if not self.verbose:
             return
         kwargs.pop("extra", None)

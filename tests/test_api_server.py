@@ -21,7 +21,6 @@ def _req(method: str = "GET", path: str = "/", match_info=None, headers=None):
 
 
 class TestVOXAPIServerHandlers(unittest.TestCase):
-
     def setUp(self):
         self.orchestrator = MagicMock()
         self.orchestrator.logger = MagicMock()
@@ -68,16 +67,16 @@ class TestVOXAPIServerHandlers(unittest.TestCase):
 
     def test_agent_not_found_returns_404(self):
         self.orchestrator._resolve_agent.return_value = None
-        resp = self._run(self.server._handle_agent(
-            _req(match_info={"id": "nonexistent"})))
+        resp = self._run(
+            self.server._handle_agent(_req(match_info={"id": "nonexistent"}))
+        )
         self.assertEqual(resp.status, 404)
 
     def test_agent_found_returns_describe(self):
         mock_agent = MagicMock()
         mock_agent.describe.return_value = {"id": "a1", "name": "tina"}
         self.orchestrator._resolve_agent.return_value = mock_agent
-        resp = self._run(self.server._handle_agent(
-            _req(match_info={"id": "a1"})))
+        resp = self._run(self.server._handle_agent(_req(match_info={"id": "a1"})))
         data = self._check_json(resp)
         self.assertEqual(data["name"], "tina")
 
@@ -89,88 +88,100 @@ class TestVOXAPIServerHandlers(unittest.TestCase):
         mock_cmd.description = "Does something"
         mock_agent.get_command_map.return_value = {"doit": mock_cmd}
         self.orchestrator._resolve_agent.return_value = mock_agent
-        resp = self._run(self.server._handle_agent_commands(
-            _req(match_info={"id": "a1"})))
+        resp = self._run(
+            self.server._handle_agent_commands(_req(match_info={"id": "a1"}))
+        )
         data = self._check_json(resp)
         self.assertIn("commands", data)
         self.assertIn("doit", data["commands"])
 
     def test_agent_commands_not_found_returns_404(self):
         self.orchestrator._resolve_agent.return_value = None
-        resp = self._run(self.server._handle_agent_commands(
-            _req(match_info={"id": "ghost"})))
+        resp = self._run(
+            self.server._handle_agent_commands(_req(match_info={"id": "ghost"}))
+        )
         self.assertEqual(resp.status, 404)
 
     def test_pause_agent_returns_ok(self):
         self.orchestrator.resolve_agent_id.return_value = "a1"
         self.orchestrator.pause_agent = AsyncMock(return_value=True)
-        resp = self._run(self.server._handle_pause(
-            _req(method="POST", match_info={"id": "tina"})))
+        resp = self._run(
+            self.server._handle_pause(_req(method="POST", match_info={"id": "tina"}))
+        )
         data = self._check_json(resp)
         self.assertTrue(data["ok"])
         self.assertEqual(data["data"], "Agent paused")
 
     def test_pause_agent_failure_returns_400(self):
         self.orchestrator.pause_agent = AsyncMock(return_value=False)
-        resp = self._run(self.server._handle_pause(
-            _req(method="POST", match_info={"id": "tina"})))
+        resp = self._run(
+            self.server._handle_pause(_req(method="POST", match_info={"id": "tina"}))
+        )
         self.assertEqual(resp.status, 400)
 
     def test_resume_agent_returns_ok(self):
         self.orchestrator.resume_agent = AsyncMock(return_value=True)
-        resp = self._run(self.server._handle_resume(
-            _req(method="POST", match_info={"id": "tina"})))
+        resp = self._run(
+            self.server._handle_resume(_req(method="POST", match_info={"id": "tina"}))
+        )
         data = self._check_json(resp)
         self.assertTrue(data["ok"])
         self.assertEqual(data["data"], "Agent resumed")
 
     def test_resume_agent_failure_returns_400(self):
         self.orchestrator.resume_agent = AsyncMock(return_value=False)
-        resp = self._run(self.server._handle_resume(
-            _req(method="POST", match_info={"id": "tina"})))
+        resp = self._run(
+            self.server._handle_resume(_req(method="POST", match_info={"id": "tina"}))
+        )
         self.assertEqual(resp.status, 400)
 
     def test_stop_agent_not_found_returns_404(self):
         self.orchestrator.resolve_agent_id.return_value = None
-        resp = self._run(self.server._handle_stop(
-            _req(method="POST", match_info={"id": "tina"})))
+        resp = self._run(
+            self.server._handle_stop(_req(method="POST", match_info={"id": "tina"}))
+        )
         self.assertEqual(resp.status, 404)
 
     def test_stop_agent_returns_ok(self):
         self.orchestrator.resolve_agent_id.return_value = "a1"
         self.orchestrator.stop_agent = AsyncMock(return_value=True)
-        resp = self._run(self.server._handle_stop(
-            _req(method="POST", match_info={"id": "a1"})))
+        resp = self._run(
+            self.server._handle_stop(_req(method="POST", match_info={"id": "a1"}))
+        )
         data = self._check_json(resp)
         self.assertTrue(data["ok"])
         self.assertEqual(data["data"], "Agent stopped")
 
     def test_start_agent_returns_ok(self):
         self.orchestrator.start_agent_by_name = AsyncMock(return_value=True)
-        resp = self._run(self.server._handle_start(
-            _req(method="POST", match_info={"id": "tina"})))
+        resp = self._run(
+            self.server._handle_start(_req(method="POST", match_info={"id": "tina"}))
+        )
         data = self._check_json(resp)
         self.assertTrue(data["ok"])
         self.assertEqual(data["data"], "Agent started")
 
     def test_start_agent_failure_returns_400(self):
         self.orchestrator.start_agent_by_name = AsyncMock(return_value=False)
-        resp = self._run(self.server._handle_start(
-            _req(method="POST", match_info={"id": "tina"})))
+        resp = self._run(
+            self.server._handle_start(_req(method="POST", match_info={"id": "tina"}))
+        )
         self.assertEqual(resp.status, 400)
 
     def test_restart_agent_returns_ok(self):
         self.orchestrator.restart_agent = AsyncMock(return_value=True)
-        resp = self._run(self.server._handle_restart(
-            _req(method="POST", match_info={"id": "tina"})))
+        resp = self._run(
+            self.server._handle_restart(_req(method="POST", match_info={"id": "tina"}))
+        )
         data = self._check_json(resp)
         self.assertTrue(data["ok"])
         self.assertEqual(data["data"], "Agent restarted")
 
     def test_restart_agent_failure_returns_400(self):
         self.orchestrator.restart_agent = AsyncMock(return_value=False)
-        resp = self._run(self.server._handle_restart(
-            _req(method="POST", match_info={"id": "tina"})))
+        resp = self._run(
+            self.server._handle_restart(_req(method="POST", match_info={"id": "tina"}))
+        )
         self.assertEqual(resp.status, 400)
 
     def test_json_response_format(self):
@@ -179,7 +190,6 @@ class TestVOXAPIServerHandlers(unittest.TestCase):
 
 
 class TestVOXAPIServerSecurity(unittest.TestCase):
-
     def setUp(self):
         self.orchestrator = MagicMock()
         self.orchestrator.logger = MagicMock()
@@ -212,7 +222,6 @@ class TestVOXAPIServerSecurity(unittest.TestCase):
 
 
 class TestVOXAPIServerInit(unittest.TestCase):
-
     def _make(self):
         orc = MagicMock()
         orc.logger = MagicMock()
@@ -220,7 +229,7 @@ class TestVOXAPIServerInit(unittest.TestCase):
 
     def _noop_web(self):
         """Mock aiohttp.web so start() does not open a real socket."""
-        patcher = patch.object(api_server_module, 'web', autospec=False)
+        patcher = patch.object(api_server_module, "web", autospec=False)
         mock_web = patcher.start()
         self.addCleanup(patcher.stop)
         mock_runner = AsyncMock()
@@ -260,7 +269,9 @@ class TestVOXAPIServerInit(unittest.TestCase):
         asyncio.run(server.start())
         server._orc.logger.warning.assert_called_once()
 
-    @patch.dict(os.environ, {"VOX_API_TOKEN": "s3cret", "VOX_API_HOST": "0.0.0.0"}, clear=True)
+    @patch.dict(
+        os.environ, {"VOX_API_TOKEN": "s3cret", "VOX_API_HOST": "0.0.0.0"}, clear=True
+    )
     def test_start_with_token_on_any_host_succeeds(self):
         server = self._make()
         self._noop_web()

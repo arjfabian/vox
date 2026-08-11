@@ -13,17 +13,13 @@ from ..models import VOXInboundMessage, VOXOutboundMessage
 
 
 class BaseAdapter(ABC):
-
     CHANNEL: str = ""
 
     @abstractmethod
-    def parse_inbound(self, raw_data: dict) -> VOXInboundMessage:
-        ...
+    def parse_inbound(self, raw_data: dict) -> VOXInboundMessage: ...
 
     @abstractmethod
-    async def send_outbound(self, message: VOXOutboundMessage) -> bool:
-        ...
+    async def send_outbound(self, message: VOXOutboundMessage) -> bool: ...
 
     @abstractmethod
-    def verify_request(self, request: Any) -> bool:
-        ...
+    def verify_request(self, request: Any) -> bool: ...

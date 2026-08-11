@@ -11,7 +11,6 @@ from collections import deque
 
 class RateLimitError(Exception):
     """Raised when an agent exceeds its allowed event frequency."""
-    pass
 
 
 class RateLimiter:

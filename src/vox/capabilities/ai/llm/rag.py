@@ -8,12 +8,11 @@ Only receives a ``store_path`` string — never a direct reference
 to the agent object — preserving strict zero-coupling.
 """
 
-import logging
-import aiosqlite
 import json
-
+import logging
 from pathlib import Path
 
+import aiosqlite
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +21,6 @@ _SNIPPET_CHAR_LIMIT = 2000
 
 
 class RAGRetriever:
-
     def __init__(self, max_snippets: int = _MAX_SNIPPETS) -> None:
         self._max_snippets = max_snippets
 
@@ -51,14 +49,13 @@ class RAGRetriever:
                 if len(snippets) < self._max_snippets:
                     asset_rows = await self._asset_search(conn, tokens)
                     snippets.extend(asset_rows)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — RAG failure is non-fatal, return empty
             logger.warning("RAG retrieve failed: %s", exc)
             return []
 
         snippets.sort(key=lambda x: x[1], reverse=True)
         return [
-            text[:_SNIPPET_CHAR_LIMIT]
-            for text, _ in snippets[: self._max_snippets]
+            text[:_SNIPPET_CHAR_LIMIT] for text, _ in snippets[: self._max_snippets]
         ]
 
     # ------------------------------------------------------------------
@@ -68,7 +65,9 @@ class RAGRetriever:
     def _tokenize(self, text: str) -> list[str]:
         return [w.strip(".,!?;:()[]{}") for w in text.lower().split() if len(w) > 2]
 
-    async def _fts_search(self, conn: aiosqlite.Connection, tokens: list[str]) -> list[tuple[str, float]]:
+    async def _fts_search(
+        self, conn: aiosqlite.Connection, tokens: list[str]
+    ) -> list[tuple[str, float]]:
         try:
             query = " OR ".join(tokens)
             cursor = await conn.execute(
@@ -77,14 +76,13 @@ class RAGRetriever:
                 (query, self._max_snippets),
             )
             rows = await cursor.fetchall()
-            return [
-                (json.dumps(row["details"]), float(row["rank"]))
-                for row in rows
-            ]
+            return [(json.dumps(row["details"]), float(row["rank"])) for row in rows]
         except (aiosqlite.OperationalError, aiosqlite.ProgrammingError):
             return []
 
-    async def _asset_search(self, conn: aiosqlite.Connection, tokens: list[str]) -> list[tuple[str, float]]:
+    async def _asset_search(
+        self, conn: aiosqlite.Connection, tokens: list[str]
+    ) -> list[tuple[str, float]]:
         results: list[tuple[str, int]] = []
         for token in tokens:
             like = f"%{token}%"

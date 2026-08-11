@@ -1,9 +1,8 @@
 import uuid
+from pathlib import Path
 
 import aiosqlite
 import pytest
-
-from pathlib import Path
 
 from vox.capabilities.ai.llm.rag import RAGRetriever
 
@@ -34,8 +33,8 @@ async def populated_db(db_path):
             )
         """)
         await conn.execute(
-            'INSERT INTO activity_log (id, details) VALUES (?, ?)',
-            ('1', '{"msg": "hello world"}'),
+            "INSERT INTO activity_log (id, details) VALUES (?, ?)",
+            ("1", '{"msg": "hello world"}'),
         )
         await conn.execute(
             "INSERT INTO asset_index (name, tags) VALUES ('report.pdf', '[\"important\"]')",

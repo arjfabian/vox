@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 tools/provision_vault.py
 
@@ -48,7 +47,11 @@ def _load_capability_class(cap_id: str):
     except ImportError as e:
         return None, str(e)
     for obj in module.__dict__.values():
-        if isinstance(obj, type) and issubclass(obj, VOXCapability) and obj is not VOXCapability:
+        if (
+            isinstance(obj, type)
+            and issubclass(obj, VOXCapability)
+            and obj is not VOXCapability
+        ):
             return obj, None
     return None, "No VOXCapability subclass found"
 
@@ -84,27 +87,35 @@ def _discover_sensitive_params(agent_dir: Path) -> dict[str, dict]:
         return result
 
     role_files = sorted(
-        f for f in roles_dir.glob("*.py")
+        f
+        for f in roles_dir.glob("*.py")
         if not f.name.startswith("_") and not f.name.endswith("_new.py")
     )
     for rf in role_files:
         role_name = rf.stem
-        
+
         import importlib.util
+
         try:
             spec = importlib.util.spec_from_file_location(role_name, rf)
             if spec is None or spec.loader is None:
                 raise ImportError(f"Cannot create spec for {rf}")
             mod = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(mod)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — import failure skips role
             print(f"  [!] Skipping role '{role_name}' (import error: {e})")
             continue
 
         from vox.roles import VOXRole
+
         role_class = next(
-            (obj for obj in mod.__dict__.values()
-             if isinstance(obj, type) and issubclass(obj, VOXRole) and obj is not VOXRole),
+            (
+                obj
+                for obj in mod.__dict__.values()
+                if isinstance(obj, type)
+                and issubclass(obj, VOXRole)
+                and obj is not VOXRole
+            ),
             None,
         )
         if role_class is None:
@@ -150,7 +161,7 @@ async def _sync_vault(vault: AgentVault, desired: dict[str, dict]) -> None:
 
     try:
         existing_inactive = await vault.list_inactive()
-    except Exception:
+    except Exception:  # noqa: BLE001, S110 — list_inactive may not exist in old vaults
         pass
 
     # 1. Missing → prompt (loop until non-empty or Ctrl+C)
@@ -169,7 +180,7 @@ async def _sync_vault(vault: AgentVault, desired: dict[str, dict]) -> None:
             if val:
                 break
             if is_optional:
-                print(f"    — skipped (optional)")
+                print("    — skipped (optional)")
                 break
         if val:
             await vault.set(cap_id, key, val, status="active")
@@ -190,7 +201,9 @@ async def _sync_vault(vault: AgentVault, desired: dict[str, dict]) -> None:
 
 async def main() -> None:
     parser = argparse.ArgumentParser(description="Provision secrets into agent vault")
-    parser.add_argument("--agent", required=True, help="Agent folder name (e.g. tina, leah)")
+    parser.add_argument(
+        "--agent", required=True, help="Agent folder name (e.g. tina, leah)"
+    )
     args = parser.parse_args()
 
     agent_dir = AGENTS_DIR / args.agent.lower()
@@ -200,6 +213,7 @@ async def main() -> None:
 
     # Read manifest for agent UUID
     import yaml
+
     manifest_path = agent_dir / "agent.yml"
     if not manifest_path.exists():
         print(f"Error: no agent.yml in {agent_dir}")
@@ -210,7 +224,9 @@ async def main() -> None:
         print(f"Error: agent '{args.agent}' has no 'id' in manifest")
         sys.exit(2)
 
-    print(f"Scanning agent '{args.agent}' (fleet-mandatory: {[c for c, _ in FLEET_MANDATORY]})...")
+    print(
+        f"Scanning agent '{args.agent}' (fleet-mandatory: {[c for c, _ in FLEET_MANDATORY]})..."
+    )
     desired = _discover_sensitive_params(agent_dir)
 
     if not desired:

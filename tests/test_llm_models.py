@@ -2,15 +2,14 @@ import unittest
 
 from vox.capabilities.ai.llm.models import (
     LLMChatMessage,
-    LLMGenerationOptions,
     LLMChatRequest,
+    LLMGenerationOptions,
     LLMGenerationResult,
     SanitizedPrompt,
 )
 
 
 class TestLLMChatMessage(unittest.TestCase):
-
     def test_minimal(self):
         msg = LLMChatMessage(role="user", content="hello")
         self.assertEqual(msg.role, "user")
@@ -23,7 +22,6 @@ class TestLLMChatMessage(unittest.TestCase):
 
 
 class TestLLMGenerationOptions(unittest.TestCase):
-
     def test_defaults(self):
         opts = LLMGenerationOptions()
         self.assertEqual(opts.temperature, 0.7)
@@ -36,7 +34,6 @@ class TestLLMGenerationOptions(unittest.TestCase):
 
 
 class TestLLMChatRequest(unittest.TestCase):
-
     def test_minimal(self):
         msg = LLMChatMessage(role="user", content="hi")
         req = LLMChatRequest(model="llama3", messages=[msg])
@@ -61,7 +58,6 @@ class TestLLMChatRequest(unittest.TestCase):
 
 
 class TestLLMGenerationResult(unittest.TestCase):
-
     def test_minimal(self):
         res = LLMGenerationResult(content="response", model="llama3")
         self.assertEqual(res.content, "response")
@@ -71,7 +67,9 @@ class TestLLMGenerationResult(unittest.TestCase):
 
     def test_full(self):
         res = LLMGenerationResult(
-            content="ans", model="gpt-4", tokens_generated=50,
+            content="ans",
+            model="gpt-4",
+            tokens_generated=50,
             raw={"usage": {}},
         )
         self.assertEqual(res.tokens_generated, 50)
@@ -79,11 +77,13 @@ class TestLLMGenerationResult(unittest.TestCase):
 
 
 class TestSanitizedPrompt(unittest.TestCase):
-
     def test_fields(self):
         sp = SanitizedPrompt(
-            text="cleaned", original_length=100,
-            trimmed_length=80, tokens_saved=5, truncated=False,
+            text="cleaned",
+            original_length=100,
+            trimmed_length=80,
+            tokens_saved=5,
+            truncated=False,
         )
         self.assertEqual(sp.text, "cleaned")
         self.assertEqual(sp.original_length, 100)
@@ -93,7 +93,10 @@ class TestSanitizedPrompt(unittest.TestCase):
 
     def test_truncated_true(self):
         sp = SanitizedPrompt(
-            text="short", original_length=1000,
-            trimmed_length=500, tokens_saved=125, truncated=True,
+            text="short",
+            original_length=1000,
+            trimmed_length=500,
+            tokens_saved=125,
+            truncated=True,
         )
         self.assertTrue(sp.truncated)

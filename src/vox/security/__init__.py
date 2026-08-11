@@ -1,13 +1,13 @@
 from .guardrails import InputSanitizer, SecurityError
-from .rate_limiter import RateLimitError, RateLimiter
+from .rate_limiter import RateLimiter, RateLimitError
 from .speaker_profile import VOXSpeakerProfile
 from .vault import AgentVault
 
 __all__ = [
+    "AgentVault",
     "InputSanitizer",
-    "SecurityError",
     "RateLimitError",
     "RateLimiter",
+    "SecurityError",
     "VOXSpeakerProfile",
-    "AgentVault",
 ]

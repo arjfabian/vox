@@ -13,7 +13,7 @@ import re
 
 class SecurityError(Exception):
     """Raised when a payload violates the security policy."""
-    pass
+
 
 
 class InputSanitizer:
@@ -23,16 +23,17 @@ class InputSanitizer:
     entire message ingress pipeline.
     """
 
+    # noqa: RUF012 — immutable pattern list; intentionally shared, never mutated.
     DANGEROUS_PATTERNS: list[str] = [
-        r"<script",                 # Script tag injection
-        r"javascript:",             # Protocol-based URI injection
-        r"eval\(",                  # Dynamic execution sinks
-        r"exec\(",                  # System-level execution sinks
-        r"\.\./\.\./",              # Path traversal / directory climbing
-        r"SELECT\s+.*\s+FROM",      # SQL injection
-        r"DROP\s+TABLE",            # SQL destructive
-        r"rm\s+-rf",                # POSIX destructive
-        r"base64\s+--decode",       # Obfuscated payload execution
+        r"<script",  # Script tag injection
+        r"javascript:",  # Protocol-based URI injection
+        r"eval\(",  # Dynamic execution sinks
+        r"exec\(",  # System-level execution sinks
+        r"\.\./\.\./",  # Path traversal / directory climbing
+        r"SELECT\s+.*\s+FROM",  # SQL injection
+        r"DROP\s+TABLE",  # SQL destructive
+        r"rm\s+-rf",  # POSIX destructive
+        r"base64\s+--decode",  # Obfuscated payload execution
     ]
 
     MAX_STR_LENGTH: int = 8192
@@ -57,12 +58,13 @@ class InputSanitizer:
             if compiled.search(text):
                 self.logger.critical(
                     "GUARDRAIL BLOCKED — matched pattern %r | payload excerpt: %r",
-                    raw, text[:200],
+                    raw,
+                    text[:200],
                 )
                 raise SecurityError(
                     f"Security Policy Violation: pattern '{raw}' detected."
                 )
         safe = html.escape(text)
         if len(safe) > self.MAX_STR_LENGTH:
-            safe = safe[:self.MAX_STR_LENGTH]
+            safe = safe[: self.MAX_STR_LENGTH]
         return safe

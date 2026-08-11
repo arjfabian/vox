@@ -9,12 +9,13 @@ from .models import BrowserConfig
 
 
 class BrowserCapability(VOXCapability):
-
     CAPABILITY_NAME = "net.browser"
 
+    # noqa: RUF012 — mutable defaults are intentional; each agent binding may
+    # override PARAMS with different headless/timeout settings.
     PARAMS = {
         "BROWSER_HEADLESS": ["Run browser in headless mode", True],
-        "BROWSER_TIMEOUT":  ["Page load timeout in ms", 30000],
+        "BROWSER_TIMEOUT": ["Page load timeout in ms", 30000],
     }
 
     async def boot(self) -> None:
@@ -37,11 +38,13 @@ class BrowserCapability(VOXCapability):
         path.parent.mkdir(parents=True, exist_ok=True)
         page = await self._client.new_page()
         try:
-            await page.goto(url, wait_until="networkidle", timeout=int(self.BROWSER_TIMEOUT))
+            await page.goto(
+                url, wait_until="networkidle", timeout=int(self.BROWSER_TIMEOUT)
+            )
             await page.screenshot(path=str(path), full_page=True)
             self.ok(f"Captured: {path}")
             return str(path)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — screenshot failure returns empty
             self.error(f"Capture failed: {e}")
             return ""
         finally:
@@ -51,9 +54,11 @@ class BrowserCapability(VOXCapability):
         self.log("Extracting text...")
         page = await self._client.new_page()
         try:
-            await page.goto(url, wait_until="networkidle", timeout=int(self.BROWSER_TIMEOUT))
+            await page.goto(
+                url, wait_until="networkidle", timeout=int(self.BROWSER_TIMEOUT)
+            )
             return await page.inner_text("body")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — text extraction failure returns empty
             self.error(f"Text extraction failed: {e}")
             return ""
         finally:

@@ -8,7 +8,6 @@ from vox.security.speaker_profile import VOXSpeakerProfile
 
 
 class TestVOXSpeakerProfile(unittest.TestCase):
-
     def setUp(self):
         self.logger = MagicMock()
         self.profile = VOXSpeakerProfile(
@@ -72,8 +71,8 @@ class TestVOXSpeakerProfile(unittest.TestCase):
 
     def test_verify_above_threshold(self):
         resemblyzer = sys.modules["resemblyzer"]
-        resemblyzer.VoiceEncoder.return_value.embed_utterance.return_value = (
-            np.array([0.5, 0.5])
+        resemblyzer.VoiceEncoder.return_value.embed_utterance.return_value = np.array(
+            [0.5, 0.5]
         )
         resemblyzer.preprocess_wav.return_value = np.array([0.1, 0.2])
         with patch("soundfile.read", return_value=(np.array([0.1, 0.2]), 16000)):
@@ -83,8 +82,8 @@ class TestVOXSpeakerProfile(unittest.TestCase):
 
     def test_verify_below_threshold(self):
         resemblyzer = sys.modules["resemblyzer"]
-        resemblyzer.VoiceEncoder.return_value.embed_utterance.return_value = (
-            np.array([1.0, 0.0])
+        resemblyzer.VoiceEncoder.return_value.embed_utterance.return_value = np.array(
+            [1.0, 0.0]
         )
         resemblyzer.preprocess_wav.return_value = np.array([0.1, 0.2])
         with patch("soundfile.read", return_value=(np.array([0.1, 0.2]), 16000)):

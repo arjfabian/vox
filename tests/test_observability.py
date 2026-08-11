@@ -3,12 +3,15 @@ import logging
 import unittest
 
 from vox.observability.constants import LOG_LEVEL_OK
+from vox.observability.formatters import (
+    VOXColorFormatter,
+    VOXPlainFormatter,
+    _source_tag,
+)
 from vox.observability.models import VOXForensicLogger, VOXLogSource
-from vox.observability.formatters import VOXColorFormatter, VOXPlainFormatter, _source_tag
 
 
 class TestSourceTag(unittest.TestCase):
-
     def test_simple_name(self):
         record = logging.LogRecord("vox", logging.INFO, "", 0, "msg", (), None)
         self.assertEqual(_source_tag(record), "vox")
@@ -18,12 +21,13 @@ class TestSourceTag(unittest.TestCase):
         self.assertEqual(_source_tag(record), "tina")
 
     def test_deeply_dotted_name(self):
-        record = logging.LogRecord("vox.agents.tina.roles.chat", logging.INFO, "", 0, "msg", (), None)
+        record = logging.LogRecord(
+            "vox.agents.tina.roles.chat", logging.INFO, "", 0, "msg", (), None
+        )
         self.assertEqual(_source_tag(record), "chat")
 
 
 class TestVOXLogSource(unittest.TestCase):
-
     def test_display_name_with_all_fields(self):
         src = VOXLogSource(
             source_type="agent",
@@ -54,7 +58,6 @@ class TestVOXLogSource(unittest.TestCase):
 
 
 class TestVOXForensicLogger(unittest.TestCase):
-
     def setUp(self):
         self.stream = io.StringIO()
         handler = logging.StreamHandler(self.stream)
@@ -104,11 +107,16 @@ class TestVOXForensicLogger(unittest.TestCase):
 
 
 class TestVOXColorFormatter(unittest.TestCase):
-
     def setUp(self):
         self.fmt = VOXColorFormatter()
         self.record = logging.LogRecord(
-            "vox.test", logging.INFO, "", 0, "colored msg", (), None,
+            "vox.test",
+            logging.INFO,
+            "",
+            0,
+            "colored msg",
+            (),
+            None,
         )
 
     def test_format_returns_string(self):
@@ -120,10 +128,17 @@ class TestVOXColorFormatter(unittest.TestCase):
         result = self.fmt.format(self.record)
         # Should contain a date-like pattern
         import re
+
         self.assertTrue(re.search(r"\d{4}-\d{2}-\d{2}", result))
 
     def test_format_different_levels(self):
-        for level in (logging.DEBUG, logging.INFO, LOG_LEVEL_OK, logging.WARNING, logging.ERROR):
+        for level in (
+            logging.DEBUG,
+            logging.INFO,
+            LOG_LEVEL_OK,
+            logging.WARNING,
+            logging.ERROR,
+        ):
             record = logging.LogRecord("vox", level, "", 0, "msg", (), None)
             result = self.fmt.format(record)
             self.assertIn("msg", result)
@@ -135,7 +150,6 @@ class TestVOXColorFormatter(unittest.TestCase):
 
 
 class TestVOXPlainFormatter(unittest.TestCase):
-
     def setUp(self):
         self.fmt = VOXPlainFormatter()
 

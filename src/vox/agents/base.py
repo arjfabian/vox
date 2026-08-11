@@ -5,26 +5,25 @@ No auto-discovery, no implicit filesystem magic.
 """
 
 import asyncio
-import importlib
 import sys
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
-from vox.provider import CapabilityProviderProtocol
-from vox.observability import VOXForensicLogger, VOXLogSource
-from vox.agents.lifecycle import AgentState, EventQueue
-from vox.agents.memory import VOXAgentMemory
-from vox.agents.store import VOXAgentStore
-from vox.agents.loader import AgentLoader, AgentProvisionError
 from vox.agents.ast_analyzer import ASTAgentAnalyzer
 from vox.agents.capability_binder import CapabilityBinder
-from vox.roles import VOXRole
-from vox.security import RateLimitError, RateLimiter
+from vox.agents.lifecycle import AgentState, EventQueue
+from vox.agents.loader import AgentLoader, AgentProvisionError  # noqa: F401 — re-exported for public API
+from vox.agents.memory import VOXAgentMemory
+from vox.agents.store import VOXAgentStore
+from vox.observability import VOXForensicLogger, VOXLogSource
+from vox.provider import CapabilityProviderProtocol
+from vox.roles import CommandInfo, VOXRole
+from vox.security import RateLimiter, RateLimitError
 from vox.security.vault import VaultAccessError
 
 
 class VOXAgent:
-
     GLOBAL_AGENT_KEYS: tuple[str, ...] = ("TELEGRAM_USER_ID",)
 
     def __init__(
@@ -38,19 +37,19 @@ class VOXAgent:
         self._capability_provider = orchestrator
         self.logger = logger
 
-        self.config: Dict[str, Any] = {}
+        self.config: dict[str, Any] = {}
         self._global_env = global_env or {}
-        self.roles: Dict[str, Any] = {}
-        self.capabilities: Dict[str, Any] = {}
+        self.roles: dict[str, Any] = {}
+        self.capabilities: dict[str, Any] = {}
         self.event_router: dict[str, list[Any]] = {}
 
         self.commands: set[str] = set()
         self.events: set[str] = set()
-        self._capability_commands: Dict[str, Callable] = {}
+        self._capability_commands: dict[str, Callable] = {}
         self._system_capabilities: set[str] = {"comm.gateway"}
 
         self._state = AgentState.BOOTING
-        self._tasks: List[asyncio.Task] = []
+        self._tasks: list[asyncio.Task] = []
         self._event_queue = EventQueue()
 
         self.memory = VOXAgentMemory(self.dir)
@@ -84,7 +83,7 @@ class VOXAgent:
         return self.config.get("id")
 
     @property
-    def master_id(self) -> Optional[str]:
+    def master_id(self) -> str | None:
         return self.config.get("master_id")
 
     @property
@@ -118,7 +117,7 @@ class VOXAgent:
 
     def log_agent_info(self, message: str, *args, **kwargs):
         """Safe wrapper to preserve compatibility with existing role extensions."""
-        if hasattr(self, 'logger') and self.logger:
+        if hasattr(self, "logger") and self.logger:
             self.logger.info(f"[{self.id}] {message}", *args, **kwargs)
         else:
             print(f"[{self.__class__.__name__}] {message}")
@@ -149,8 +148,8 @@ class VOXAgent:
             ],
         }
 
-    def get_command_map(self) -> Dict[str, Any]:
-        combined: Dict[str, "CommandInfo"] = {}
+    def get_command_map(self) -> dict[str, Any]:
+        combined: dict[str, CommandInfo] = {}
         for role in self.roles.values():
             for name, info in role.get_commands().items():
                 combined[name] = info
@@ -195,9 +194,7 @@ class VOXAgent:
             self.logger.warning(f"No roles directory found for {self.name}")
             return
         role_files = [
-            file
-            for file in roles_dir.glob("*.py")
-            if not file.name.startswith("_")
+            file for file in roles_dir.glob("*.py") if not file.name.startswith("_")
         ]
         if not role_files:
             self.logger.warning(f"No role modules found for {self.name}")
@@ -213,10 +210,13 @@ class VOXAgent:
                 sys.modules[spec_name] = module
                 spec.loader.exec_module(module)
                 role_class = next(
-                    (obj for obj in module.__dict__.values()
-                     if isinstance(obj, type)
-                     and issubclass(obj, VOXRole)
-                     and obj is not VOXRole),
+                    (
+                        obj
+                        for obj in module.__dict__.values()
+                        if isinstance(obj, type)
+                        and issubclass(obj, VOXRole)
+                        and obj is not VOXRole
+                    ),
                     None,
                 )
                 if role_class is None:
@@ -226,13 +226,13 @@ class VOXAgent:
                 setattr(self, role_name, role)
                 self._register_role_routes(role)
                 self.logger.ok(f"Loaded role: {role_name}")
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 — defensive catch at role boundary
                 self.logger.error(f"Role load failed [{role_name}]: {exc}")
 
     def _register_role_routes(self, role: Any) -> None:
         handlers = getattr(role, "_handlers", {})
         command_names = set(role.get_commands().keys())
-        for route_name in handlers.keys():
+        for route_name in handlers:
             is_command = route_name in command_names
             if is_command:
                 self.commands.add(route_name)
@@ -273,12 +273,14 @@ class VOXAgent:
             try:
                 await cap.initialize()
                 await cap.boot()
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — defensive catch at capability boundary
                 self.logger.error(f"Capability boot failed [{cap}]: {e}")
                 ok = False
         if not ok:
             self._state = AgentState.FAILED
-            self.logger.error("Agent boot FAILED \u2014 one or more capabilities failed")
+            self.logger.error(
+                "Agent boot FAILED \u2014 one or more capabilities failed"
+            )
             return False
         self._state = AgentState.ACTIVE
         await self.emit("on_boot")
@@ -326,7 +328,7 @@ class VOXAgent:
         for cap in self.capabilities.values():
             try:
                 await cap.shutdown()
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — defensive catch at shutdown boundary
                 self.logger.error(f"Capability shutdown failed [{cap}]: {e}")
         self.roles.clear()
         self.capabilities.clear()
@@ -349,7 +351,8 @@ class VOXAgent:
         except RateLimitError:
             self.logger.critical(
                 "Rate limit exceeded for Agent %s \u2014 dropping event '%s'",
-                self.name, event_name,
+                self.name,
+                event_name,
             )
             return
 
@@ -357,15 +360,13 @@ class VOXAgent:
         for role in targets:
             try:
                 await role.handle_event(event_name, **kwargs)
-            except Exception as exc:
-                self.logger.error(
-                    f"Role dispatch failure [{event_name}]: {exc}"
-                )
+            except Exception as exc:  # noqa: BLE001 — defensive catch at event dispatch
+                self.logger.error(f"Role dispatch failure [{event_name}]: {exc}")
         handler = self._capability_commands.get(event_name)
         if handler:
             try:
                 await handler(**kwargs)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 — defensive catch at event dispatch
                 self.logger.error(
                     f"Capability command dispatch failure [{event_name}]: {exc}"
                 )

@@ -25,11 +25,22 @@ class RoutingDecision:
 
 
 class Router:
-
+    # noqa: RUF012 — immutable frozenset-like set; intentionally shared, never mutated.
     _COMPLEX_KEYWORDS = {
-        "reason", "explain", "analyze", "compare", "contrast",
-        "synthesize", "evaluate", "critique", "summarize",
-        "translate", "code", "function", "algorithm", "debug",
+        "reason",
+        "explain",
+        "analyze",
+        "compare",
+        "contrast",
+        "synthesize",
+        "evaluate",
+        "critique",
+        "summarize",
+        "translate",
+        "code",
+        "function",
+        "algorithm",
+        "debug",
     }
 
     def __init__(

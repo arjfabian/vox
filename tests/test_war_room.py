@@ -1,14 +1,10 @@
 """Tests for VOXWarRoom, VOXWarRoomMaster, and comm.gateway broadcast."""
 
 import asyncio
-import json
 import unittest
 from unittest.mock import AsyncMock, MagicMock
 
-from uuid import UUID
-
 from vox.orchestration.war_room import VOXWarRoom, VOXWarRoomMaster, WarRoomMessage
-
 
 # ------------------------------------------------------------------
 # WarRoomMessage
@@ -16,7 +12,6 @@ from vox.orchestration.war_room import VOXWarRoom, VOXWarRoomMaster, WarRoomMess
 
 
 class TestWarRoomMessage(unittest.TestCase):
-
     def test_default_fields(self):
         msg = WarRoomMessage(source="tori", payload={"event": "test"})
         self.assertEqual(msg.source, "tori")
@@ -50,7 +45,6 @@ class TestWarRoomMessage(unittest.TestCase):
 
 
 class TestVOXWarRoom(unittest.IsolatedAsyncioTestCase):
-
     def setUp(self):
         self.war_room = VOXWarRoom()
 
@@ -103,7 +97,6 @@ class TestVOXWarRoom(unittest.IsolatedAsyncioTestCase):
 
 
 class TestVOXWarRoomMaster(unittest.IsolatedAsyncioTestCase):
-
     def setUp(self):
         self.war_room = VOXWarRoom()
         self.broadcast_fn = AsyncMock(return_value=True)
@@ -176,7 +169,6 @@ class TestVOXWarRoomMaster(unittest.IsolatedAsyncioTestCase):
 
 
 class TestPanicShutdown(unittest.TestCase):
-
     def setUp(self):
         self.config = MagicMock()
         self.config.uds_path = "/tmp/test_panic.sock"
@@ -184,6 +176,7 @@ class TestPanicShutdown(unittest.TestCase):
 
     def _make_orc_with_agents(self):
         from vox.orchestration.base import VOXOrchestrator
+
         orc = VOXOrchestrator(config=self.config, logger=self.logger)
         return orc
 
@@ -221,7 +214,6 @@ class TestPanicShutdown(unittest.TestCase):
 
 
 class TestAlertRouting(unittest.IsolatedAsyncioTestCase):
-
     def setUp(self):
         self.config = MagicMock()
         self.config.uds_path = "/tmp/test_routing.sock"
@@ -229,6 +221,7 @@ class TestAlertRouting(unittest.IsolatedAsyncioTestCase):
 
     async def test_alert_type_routed_to_war_room(self):
         from vox.orchestration.base import VOXOrchestrator
+
         orc = VOXOrchestrator(config=self.config, logger=self.logger)
         payload = {"type": "alert", "event": "breach", "severity": "CRITICAL"}
         await orc.dispatch_inbound_message("tori", payload)
@@ -239,6 +232,7 @@ class TestAlertRouting(unittest.IsolatedAsyncioTestCase):
 
     async def test_non_alert_message_skips_war_room(self):
         from vox.orchestration.base import VOXOrchestrator
+
         orc = VOXOrchestrator(config=self.config, logger=self.logger)
         payload = {"type": "chat", "content": "hello"}
         await orc.dispatch_inbound_message("comm.gateway", payload)

@@ -25,7 +25,7 @@ class ASTAgentAnalyzer:
         """Check whether an AST node represents a capabilities attribute chain."""
         if isinstance(node, ast.Attribute) and node.attr == "capabilities":
             inner = node.value
-            return isinstance(inner, ast.Attribute) or isinstance(inner, ast.Name)
+            return isinstance(inner, (ast.Attribute, ast.Name))
         return False
 
     @staticmethod
@@ -47,23 +47,26 @@ class ASTAgentAnalyzer:
         for node in ast.iter_child_nodes(tree):
             if isinstance(node, ast.Assign) and len(node.targets) == 1:
                 target = node.targets[0]
-                if isinstance(target, ast.Name) and target.id == "REQUIRES":
-                    if isinstance(node.value, (ast.Set, ast.List, ast.Tuple)):
-                        for elt in node.value.elts:
-                            if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
-                                cap_ids.add(elt.value)
+                if isinstance(target, ast.Name) and target.id == "REQUIRES" and isinstance(node.value, (ast.Set, ast.List, ast.Tuple)):
+                    for elt in node.value.elts:
+                        if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
+                            cap_ids.add(elt.value)
 
         for node in ast.walk(tree):
             if isinstance(node, ast.Subscript):
                 slice_val = node.slice
-                if isinstance(slice_val, ast.Constant) and isinstance(slice_val.value, str):
-                    if ASTAgentAnalyzer._is_capabilities_chain(node.value):
+                if isinstance(slice_val, ast.Constant) and isinstance(slice_val.value, str) and ASTAgentAnalyzer._is_capabilities_chain(node.value):
                         cap_ids.add(slice_val.value)
             elif isinstance(node, ast.Call):
                 func = node.func
-                if isinstance(func, ast.Attribute) and func.attr == "get":
-                    if ASTAgentAnalyzer._is_capabilities_chain(func.value):
-                        if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
-                            cap_ids.add(node.args[0].value)
+                if (
+                    isinstance(func, ast.Attribute)
+                    and func.attr == "get"
+                    and ASTAgentAnalyzer._is_capabilities_chain(func.value)
+                    and node.args
+                    and isinstance(node.args[0], ast.Constant)
+                    and isinstance(node.args[0].value, str)
+                ):
+                    cap_ids.add(node.args[0].value)
 
         return cap_ids

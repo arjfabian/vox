@@ -11,7 +11,9 @@ def _silence_playwright_futures(loop, context):
     """Suppress 'Future exception was never retrieved' for Playwright's TargetClosedError."""
     msg = context.get("message", "")
     exc = context.get("exception", None)
-    if "TargetClosedError" in msg or (exc and "TargetClosedError" in type(exc).__name__):
+    if "TargetClosedError" in msg or (
+        exc and "TargetClosedError" in type(exc).__name__
+    ):
         return
     loop.default_exception_handler(context)
 
@@ -32,7 +34,7 @@ async def run_vox(runtime: VOXRuntime, logger: VOXForensicLogger) -> None:
 
     try:
         operative = await runtime.orchestrator.boot()
-    except Exception:
+    except Exception:  # noqa: BLE001 — boot failure triggers shutdown
         logger.error("VOX boot failed.")
         await runtime.orchestrator.shutdown()
         return

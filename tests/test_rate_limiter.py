@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from vox.agents.base import VOXAgent
-from vox.security.rate_limiter import RateLimitError, RateLimiter
+from vox.security.rate_limiter import RateLimiter, RateLimitError
 
 
 class TestRateLimiter(unittest.TestCase):
@@ -99,6 +99,7 @@ class TestAgentRateLimiterIntegration(unittest.TestCase):
 
     def tearDown(self):
         import shutil
+
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     @patch("vox.security.rate_limiter.time")
@@ -109,9 +110,11 @@ class TestAgentRateLimiterIntegration(unittest.TestCase):
         self.assertTrue(boot_ok)
 
         agent.event_router["test_event"] = []
+
         async def emit_two():
             await agent.emit("test_event")
             await agent.emit("test_event")
+
         asyncio.run(emit_two())
 
         self.assertEqual(agent.rate_limiter_utilization, 100.0)
@@ -126,6 +129,7 @@ class TestAgentRateLimiterIntegration(unittest.TestCase):
         async def spam():
             for _ in range(5):
                 await agent.emit("test_event")
+
         asyncio.run(spam())
 
         self.assertGreater(agent.rate_limiter_utilization, 0.0)

@@ -6,7 +6,6 @@ runtime resolution.
 """
 
 import argparse
-
 from dataclasses import dataclass
 
 
@@ -18,9 +17,9 @@ class VOXCliArgs:
     Fields are None when not provided on the command line.
     """
 
-    command         : str | None
-    agent_name      : str | None
-    verbose         : bool | None = None
+    command: str | None
+    agent_name: str | None
+    verbose: bool | None = None
 
 
 def load_cli_args() -> VOXCliArgs:
@@ -33,9 +32,7 @@ def load_cli_args() -> VOXCliArgs:
         vox restart <agent>
     """
 
-    parser = argparse.ArgumentParser(
-        description="VOX Agent Orchestrator"
-    )
+    parser = argparse.ArgumentParser(description="VOX Agent Orchestrator")
 
     parser.add_argument(
         "command",
@@ -51,7 +48,8 @@ def load_cli_args() -> VOXCliArgs:
     )
 
     parser.add_argument(
-        "-v", "--verbose",
+        "-v",
+        "--verbose",
         action="store_true",
         help="Enable verbose debug logging.",
     )
@@ -59,7 +57,7 @@ def load_cli_args() -> VOXCliArgs:
     args = parser.parse_args()
 
     return VOXCliArgs(
-        command    = args.command,
-        agent_name = args.agent_name,
-        verbose    = args.verbose,
+        command=args.command,
+        agent_name=args.agent_name,
+        verbose=args.verbose,
     )

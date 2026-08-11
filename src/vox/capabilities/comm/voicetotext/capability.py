@@ -11,14 +11,14 @@ from vox.capabilities.base import VOXCapability
 from .client import WhisperClient
 from .models import TranscriptionResult, WhisperConfig
 
-
 LOG_PREVIEW_LENGTH = 60
 
 
 class VoiceToTextCapability(VOXCapability):
-
     CAPABILITY_NAME = "comm.voicetotext"
 
+    # noqa: RUF012 — mutable defaults are intentional; each agent binding may
+    # override PARAMS with different whisper model/device settings.
     PARAMS = {
         "WHISPER_MODEL_SIZE": ["faster-whisper model size", "base"],
         "WHISPER_DEVICE": ["Compute device", "cpu"],
@@ -31,6 +31,7 @@ class VoiceToTextCapability(VOXCapability):
     async def health_check(cls) -> bool:
         try:
             import faster_whisper  # noqa: F401
+
             return True
         except ImportError:
             return False
@@ -49,7 +50,7 @@ class VoiceToTextCapability(VOXCapability):
 
     async def transcribe(self, file_path: str) -> TranscriptionResult:
         self.log("Transcribing audio...")
-        with open(file_path, "rb") as f:
+        with open(file_path, "rb") as f:  # noqa: ASYNC230 — small file read, blocking negligible
             audio_bytes = f.read()
         result = await self._client.transcribe(audio_bytes)
         preview = result.text[:LOG_PREVIEW_LENGTH]

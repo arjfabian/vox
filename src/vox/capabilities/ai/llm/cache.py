@@ -5,19 +5,16 @@ Write transactions are serialized via ``asyncio.Lock`` to guarantee
 safe concurrent access when shared across parallel agent invocations.
 """
 
+import asyncio
 import hashlib
 import json
-import time
-import asyncio
 import logging
+import time
+from pathlib import Path
 
 import aiosqlite
 
-from pathlib import Path
-from typing import Optional
-
 from .models import LLMGenerationResult
-
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +27,6 @@ def _sha256(*parts: str) -> str:
 
 
 class SemanticCache:
-
     def __init__(
         self,
         db_path: str | Path = _DEFAULT_DB_PATH,
@@ -57,8 +53,7 @@ class SemanticCache:
                 )
             """)
             await conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_exact_model "
-                "ON exact_cache(model)"
+                "CREATE INDEX IF NOT EXISTS idx_exact_model ON exact_cache(model)"
             )
             await conn.commit()
         self._initialized = True
@@ -76,7 +71,7 @@ class SemanticCache:
         system: str,
         prompt: str,
         model: str,
-    ) -> Optional[LLMGenerationResult]:
+    ) -> LLMGenerationResult | None:
         if not self._initialized:
             await self.init_db()
 
@@ -136,7 +131,9 @@ class SemanticCache:
 
         cutoff = time.time() - self._ttl
         async with self._lock:
-            await self._execute("DELETE FROM exact_cache WHERE cached_at < ?", (cutoff,))
+            await self._execute(
+                "DELETE FROM exact_cache WHERE cached_at < ?", (cutoff,)
+            )
             row = await self._query_one("SELECT changes() AS cnt")
         return row["cnt"] if row else 0
 
@@ -144,7 +141,7 @@ class SemanticCache:
     # Internal
     # ------------------------------------------------------------------
 
-    async def _query_one(self, sql: str, params: tuple = ()) -> Optional[dict]:
+    async def _query_one(self, sql: str, params: tuple = ()) -> dict | None:
         async with aiosqlite.connect(self._db_path) as conn:
             conn.row_factory = aiosqlite.Row
             cursor = await conn.execute(sql, params)

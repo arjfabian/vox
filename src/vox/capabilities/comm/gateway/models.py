@@ -6,7 +6,7 @@ VOXOutboundMessage and are channel-adapted by the appropriate adapter.
 """
 
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -18,11 +18,11 @@ class VOXInboundMessage(BaseModel):
     channel: str
     tenant_id: str = "default"
     sender_id: str
-    sender_metadata: Dict[str, Any] = Field(default_factory=dict)
+    sender_metadata: dict[str, Any] = Field(default_factory=dict)
     content_type: str = "text"
-    text: Optional[str] = None
-    media_url: Optional[str] = None
-    raw_payload: Dict[str, Any] = Field(default_factory=dict)
+    text: str | None = None
+    media_url: str | None = None
+    raw_payload: dict[str, Any] = Field(default_factory=dict)
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
@@ -33,4 +33,4 @@ class VOXOutboundMessage(BaseModel):
     recipient_id: str
     text: str
     parse_mode: str = "HTML"
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)

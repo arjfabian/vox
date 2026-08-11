@@ -7,10 +7,10 @@ affected agent.
 
 import asyncio
 import hashlib
-import yaml
-
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+import yaml
 
 if TYPE_CHECKING:
     from vox.orchestration import VOXOrchestrator
@@ -38,7 +38,8 @@ class AgentFileWatcher:
 
     async def start(self) -> None:
         self.logger.info(
-            "AgentFileWatcher started — polling every %ss", self._interval,
+            "AgentFileWatcher started — polling every %ss",
+            self._interval,
         )
         self._task = asyncio.create_task(self._run())
 
@@ -70,7 +71,7 @@ class AgentFileWatcher:
 
             try:
                 data = yaml.safe_load(manifest.read_text()) or {}
-            except Exception:
+            except Exception:  # noqa: BLE001, S112 — resilient scan, skip malformed manifests
                 continue
             agent_name = data.get("name") or agent_folder.name
 
@@ -85,11 +86,13 @@ class AgentFileWatcher:
                 ok = await self._orc.restart_agent(agent_name)
                 if ok:
                     self.logger.ok(
-                        "Agent '%s' booted back online", agent_name,
+                        "Agent '%s' booted back online",
+                        agent_name,
                     )
                 else:
                     self.logger.error(
-                        "Agent '%s' hot-restart failed", agent_name,
+                        "Agent '%s' hot-restart failed",
+                        agent_name,
                     )
 
             self._snapshots[agent_name] = current

@@ -1,6 +1,3 @@
-from .base import VOXCapability, VOXBoundCapability
+from .base import VOXBoundCapability, VOXCapability
 
-__all__ = [
-    "VOXCapability",
-    "VOXBoundCapability"
-]
+__all__ = ["VOXBoundCapability", "VOXCapability"]

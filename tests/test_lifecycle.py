@@ -4,7 +4,6 @@ from vox.agents.lifecycle import AgentState, EventQueue
 
 
 class TestAgentStateTransitions(unittest.TestCase):
-
     def _assert_can(self, src: AgentState, *targets: AgentState) -> None:
         for t in targets:
             self.assertTrue(
@@ -20,40 +19,121 @@ class TestAgentStateTransitions(unittest.TestCase):
             )
 
     def test_booing_transitions(self):
-        self._assert_can(AgentState.BOOTING, AgentState.IDLE, AgentState.ACTIVE, AgentState.FAILED, AgentState.STOPPING)
-        self._assert_cannot(AgentState.BOOTING, AgentState.BOOTING, AgentState.PAUSING, AgentState.PAUSED, AgentState.RESUMING, AgentState.STOPPED)
+        self._assert_can(
+            AgentState.BOOTING,
+            AgentState.IDLE,
+            AgentState.ACTIVE,
+            AgentState.FAILED,
+            AgentState.STOPPING,
+        )
+        self._assert_cannot(
+            AgentState.BOOTING,
+            AgentState.BOOTING,
+            AgentState.PAUSING,
+            AgentState.PAUSED,
+            AgentState.RESUMING,
+            AgentState.STOPPED,
+        )
 
     def test_idle_transitions(self):
         self._assert_can(AgentState.IDLE, AgentState.BOOTING, AgentState.STOPPING)
-        self._assert_cannot(AgentState.IDLE, AgentState.ACTIVE, AgentState.FAILED, AgentState.IDLE, AgentState.PAUSING, AgentState.PAUSED, AgentState.RESUMING, AgentState.STOPPED)
+        self._assert_cannot(
+            AgentState.IDLE,
+            AgentState.ACTIVE,
+            AgentState.FAILED,
+            AgentState.IDLE,
+            AgentState.PAUSING,
+            AgentState.PAUSED,
+            AgentState.RESUMING,
+            AgentState.STOPPED,
+        )
 
     def test_active_transitions(self):
         self._assert_can(AgentState.ACTIVE, AgentState.PAUSING, AgentState.STOPPING)
-        self._assert_cannot(AgentState.ACTIVE, AgentState.ACTIVE, AgentState.BOOTING, AgentState.FAILED, AgentState.PAUSED, AgentState.RESUMING, AgentState.STOPPED)
+        self._assert_cannot(
+            AgentState.ACTIVE,
+            AgentState.ACTIVE,
+            AgentState.BOOTING,
+            AgentState.FAILED,
+            AgentState.PAUSED,
+            AgentState.RESUMING,
+            AgentState.STOPPED,
+        )
 
     def test_pausing_transitions(self):
         self._assert_can(AgentState.PAUSING, AgentState.PAUSED, AgentState.STOPPING)
-        self._assert_cannot(AgentState.PAUSING, AgentState.ACTIVE, AgentState.BOOTING, AgentState.FAILED, AgentState.PAUSING, AgentState.RESUMING, AgentState.STOPPED)
+        self._assert_cannot(
+            AgentState.PAUSING,
+            AgentState.ACTIVE,
+            AgentState.BOOTING,
+            AgentState.FAILED,
+            AgentState.PAUSING,
+            AgentState.RESUMING,
+            AgentState.STOPPED,
+        )
 
     def test_paused_transitions(self):
         self._assert_can(AgentState.PAUSED, AgentState.RESUMING, AgentState.STOPPING)
-        self._assert_cannot(AgentState.PAUSED, AgentState.ACTIVE, AgentState.BOOTING, AgentState.FAILED, AgentState.PAUSING, AgentState.PAUSED, AgentState.STOPPED)
+        self._assert_cannot(
+            AgentState.PAUSED,
+            AgentState.ACTIVE,
+            AgentState.BOOTING,
+            AgentState.FAILED,
+            AgentState.PAUSING,
+            AgentState.PAUSED,
+            AgentState.STOPPED,
+        )
 
     def test_resuming_transitions(self):
         self._assert_can(AgentState.RESUMING, AgentState.ACTIVE, AgentState.STOPPING)
-        self._assert_cannot(AgentState.RESUMING, AgentState.BOOTING, AgentState.FAILED, AgentState.PAUSING, AgentState.PAUSED, AgentState.RESUMING, AgentState.STOPPED)
+        self._assert_cannot(
+            AgentState.RESUMING,
+            AgentState.BOOTING,
+            AgentState.FAILED,
+            AgentState.PAUSING,
+            AgentState.PAUSED,
+            AgentState.RESUMING,
+            AgentState.STOPPED,
+        )
 
     def test_stopping_transitions(self):
         self._assert_can(AgentState.STOPPING, AgentState.STOPPED)
-        self._assert_cannot(AgentState.STOPPING, AgentState.ACTIVE, AgentState.BOOTING, AgentState.FAILED, AgentState.PAUSING, AgentState.PAUSED, AgentState.RESUMING, AgentState.STOPPING)
+        self._assert_cannot(
+            AgentState.STOPPING,
+            AgentState.ACTIVE,
+            AgentState.BOOTING,
+            AgentState.FAILED,
+            AgentState.PAUSING,
+            AgentState.PAUSED,
+            AgentState.RESUMING,
+            AgentState.STOPPING,
+        )
 
     def test_stopped_transitions(self):
         self._assert_can(AgentState.STOPPED, AgentState.BOOTING)
-        self._assert_cannot(AgentState.STOPPED, AgentState.ACTIVE, AgentState.FAILED, AgentState.PAUSING, AgentState.PAUSED, AgentState.RESUMING, AgentState.STOPPING, AgentState.STOPPED)
+        self._assert_cannot(
+            AgentState.STOPPED,
+            AgentState.ACTIVE,
+            AgentState.FAILED,
+            AgentState.PAUSING,
+            AgentState.PAUSED,
+            AgentState.RESUMING,
+            AgentState.STOPPING,
+            AgentState.STOPPED,
+        )
 
     def test_failed_transitions(self):
         self._assert_can(AgentState.FAILED, AgentState.BOOTING)
-        self._assert_cannot(AgentState.FAILED, AgentState.ACTIVE, AgentState.FAILED, AgentState.PAUSING, AgentState.PAUSED, AgentState.RESUMING, AgentState.STOPPING, AgentState.STOPPED)
+        self._assert_cannot(
+            AgentState.FAILED,
+            AgentState.ACTIVE,
+            AgentState.FAILED,
+            AgentState.PAUSING,
+            AgentState.PAUSED,
+            AgentState.RESUMING,
+            AgentState.STOPPING,
+            AgentState.STOPPED,
+        )
 
     def test_str(self):
         self.assertEqual(str(AgentState.BOOTING), "BOOTING")
@@ -68,7 +148,6 @@ class TestAgentStateTransitions(unittest.TestCase):
 
 
 class TestEventQueue(unittest.TestCase):
-
     def test_enqueue_and_drain(self):
         q = EventQueue(capacity=3)
         self.assertTrue(q.enqueue("evt1", {"a": 1}))

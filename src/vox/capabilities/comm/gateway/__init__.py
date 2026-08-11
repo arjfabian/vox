@@ -5,17 +5,17 @@ configured channels.  All inbound traffic is normalised into
 VOXInboundMessage before dispatching to the orchestrator.
 """
 
-from .models import VOXInboundMessage, VOXOutboundMessage
-from .capability import CommGatewayCapability
-from .server import IngressServer
 from .adapters import BaseAdapter, TelegramAdapter, WebhookAdapter
+from .capability import CommGatewayCapability
+from .models import VOXInboundMessage, VOXOutboundMessage
+from .server import IngressServer
 
 __all__ = [
-    "VOXInboundMessage",
-    "VOXOutboundMessage",
+    "BaseAdapter",
     "CommGatewayCapability",
     "IngressServer",
-    "BaseAdapter",
     "TelegramAdapter",
+    "VOXInboundMessage",
+    "VOXOutboundMessage",
     "WebhookAdapter",
 ]

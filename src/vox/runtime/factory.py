@@ -4,10 +4,10 @@ VOX runtime factory.
 Builds the fully-wired VOX runtime container.
 """
 
+from vox.api_server import VOXAPIServer
 from vox.config import VOXConfig
 from vox.observability import VOXForensicLogger
 from vox.orchestration import VOXOrchestrator
-from vox.api_server import VOXAPIServer
 
 from .models import VOXRuntime
 

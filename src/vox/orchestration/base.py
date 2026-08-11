@@ -7,24 +7,28 @@ service components (VOXRegistry, AgentGraph, FleetController).
 
 import asyncio
 import os
-
-from dotenv import dotenv_values
 from pathlib import Path
 
-from vox.orchestration.watcher import AgentFileWatcher
-from vox.orchestration.registry import VOXRegistry, CapabilityEntry
-from vox.orchestration.graph import AgentGraph
-from vox.orchestration.controller import FleetController
-from vox.orchestration.war_room import VOXWarRoom, VOXWarRoomMaster, WarRoomMessage
+from typing import TYPE_CHECKING, Any
+
+from dotenv import dotenv_values
+
 from vox.agents import VOXAgent
 from vox.config import VOXConfig
 from vox.observability import VOXForensicLogger
+from vox.orchestration.controller import FleetController
+from vox.orchestration.graph import AgentGraph
+from vox.orchestration.registry import CapabilityEntry, VOXRegistry
+from vox.orchestration.war_room import VOXWarRoom, VOXWarRoomMaster, WarRoomMessage
+from vox.orchestration.watcher import AgentFileWatcher
 from vox.security import InputSanitizer, SecurityError, VOXSpeakerProfile
 from vox.services import FleetMessenger
 
+if TYPE_CHECKING:
+    from vox.capabilities.base import VOXCapability
+
 
 class VOXOrchestrator:
-
     def __init__(
         self,
         config: VOXConfig,
@@ -156,7 +160,7 @@ class VOXOrchestrator:
         for agent in all_agents:
             try:
                 await agent.shutdown()
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — defensive catch at fleet shutdown
                 self.logger.error(f"Agent shutdown failed [{agent.name}]: {e}")
         self.active_agents.clear()
         self.inactive_agents.clear()
@@ -166,14 +170,12 @@ class VOXOrchestrator:
             if entry.instance is not None:
                 try:
                     await entry.instance.shutdown()
-                except Exception as e:
-                    self.logger.error(
-                        f"Capability shutdown failed [{cap_id}]: {e}"
-                    )
+                except Exception as e:  # noqa: BLE001 — defensive catch at fleet shutdown
+                    self.logger.error(f"Capability shutdown failed [{cap_id}]: {e}")
         if self.fleet_messenger is not None:
             try:
                 await self.fleet_messenger.shutdown()
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — defensive catch at fleet shutdown
                 self.logger.error(f"FleetMessenger shutdown failed: {e}")
         self.logger.ok("VOX fleet shut down.")
 
@@ -196,13 +198,9 @@ class VOXOrchestrator:
         ]
         all_agents = self._all_agents
         agents = [
-            agent.describe()
-            for agent in all_agents.values()
-            if not agent.master_id
+            agent.describe() for agent in all_agents.values() if not agent.master_id
         ]
-        degraded = [
-            agent.describe() for agent in self.degraded_agents.values()
-        ]
+        degraded = [agent.describe() for agent in self.degraded_agents.values()]
         hierarchy = self._graph.get_hierarchy_snapshot()
         return {
             "system": system,
@@ -301,9 +299,7 @@ class VOXOrchestrator:
     # Inbound message routing (temporary facade)
     # ------------------------------------------------------------------
 
-    async def dispatch_inbound_message(
-        self, source: str, payload: dict
-    ) -> None:
+    async def dispatch_inbound_message(self, source: str, payload: dict) -> None:
         try:
             payload = self._guardrail.sanitize(payload)
         except SecurityError:

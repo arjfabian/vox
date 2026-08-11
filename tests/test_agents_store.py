@@ -1,7 +1,6 @@
 import asyncio
 import os
 import time
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiosqlite
@@ -133,6 +132,7 @@ async def test_delete_nonexistent(store):
 
 class _RaisingResult:
     """Mimics aiosqlite.context.Result but raises on async with entry or await."""
+
     def __init__(self, exc):
         self._exc = exc
 
@@ -173,7 +173,9 @@ async def test_store_file_returns_none_on_error(tmp_path):
         _RaisingResult(Exception("db error")),
     ]
 
-    with patch("vox.agents.store.aiosqlite.connect", new_callable=MagicMock) as mock_connect:
+    with patch(
+        "vox.agents.store.aiosqlite.connect", new_callable=MagicMock
+    ) as mock_connect:
         mock_connect.return_value.__aenter__.return_value = mock_conn
         result = await store.store_file(b"data", "f.txt", "test", "text")
         assert result is None
@@ -199,13 +201,17 @@ async def test_store_file_insert_failure_cleans_up_file(tmp_path):
         _RaisingResult(Exception("simulated INSERT failure")),
     ]
 
-    with patch("vox.agents.store.aiosqlite.connect", new_callable=MagicMock) as mock_connect:
+    with patch(
+        "vox.agents.store.aiosqlite.connect", new_callable=MagicMock
+    ) as mock_connect:
         mock_connect.return_value.__aenter__.return_value = mock_conn
         result = await store.store_file(b"orphan-check", "orphan.txt", "test", "text")
         assert result is None
 
     after_files = set(os.listdir(assets_dir))
-    assert before_files == after_files, "No new file should remain on disk after a failed insert"
+    assert before_files == after_files, (
+        "No new file should remain on disk after a failed insert"
+    )
 
 
 @pytest.mark.asyncio
@@ -232,7 +238,9 @@ async def test_delete_file_failure_leaves_file_and_row(tmp_path):
         _RaisingResult(Exception("simulated DELETE failure")),
     ]
 
-    with patch("vox.agents.store.aiosqlite.connect", new_callable=MagicMock) as mock_connect:
+    with patch(
+        "vox.agents.store.aiosqlite.connect", new_callable=MagicMock
+    ) as mock_connect:
         mock_connect.return_value.__aenter__.return_value = mock_conn
         ok = await store.delete_file(asset_id)
         assert not ok, "delete_file should return False on DB failure"
@@ -263,11 +271,17 @@ async def test_store_file_concurrent_same_content_no_duplicate_rows(store):
     results_primary = [r for r in results if r is not None and not r.get("duplicate")]
 
     assert len(results_none) == 0, "No call should return None from a non-DB error"
-    assert len(results_primary) == 1, "Exactly one call should be the primary (non-duplicate)"
-    assert len(results_dup) == pool_size - 1, "All other calls should return duplicate=True"
+    assert len(results_primary) == 1, (
+        "Exactly one call should be the primary (non-duplicate)"
+    )
+    assert len(results_dup) == pool_size - 1, (
+        "All other calls should return duplicate=True"
+    )
     primary_id = results_primary[0]["id"]
     for r in results_dup:
-        assert r["id"] == primary_id, "Duplicate entries must reference the same asset_id"
+        assert r["id"] == primary_id, (
+            "Duplicate entries must reference the same asset_id"
+        )
 
     rows = await store.query("SELECT COUNT(*) AS cnt FROM asset_index")
     assert rows[0]["cnt"] == 1, "Only one row should exist in asset_index"
@@ -309,17 +323,39 @@ def _populate_duplicates(db_path, assets_dir, checksum, now):
             )
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_checksum ON asset_index(checksum)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_asset_type ON asset_index(asset_type)")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_asset_type ON asset_index(asset_type)"
+        )
         conn.execute("CREATE INDEX IF NOT EXISTS idx_name ON asset_index(name)")
         conn.execute(
             "INSERT INTO asset_index (id, archived_at, name, asset_type, origin, file_path, file_size, checksum, tags) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            ("keep-uuid", now - 10, "original.txt", "text", "test", "original.txt", 4, checksum, "[]"),
+            (
+                "keep-uuid",
+                now - 10,
+                "original.txt",
+                "text",
+                "test",
+                "original.txt",
+                4,
+                checksum,
+                "[]",
+            ),
         )
         conn.execute(
             "INSERT INTO asset_index (id, archived_at, name, asset_type, origin, file_path, file_size, checksum, tags) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            ("remove-uuid", now, "duplicate.txt", "text", "test", "duplicate.txt", 4, checksum, "[]"),
+            (
+                "remove-uuid",
+                now,
+                "duplicate.txt",
+                "text",
+                "test",
+                "duplicate.txt",
+                4,
+                checksum,
+                "[]",
+            ),
         )
         conn.commit()
     finally:
@@ -347,7 +383,9 @@ async def test_dedup_removes_duplicate_rows_and_files(dedup_env):
     assert len(rows) == 1
     assert rows[0]["id"] == "keep-uuid", "Earliest archived_at row should survive"
     assert (assets_dir / "original.txt").exists(), "Survivor file must exist"
-    assert not (assets_dir / "duplicate.txt").exists(), "Removed row's file must be deleted"
+    assert not (assets_dir / "duplicate.txt").exists(), (
+        "Removed row's file must be deleted"
+    )
 
     # Verify the unique index now exists by attempting a direct duplicate
     import sqlite3
@@ -358,7 +396,17 @@ async def test_dedup_removes_duplicate_rows_and_files(dedup_env):
             conn.execute(
                 "INSERT INTO asset_index (id, archived_at, name, asset_type, origin, file_path, file_size, checksum, tags) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                ("new-uuid", time.time(), "new.txt", "text", "test", "new.txt", 4, checksum, "[]"),
+                (
+                    "new-uuid",
+                    time.time(),
+                    "new.txt",
+                    "text",
+                    "test",
+                    "new.txt",
+                    4,
+                    checksum,
+                    "[]",
+                ),
             )
     finally:
         conn.close()
@@ -392,7 +440,9 @@ async def test_dedup_idempotent(dedup_env):
     )
     assert len(rows2) == 1
     assert rows2[0]["id"] == survivor_id_1, "Same row must survive after second init"
-    assert (assets_dir / rows2[0]["file_path"]).exists(), "Survivor file must still exist"
+    assert (assets_dir / rows2[0]["file_path"]).exists(), (
+        "Survivor file must still exist"
+    )
     assert not (assets_dir / "duplicate.txt").exists(), "Removed file must stay removed"
 
 
@@ -400,7 +450,7 @@ async def test_dedup_idempotent(dedup_env):
 async def test_init_no_duplicates(dedup_env):
     """A store without duplicate checksums initialises normally —
     no extra rows/files touched, index created."""
-    tmp_path, db_path, assets_dir = dedup_env
+    tmp_path, _db_path, _assets_dir = dedup_env
     store = VOXAgentStore(tmp_path)
     await store.init_db()
 
@@ -439,12 +489,14 @@ class _FailingAsyncConnection:
         self._real.row_factory = value
 
     def execute(self, sql, params=None):
-        if (self._fail_id is not None
-                and isinstance(sql, str)
-                and sql.strip().upper().startswith("DELETE")
-                and params is not None
-                and len(params) > 0
-                and params[0] == self._fail_id):
+        if (
+            self._fail_id is not None
+            and isinstance(sql, str)
+            and sql.strip().upper().startswith("DELETE")
+            and params is not None
+            and len(params) > 0
+            and params[0] == self._fail_id
+        ):
             return _RaisingResult(Exception("Simulated DELETE failure"))
         return self._real.execute(sql, params)
 
@@ -478,10 +530,10 @@ async def test_dedup_ordering_delete_failure_does_not_orphan_files(dedup_env):
 
     proxy = _FailingConnectProxy(db_path, "remove-uuid")
 
-    with patch("vox.agents.store.aiosqlite.connect", return_value=proxy):
-        with pytest.raises(Exception):
-            store = VOXAgentStore(tmp_path)
-            await store.init_db()
+    with patch("vox.agents.store.aiosqlite.connect", return_value=proxy), \
+         pytest.raises(Exception):  # noqa: B017 — proxy raises arbitrary errors by design
+        store = VOXAgentStore(tmp_path)
+        await store.init_db()
 
     # Verify state with a fresh (real) connection
     import sqlite3
@@ -532,31 +584,69 @@ async def test_dedup_two_groups_atomic_rollback(dedup_env):
             )
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_checksum ON asset_index(checksum)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_asset_type ON asset_index(asset_type)")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_asset_type ON asset_index(asset_type)"
+        )
         conn.execute("CREATE INDEX IF NOT EXISTS idx_name ON asset_index(name)")
         conn.execute(
             "INSERT INTO asset_index (id, archived_at, name, asset_type, origin, file_path, file_size, checksum, tags) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            ("keep-uuid-1", now, "g1_o.txt", "text", "test",
-             "g1_o.txt", 4, checksum1, "[]"),
+            (
+                "keep-uuid-1",
+                now,
+                "g1_o.txt",
+                "text",
+                "test",
+                "g1_o.txt",
+                4,
+                checksum1,
+                "[]",
+            ),
         )
         conn.execute(
             "INSERT INTO asset_index (id, archived_at, name, asset_type, origin, file_path, file_size, checksum, tags) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            ("remove-uuid-1", now + 60, "g1_d.txt", "text", "test",
-             "g1_d.txt", 4, checksum1, "[]"),
+            (
+                "remove-uuid-1",
+                now + 60,
+                "g1_d.txt",
+                "text",
+                "test",
+                "g1_d.txt",
+                4,
+                checksum1,
+                "[]",
+            ),
         )
         conn.execute(
             "INSERT INTO asset_index (id, archived_at, name, asset_type, origin, file_path, file_size, checksum, tags) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            ("keep-uuid-2", now + 120, "g2_o.txt", "text", "test",
-             "g2_o.txt", 4, checksum2, "[]"),
+            (
+                "keep-uuid-2",
+                now + 120,
+                "g2_o.txt",
+                "text",
+                "test",
+                "g2_o.txt",
+                4,
+                checksum2,
+                "[]",
+            ),
         )
         conn.execute(
             "INSERT INTO asset_index (id, archived_at, name, asset_type, origin, file_path, file_size, checksum, tags) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            ("remove-uuid-2", now + 180, "g2_d.txt", "text", "test",
-             "g2_d.txt", 4, checksum2, "[]"),
+            (
+                "remove-uuid-2",
+                now + 180,
+                "g2_d.txt",
+                "text",
+                "test",
+                "g2_d.txt",
+                4,
+                checksum2,
+                "[]",
+            ),
         )
         conn.commit()
     finally:
@@ -568,10 +658,10 @@ async def test_dedup_two_groups_atomic_rollback(dedup_env):
 
     proxy = _FailingConnectProxy(db_path, "remove-uuid-2")
 
-    with patch("vox.agents.store.aiosqlite.connect", return_value=proxy):
-        with pytest.raises(Exception):
-            store = VOXAgentStore(tmp_path)
-            await store.init_db()
+    with patch("vox.agents.store.aiosqlite.connect", return_value=proxy), \
+         pytest.raises(Exception):  # noqa: B017 — proxy raises arbitrary errors by design
+        store = VOXAgentStore(tmp_path)
+        await store.init_db()
 
     # Verify with a fresh connection
     check = sqlite3.connect(db_path)
@@ -589,9 +679,13 @@ async def test_dedup_two_groups_atomic_rollback(dedup_env):
         check.close()
 
     # Group 1: DELETE was rolled back by the SQL transaction — both rows exist.
-    assert len(rows1) == 2, "Group 1: both rows exist (SQL transaction rolled back the DELETE)"
+    assert len(rows1) == 2, (
+        "Group 1: both rows exist (SQL transaction rolled back the DELETE)"
+    )
     assert (assets_dir / "g1_o.txt").exists(), "Group 1 survivor file exists"
-    assert not (assets_dir / "g1_d.txt").exists(), "Group 1 removed-row file is gone (unlink not transactional)"
+    assert not (assets_dir / "g1_d.txt").exists(), (
+        "Group 1 removed-row file is gone (unlink not transactional)"
+    )
 
     # Group 2: DELETE never succeeded; both rows and files intact
     assert len(rows2) == 2, "Group 2: both rows exist (never processed)"
@@ -603,13 +697,19 @@ async def test_dedup_two_groups_atomic_rollback(dedup_env):
     await store.init_db()
 
     rows1 = await store.query(
-        "SELECT id FROM asset_index WHERE checksum = ?", (checksum1,),
+        "SELECT id FROM asset_index WHERE checksum = ?",
+        (checksum1,),
     )
     assert len(rows1) == 1, "Group 1 converges to 1 row after re-init"
     rows2 = await store.query(
-        "SELECT id FROM asset_index WHERE checksum = ?", (checksum2,),
+        "SELECT id FROM asset_index WHERE checksum = ?",
+        (checksum2,),
     )
     assert len(rows2) == 1, "Group 2 converges to 1 row after re-init"
 
-    assert (assets_dir / "g1_o.txt").exists(), "Group 1 survivor file still exists after re-init"
-    assert (assets_dir / "g2_o.txt").exists(), "Group 2 survivor file exists after re-init"
+    assert (assets_dir / "g1_o.txt").exists(), (
+        "Group 1 survivor file still exists after re-init"
+    )
+    assert (assets_dir / "g2_o.txt").exists(), (
+        "Group 2 survivor file exists after re-init"
+    )

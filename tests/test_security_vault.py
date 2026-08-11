@@ -1,10 +1,8 @@
 import os
 import uuid
+from pathlib import Path
 
 import pytest
-
-from pathlib import Path
-from unittest.mock import patch
 
 from vox.security.vault import AgentVault
 
@@ -22,6 +20,7 @@ def vault_dir():
     d.mkdir(parents=True, exist_ok=True)
     yield d
     import shutil
+
     if d.exists():
         shutil.rmtree(d)
 
@@ -130,7 +129,8 @@ async def test_fallback_to_config_only_when_no_db_entry(vault_dir):
     await v1.set("llm", "key", "from-vault")
 
     v2 = AgentVault(
-        vault_dir, "agent-uuid-1234",
+        vault_dir,
+        "agent-uuid-1234",
         config={"key": "from-env"},
     )
     value = await v2.get("llm", "key")

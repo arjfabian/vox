@@ -1,17 +1,15 @@
 import asyncio
 import json
-import os
 import unittest
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
-from vox.runtime.models import VOXRuntimeConfig, VOXRuntime
 from vox.runtime.control_plane import handle_control_command
 from vox.runtime.daemon import run_vox
 from vox.runtime.factory import build_vox
+from vox.runtime.models import VOXRuntime, VOXRuntimeConfig
 
 
 class TestVOXRuntimeConfig(unittest.TestCase):
-
     def test_default_uds_path(self):
         cfg = VOXRuntimeConfig()
         self.assertEqual(str(cfg.uds_path), "/tmp/vox.sock")
@@ -27,7 +25,6 @@ class TestVOXRuntimeConfig(unittest.TestCase):
 
 
 class TestVOXRuntime(unittest.TestCase):
-
     def test_api_server_required(self):
         server = MagicMock()
         runtime = VOXRuntime(
@@ -48,7 +45,6 @@ class TestVOXRuntime(unittest.TestCase):
 
 
 class TestBuildVox(unittest.TestCase):
-
     def setUp(self):
         self.config = MagicMock()
         self.config.log_path = "/tmp/vox-test.log"
@@ -73,7 +69,6 @@ class TestBuildVox(unittest.TestCase):
 
 
 class TestHandleControlCommand(unittest.TestCase):
-
     def setUp(self):
         self.runtime = MagicMock()
         self.logger = MagicMock()
@@ -82,11 +77,14 @@ class TestHandleControlCommand(unittest.TestCase):
         self.writer.wait_closed = AsyncMock()
         self.reader = AsyncMock()
 
-    async def _send_command(self, cmd: str, args: list[str] = None):
+    async def _send_command(self, cmd: str, args: list[str] | None = None):
         payload = json.dumps({"cmd": cmd, "args": args or []}) + "\n"
         self.reader.readline = AsyncMock(return_value=payload.encode())
         await handle_control_command(
-            self.reader, self.writer, self.runtime, self.logger,
+            self.reader,
+            self.writer,
+            self.runtime,
+            self.logger,
         )
 
     def _decode_response(self):
@@ -98,7 +96,9 @@ class TestHandleControlCommand(unittest.TestCase):
 
     def test_status_command(self):
         self.runtime.orchestrator.get_fleet_snapshot.return_value = {
-            "system": {}, "agents": [], "capabilities": [],
+            "system": {},
+            "agents": [],
+            "capabilities": [],
         }
         asyncio.run(self._send_command("status"))
         resp = self._decode_response()
@@ -171,23 +171,32 @@ class TestHandleControlCommand(unittest.TestCase):
 
     def test_empty_data_returns_cleanly(self):
         self.reader.readline = AsyncMock(return_value=b"")
-        asyncio.run(handle_control_command(
-            self.reader, self.writer, self.runtime, self.logger,
-        ))
+        asyncio.run(
+            handle_control_command(
+                self.reader,
+                self.writer,
+                self.runtime,
+                self.logger,
+            )
+        )
         self.writer.write.assert_not_called()
 
     def test_invalid_json_returns_error(self):
         self.reader.readline = AsyncMock(return_value=b"not json\n")
-        asyncio.run(handle_control_command(
-            self.reader, self.writer, self.runtime, self.logger,
-        ))
+        asyncio.run(
+            handle_control_command(
+                self.reader,
+                self.writer,
+                self.runtime,
+                self.logger,
+            )
+        )
         resp = self._decode_response()
         self.assertIsNotNone(resp)
         self.assertFalse(resp["ok"])
 
 
 class TestRunVox(unittest.TestCase):
-
     def setUp(self):
         self.runtime = MagicMock()
         self.runtime.orchestrator.boot = AsyncMock()
@@ -198,12 +207,15 @@ class TestRunVox(unittest.TestCase):
 
     def test_run_vox_boots_orchestrator(self):
         self.runtime.orchestrator.boot.return_value = True
-        with patch(
-            "vox.runtime.daemon.start_control_plane",
-            new=AsyncMock(),
-        ), patch(
-            "vox.runtime.daemon._keepalive",
-            new=AsyncMock(),
+        with (
+            patch(
+                "vox.runtime.daemon.start_control_plane",
+                new=AsyncMock(),
+            ),
+            patch(
+                "vox.runtime.daemon._keepalive",
+                new=AsyncMock(),
+            ),
         ):
             asyncio.run(run_vox(self.runtime, self.logger))
             self.runtime.orchestrator.boot.assert_awaited_once()
@@ -212,12 +224,15 @@ class TestRunVox(unittest.TestCase):
 
     def test_run_vox_exits_if_no_operative_agents(self):
         self.runtime.orchestrator.boot.return_value = False
-        with patch(
-            "vox.runtime.daemon.start_control_plane",
-            new=AsyncMock(),
-        ), patch(
-            "vox.runtime.daemon._keepalive",
-            new=AsyncMock(),
+        with (
+            patch(
+                "vox.runtime.daemon.start_control_plane",
+                new=AsyncMock(),
+            ),
+            patch(
+                "vox.runtime.daemon._keepalive",
+                new=AsyncMock(),
+            ),
         ):
             asyncio.run(run_vox(self.runtime, self.logger))
             self.runtime.orchestrator.shutdown.assert_awaited_once()

@@ -11,7 +11,7 @@ on state and lifecycle.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from vox.observability import VOXForensicLogger
 from vox.security import AgentVault
@@ -133,7 +133,9 @@ class CapabilityBinder:
                 handler = getattr(bound, method_name)
                 agent._capability_commands[cmd_name] = handler
                 agent.commands.add(cmd_name)
-                self.logger.info(f"  Exposed command: {cmd_name} (via {cap_id}.{method_name})")
+                self.logger.info(
+                    f"  Exposed command: {cmd_name} (via {cap_id}.{method_name})"
+                )
 
         missing = needed - set(agent.capabilities.keys())
         if missing:
@@ -218,4 +220,6 @@ class CapabilityBinder:
             requires = getattr(type(role), "REQUIRES", set())
             if cap_id in requires:
                 self._agent.roles.pop(role_name)
-                self.logger.warning(f"Role '{role_name}' disabled due to missing secrets")
+                self.logger.warning(
+                    f"Role '{role_name}' disabled due to missing secrets"
+                )

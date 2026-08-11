@@ -5,15 +5,14 @@ Merges CLI args, environment variables, and defaults
 into a final VOXConfig.
 """
 
+from .from_cli import VOXCliArgs
+from .from_env import VOXEnvConfig
 from .models import (
     DEFAULT_LOG_PATH,
     DEFAULT_UDS_PATH,
     DEFAULT_VERBOSE_LOGGING,
+    VOXConfig,
 )
-
-from .from_cli import VOXCliArgs
-from .from_env import VOXEnvConfig
-from .models import VOXConfig
 
 
 def resolve_config(
@@ -30,9 +29,7 @@ def resolve_config(
     war_room_id = env_config.war_room_id
 
     if not war_room_id:
-        raise ValueError(
-            "Missing required environment variable: VOX_WAR_ROOM_ID"
-        )
+        raise ValueError("Missing required environment variable: VOX_WAR_ROOM_ID")
 
     if cli_args.verbose is not None:
         verbose_logging = cli_args.verbose

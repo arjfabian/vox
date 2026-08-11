@@ -8,12 +8,9 @@ of the running fleet.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from vox.observability import VOXForensicLogger
-
-if TYPE_CHECKING:
-    from vox.agents import VOXAgent
 
 
 class AgentGraph:
@@ -72,6 +69,5 @@ class AgentGraph:
 
     def get_children(self, agent_id: str) -> list[Any]:
         return [
-            agent for agent in self.all_agents.values()
-            if agent.master_id == agent_id
+            agent for agent in self.all_agents.values() if agent.master_id == agent_id
         ]

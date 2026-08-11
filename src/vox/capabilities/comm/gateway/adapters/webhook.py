@@ -19,7 +19,6 @@ logger = logging.getLogger(__name__)
 
 
 class WebhookAdapter(BaseAdapter):
-
     CHANNEL = "webhook"
 
     def __init__(self, config: dict) -> None:
@@ -34,6 +33,7 @@ class WebhookAdapter(BaseAdapter):
             return True
         token = request.headers.get("X-Webhook-Secret", "")
         import hmac as _hmac
+
         return _hmac.compare_digest(token, self._webhook_secret)
 
     def parse_inbound(self, raw_data: dict) -> VOXInboundMessage:
@@ -96,7 +96,21 @@ class WebhookAdapter(BaseAdapter):
 
     @staticmethod
     def _extract_metadata(data: dict) -> dict[str, Any]:
-        excluded = {"id", "text", "message", "body", "content", "sender_id",
-                     "from", "sender", "user_id", "media_url", "image_url",
-                     "file_url", "event_type", "type", "event_id"}
+        excluded = {
+            "id",
+            "text",
+            "message",
+            "body",
+            "content",
+            "sender_id",
+            "from",
+            "sender",
+            "user_id",
+            "media_url",
+            "image_url",
+            "file_url",
+            "event_type",
+            "type",
+            "event_id",
+        }
         return {k: v for k, v in data.items() if k not in excluded}

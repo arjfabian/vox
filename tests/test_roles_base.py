@@ -3,11 +3,10 @@ import gc
 import unittest
 from unittest.mock import MagicMock
 
-from vox.roles.base import VOXRole, AgentHostDeadError
+from vox.roles.base import AgentHostDeadError, VOXRole
 
 
 class TestVOXRole(unittest.TestCase):
-
     def setUp(self):
         self.agent = MagicMock()
         self.role = VOXRole(self.agent)

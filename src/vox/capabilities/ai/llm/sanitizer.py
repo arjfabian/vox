@@ -10,7 +10,6 @@ import re
 
 from .models import SanitizedPrompt
 
-
 _CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 _MULTILINE_BLANK = re.compile(r"\n{3,}")
 _BOILERPLATE_PREFIXES = (
@@ -30,7 +29,7 @@ def _strip_boilerplate(text: str) -> str:
     lowered = text.lower().strip()
     for prefix in _BOILERPLATE_PREFIXES:
         if lowered.startswith(prefix):
-            tail = text[len(prefix):].lstrip(",.;:!?\n ")
+            tail = text[len(prefix) :].lstrip(",.;:!?\n ")
             return tail
     return text
 
@@ -53,7 +52,7 @@ def _collapse_json(text: str) -> str:
     spans = _find_json_blocks(text)
     if not spans:
         return text
-        
+
     out, last = [], 0
     for start, end in spans:
         out.append(text[last:start])

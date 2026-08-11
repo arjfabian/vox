@@ -7,8 +7,9 @@ need speaker verification (e.g. comm.gateway).
 """
 
 import io
+
 import numpy as np
-from typing import Optional
+
 from vox.observability import VOXForensicLogger
 
 _SIMILARITY_THRESHOLD = 0.7
@@ -20,7 +21,7 @@ class VOXSpeakerProfile:
     """
 
     def __init__(self, identity_dir: str, logger: VOXForensicLogger) -> None:
-        self._embedding: Optional[np.ndarray] = None
+        self._embedding: np.ndarray | None = None
         self._identity_dir = identity_dir
         self._logger = logger
 
@@ -41,7 +42,7 @@ class VOXSpeakerProfile:
             self._embedding = np.load(path)
             self._logger.ok(f"Speaker profile loaded from '{path}'.")
             return True
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — profile load failure returns False
             self._logger.error(f"Failed to load speaker profile: {e}")
             return False
 
@@ -49,8 +50,8 @@ class VOXSpeakerProfile:
         if not self.is_enrolled or not audio_bytes:
             return False
         try:
-            from resemblyzer import VoiceEncoder, preprocess_wav
             import soundfile as sf
+            from resemblyzer import VoiceEncoder, preprocess_wav
 
             audio_data, sample_rate = sf.read(io.BytesIO(audio_bytes))
             wav = preprocess_wav(audio_data, source_sr=sample_rate)
@@ -59,7 +60,7 @@ class VOXSpeakerProfile:
             similarity = self._cosine_similarity(self._embedding, embedding)
             self._logger.info(f"Speaker similarity score: {similarity:.3f}")
             return similarity >= _SIMILARITY_THRESHOLD
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — verification failure returns False
             self._logger.error(f"Speaker verification error: {e}")
             return False
 

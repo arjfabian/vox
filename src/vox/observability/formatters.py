@@ -17,7 +17,6 @@ def _source_tag(record: logging.LogRecord) -> str:
 
 
 class VOXColorFormatter(logging.Formatter):
-
     _RESET = "\x1b[0m"
 
     _GREY = "\x1b[90;20m"
@@ -29,6 +28,7 @@ class VOXColorFormatter(logging.Formatter):
     _BOLD_RED = "\x1b[31;1m"
     _BOLD_PINK = "\x1b[35;1m"
 
+    # noqa: RUF012 — immutable color mapping; intentionally shared, never mutated.
     _LEVEL_COLORS = {
         logging.DEBUG: _GREY,
         logging.INFO: _WHITE,
@@ -39,9 +39,7 @@ class VOXColorFormatter(logging.Formatter):
     }
 
     def format(self, record: logging.LogRecord) -> str:
-        timestamp = datetime.fromtimestamp(
-            record.created
-        ).strftime("%Y-%m-%d %H:%M:%S")
+        timestamp = datetime.fromtimestamp(record.created).strftime("%Y-%m-%d %H:%M:%S")  # noqa: DTZ006 — log formatting, local time intentional
 
         level_color = self._LEVEL_COLORS.get(
             record.levelno,
@@ -58,15 +56,9 @@ class VOXColorFormatter(logging.Formatter):
 
 
 class VOXPlainFormatter(logging.Formatter):
-
     def format(self, record: logging.LogRecord) -> str:
-        timestamp = datetime.fromtimestamp(
-            record.created
-        ).strftime("%Y-%m-%d %H:%M:%S")
+        timestamp = datetime.fromtimestamp(record.created).strftime("%Y-%m-%d %H:%M:%S")  # noqa: DTZ006 — log formatting, local time intentional
 
         tag = _source_tag(record)
 
-        return (
-            f"{timestamp} [{record.levelname}] "
-            f"[{tag}] {record.getMessage()}"
-        )
+        return f"{timestamp} [{record.levelname}] [{tag}] {record.getMessage()}"

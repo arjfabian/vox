@@ -4,6 +4,7 @@ Parses config, bootstraps observability, then builds and runs the VOX
 runtime.  Invoked by the ``vox`` console-script (``main()``) or
 ``python -m vox`` (via :mod:`vox.__main__`).
 """
+
 import asyncio
 import json
 import logging
@@ -56,7 +57,9 @@ async def _main() -> None:
     cli_args = load_cli_args()
     if cli_args.command:
         try:
-            resp = await _send_uds_command(cli_args.command, [cli_args.agent_name] if cli_args.agent_name else [])
+            resp = await _send_uds_command(
+                cli_args.command, [cli_args.agent_name] if cli_args.agent_name else []
+            )
             if resp.get("ok"):
                 print(resp["data"])
             else:
@@ -88,9 +91,7 @@ async def _main() -> None:
 
     # Human-friendly color output to stdout.
     console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setFormatter(
-        VOXColorFormatter()
-    )
+    console_handler.setFormatter(VOXColorFormatter())
 
     # Machine-friendly plain-text file for forensic analysis.
     file_handler = logging.FileHandler(

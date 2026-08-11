@@ -1,7 +1,7 @@
-from .base import VOXRole, CommandInfo, command
+from .base import CommandInfo, VOXRole, command
 
 __all__ = [
-    "VOXRole",
     "CommandInfo",
+    "VOXRole",
     "command",
 ]

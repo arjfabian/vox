@@ -9,12 +9,12 @@ from __future__ import annotations
 
 import importlib
 import os
-import yaml
-
 from dataclasses import dataclass
-from dotenv import dotenv_values
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
+
+import yaml
+from dotenv import dotenv_values
 
 from vox.agents import VOXAgent
 from vox.capabilities import VOXCapability
@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 class CapabilityEntry:
     cls: type
     healthy: bool
-    instance: Optional[VOXCapability] = None
+    instance: VOXCapability | None = None
 
 
 class VOXRegistry:
@@ -72,20 +72,21 @@ class VOXRegistry:
         capability_id: str,
         capability_file: Path,
     ) -> bool:
-        module_name = (
-            "vox.capabilities."
-            + ".".join(
-                capability_file.relative_to(self._orc.capabilities_dir)
-                .with_suffix("").parts
-            )
+        module_name = "vox.capabilities." + ".".join(
+            capability_file.relative_to(self._orc.capabilities_dir)
+            .with_suffix("")
+            .parts
         )
         try:
             module = importlib.import_module(module_name)
             capability_class = next(
-                (obj for obj in module.__dict__.values()
-                 if isinstance(obj, type)
-                 and issubclass(obj, VOXCapability)
-                 and obj is not VOXCapability),
+                (
+                    obj
+                    for obj in module.__dict__.values()
+                    if isinstance(obj, type)
+                    and issubclass(obj, VOXCapability)
+                    and obj is not VOXCapability
+                ),
                 None,
             )
             if capability_class is None:
@@ -94,19 +95,16 @@ class VOXRegistry:
                 )
             healthy = await capability_class.health_check()
             self._orc.capability_registry[capability_id] = CapabilityEntry(
-                cls=capability_class, healthy=healthy,
+                cls=capability_class,
+                healthy=healthy,
             )
             if healthy:
                 self._logger.ok(f"Capability discovered: [{capability_id}]")
             else:
-                self._logger.error(
-                    f"Capability [{capability_id}] failed health check"
-                )
+                self._logger.error(f"Capability [{capability_id}] failed health check")
             return healthy
-        except Exception as exc:
-            self._logger.error(
-                f"Failed to load capability [{capability_id}]: {exc}"
-            )
+        except Exception as exc:  # noqa: BLE001 — capability load failure is non-fatal
+            self._logger.error(f"Failed to load capability [{capability_id}]: {exc}")
             return False
 
     def get_capability_instance(self, cap_id: str) -> VOXCapability | None:
@@ -115,7 +113,9 @@ class VOXRegistry:
             self._logger.error(f"Capability [{cap_id}] not found in registry")
             return None
         if not entry.healthy:
-            self._logger.error(f"Capability [{cap_id}] is unhealthy \u2014 cannot mount")
+            self._logger.error(
+                f"Capability [{cap_id}] is unhealthy \u2014 cannot mount"
+            )
             return None
         if entry.instance is not None:
             return entry.instance
@@ -145,14 +145,16 @@ class VOXRegistry:
                 continue
             try:
                 data = yaml.safe_load(manifest_path.read_text()) or {}
-                agent_specs.append({
-                    "folder": agent_folder,
-                    "id": data.get("id"),
-                    "master_id": data.get("master_id"),
-                    "autostart": data.get("autostart", False),
-                    "name": data.get("name"),
-                })
-            except Exception as e:
+                agent_specs.append(
+                    {
+                        "folder": agent_folder,
+                        "id": data.get("id"),
+                        "master_id": data.get("master_id"),
+                        "autostart": data.get("autostart", False),
+                        "name": data.get("name"),
+                    }
+                )
+            except Exception as e:  # noqa: BLE001 — defensive catch at manifest parse
                 self._logger.error(f"Failed parsing {agent_folder}: {e}")
         agents_by_id = {}
         for spec in agent_specs:
@@ -183,8 +185,8 @@ class VOXRegistry:
                     if agent._degraded or not agent.health_check():
                         self._orc.degraded_agents[agent.id] = agent
                         agent.logger.warning(
-                            f"Agent DEGRADED \u2014 No active roles available. "
-                            f"Skipping onboarding."
+                            "Agent DEGRADED \u2014 No active roles available. "
+                            "Skipping onboarding."
                         )
                     elif spec["autostart"]:
                         ok = await agent.boot()
@@ -247,6 +249,6 @@ class VOXRegistry:
                 global_env=global_env,
             )
             return agent
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — defensive catch at agent hire
             self._logger.error(f"hire_agent failed for {folder}: {e}")
             return None

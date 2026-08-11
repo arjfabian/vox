@@ -11,9 +11,10 @@ from .models import EmailConfig
 
 
 class EmailCapability(VOXCapability):
-
     CAPABILITY_NAME = "comm.email"
 
+    # noqa: RUF012 — mutable defaults are intentional; each agent binding may
+    # override PARAMS with its own SMTP credentials.
     PARAMS = {
         "SMTP_HOST": ["SMTP server hostname", None],
         "SMTP_PORT": ["SMTP server port", 587],

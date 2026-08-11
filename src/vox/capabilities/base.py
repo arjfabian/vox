@@ -8,21 +8,23 @@ A capability is split into:
 
 import inspect
 from pathlib import Path
-from typing import Any, Dict, List, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from vox.agents.base import VOXAgent
+    from vox.observability import VOXForensicLogger
 
 
-EXPLAIN_WIDTH   = 60
+EXPLAIN_WIDTH = 60
 PARAM_COL_WIDTH = 22
-DESC_COL_WIDTH  = 35
+DESC_COL_WIDTH = 35
 
 
 class VOXCapability:
-
     CAPABILITY_NAME: str = ""
-    PARAMS: Dict[str, List[Any]] = {}
+    # noqa: RUF012 — mutable defaults are intentional; subclasses override per-agent,
+    # and ClassVar would prevent per-instance overrides (e.g. Telegram vs WhatsApp params).
+    PARAMS: dict[str, list[Any]] = {}
     SENSITIVE_PARAMS: set[str] = set()
 
     id: str
@@ -33,13 +35,13 @@ class VOXCapability:
         return self.CAPABILITY_NAME or self.__class__.__name__
 
     @classmethod
-    def get_params(cls) -> List[str]:
+    def get_params(cls) -> list[str]:
         return list(cls.PARAMS.keys())
 
     @classmethod
     def explain_config(cls) -> str:
         header = f" Requirements for '{cls.__name__}'"
-        lines  = [f"\n{header:=^{EXPLAIN_WIDTH}}"]
+        lines = [f"\n{header:=^{EXPLAIN_WIDTH}}"]
         for param, (desc, default) in cls.PARAMS.items():
             status = f"[Default: {default}]" if default is not None else "[REQUIRED]"
             lines.append(
@@ -61,27 +63,28 @@ class VOXCapability:
     def mount(
         self,
         agent: "VOXAgent",
-        config: Dict[str, Any],
+        config: dict[str, Any],
     ) -> "VOXBoundCapability":
-        extracted: Dict[str, Any] = {}
+        extracted: dict[str, Any] = {}
         for param, (_, default) in self.PARAMS.items():
-            extracted[param] = config.get(param) if config.get(param) is not None else default
+            extracted[param] = (
+                config.get(param) if config.get(param) is not None else default
+            )
         return VOXBoundCapability(self, agent, extracted)
 
 
 class VOXBoundCapability:
-
     def __init__(
         self,
         capability: VOXCapability,
         agent: "VOXAgent",
-        params: Dict[str, Any],
+        params: dict[str, Any],
     ) -> None:
-        object.__setattr__(self, "_capability",     capability)
-        object.__setattr__(self, "_agent",          agent)
-        object.__setattr__(self, "_params",         params)
+        object.__setattr__(self, "_capability", capability)
+        object.__setattr__(self, "_agent", agent)
+        object.__setattr__(self, "_params", params)
         object.__setattr__(self, "_instance_attrs", {})
-        object.__setattr__(self, "_frozen",         False)
+        object.__setattr__(self, "_frozen", False)
 
     def log(self, message: str) -> None:
         self.logger.info(f"[{self.name}] {message}")
@@ -120,11 +123,14 @@ class VOXBoundCapability:
         if raw is None:
             return attr
         if inspect.iscoroutinefunction(raw):
+
             async def _wrapper(*args: Any, **kwargs: Any) -> Any:
                 return await raw(self, *args, **kwargs)
         else:
+
             def _wrapper(*args: Any, **kwargs: Any) -> Any:
                 return raw(self, *args, **kwargs)
+
         return _wrapper
 
     def get_safe_path(self, sub_dir: str, filename: str) -> "Path":
@@ -145,7 +151,8 @@ class VOXBoundCapability:
 
     def validate_params(self) -> list[str]:
         return [
-            param for param, (_, default) in self._capability.PARAMS.items()
+            param
+            for param, (_, default) in self._capability.PARAMS.items()
             if self._params.get(param) is None and default is None
         ]
 

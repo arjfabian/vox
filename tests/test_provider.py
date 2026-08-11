@@ -4,9 +4,8 @@ from vox.provider import CapabilityProviderProtocol
 
 
 class TestCapabilityProviderProtocol(unittest.TestCase):
-
     def test_is_runtime_checkable(self):
-        from typing import runtime_checkable
+
         self.assertTrue(hasattr(CapabilityProviderProtocol, "__instancecheck__"))
 
     def test_protocol_methods_exist(self):
@@ -26,7 +25,9 @@ class TestCapabilityProviderProtocol(unittest.TestCase):
             def get_children(self, agent_id: str) -> list:
                 return []
 
-            async def dispatch_inbound_message(self, source: str, payload: dict) -> None:
+            async def dispatch_inbound_message(
+                self, source: str, payload: dict
+            ) -> None:
                 pass
 
         self.assertIsInstance(FakeProvider(), CapabilityProviderProtocol)

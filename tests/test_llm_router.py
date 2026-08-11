@@ -1,11 +1,10 @@
 import unittest
 
 from vox.capabilities.ai.llm.models import SanitizedPrompt
-from vox.capabilities.ai.llm.router import Router, ComplexityClass
+from vox.capabilities.ai.llm.router import ComplexityClass, Router
 
 
 class TestRouter(unittest.TestCase):
-
     def setUp(self):
         self.router = Router(
             local_model="llama3.2:3b",
@@ -15,8 +14,11 @@ class TestRouter(unittest.TestCase):
 
     def _prompt(self, text: str, truncated: bool = False) -> SanitizedPrompt:
         return SanitizedPrompt(
-            text=text, original_length=len(text),
-            trimmed_length=len(text), tokens_saved=0, truncated=truncated,
+            text=text,
+            original_length=len(text),
+            trimmed_length=len(text),
+            tokens_saved=0,
+            truncated=truncated,
         )
 
     def test_simple_prompt_routes_local(self):
@@ -36,9 +38,7 @@ class TestRouter(unittest.TestCase):
         self.assertEqual(decision.backend, ComplexityClass.COMPLEX)
 
     def test_single_keyword_stays_local(self):
-        decision = self.router.decide(
-            self._prompt("explain this concept")
-        )
+        decision = self.router.decide(self._prompt("explain this concept"))
         self.assertEqual(decision.backend, ComplexityClass.SIMPLE)
 
     def test_force_cloud(self):
@@ -55,7 +55,8 @@ class TestRouter(unittest.TestCase):
 
     def test_system_prompt_contributes_to_length(self):
         decision = self.router.decide(
-            self._prompt("hi"), system="A" * 600,
+            self._prompt("hi"),
+            system="A" * 600,
         )
         self.assertEqual(decision.backend, ComplexityClass.COMPLEX)
 

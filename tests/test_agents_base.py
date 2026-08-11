@@ -1,17 +1,15 @@
 import asyncio
+import os
 import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
-import os
-
-from vox.agents.base import VOXAgent, AgentProvisionError
+from vox.agents.base import AgentProvisionError, VOXAgent
 from vox.agents.lifecycle import AgentState
 from vox.capabilities.base import VOXCapability
 
 
 class TestVOXAgentInit(unittest.TestCase):
-
     def setUp(self):
         self.tmp = Path("/tmp") / f"test_vox_agent_{id(self)}"
         (self.tmp / "roles").mkdir(parents=True, exist_ok=True)
@@ -21,6 +19,7 @@ class TestVOXAgentInit(unittest.TestCase):
 
     def tearDown(self):
         import shutil
+
         if self.tmp.exists():
             shutil.rmtree(self.tmp)
 
@@ -81,7 +80,6 @@ class TestVOXAgentInit(unittest.TestCase):
 
 
 class TestVOXAgentManifest(unittest.TestCase):
-
     def setUp(self):
         self.tmp = Path("/tmp") / f"test_vox_manifest_{id(self)}"
         (self.tmp / "roles").mkdir(parents=True, exist_ok=True)
@@ -90,6 +88,7 @@ class TestVOXAgentManifest(unittest.TestCase):
 
     def tearDown(self):
         import shutil
+
         if self.tmp.exists():
             shutil.rmtree(self.tmp)
 
@@ -142,7 +141,6 @@ class _MessengerMockMixin:
 
 
 class TestVOXAgentStateTransitions(_MessengerMockMixin, unittest.TestCase):
-
     def setUp(self):
         self.tmp = Path("/tmp") / f"test_vox_state_{id(self)}"
         (self.tmp / "roles").mkdir(parents=True, exist_ok=True)
@@ -155,6 +153,7 @@ class TestVOXAgentStateTransitions(_MessengerMockMixin, unittest.TestCase):
 
     def tearDown(self):
         import shutil
+
         if self.tmp.exists():
             shutil.rmtree(self.tmp)
 
@@ -188,7 +187,6 @@ class TestVOXAgentStateTransitions(_MessengerMockMixin, unittest.TestCase):
 
 
 class TestVOXAgentSafePath(_MessengerMockMixin, unittest.TestCase):
-
     def setUp(self):
         self.tmp = Path("/tmp") / f"test_vox_path_{id(self)}"
         (self.tmp / "roles").mkdir(parents=True, exist_ok=True)
@@ -201,6 +199,7 @@ class TestVOXAgentSafePath(_MessengerMockMixin, unittest.TestCase):
 
     def tearDown(self):
         import shutil
+
         if self.tmp.exists():
             shutil.rmtree(self.tmp)
 
@@ -215,14 +214,11 @@ class TestVOXAgentSafePath(_MessengerMockMixin, unittest.TestCase):
 
 
 class TestVOXAgentBootCapabilities(unittest.TestCase):
-
     def setUp(self):
         self.tmp = Path("/tmp") / f"test_vox_boot_{id(self)}"
         (self.tmp / "roles").mkdir(parents=True, exist_ok=True)
         (self.tmp / "agent.yml").write_text("name: TestAgent\nid: test-uuid-1234\n")
-        (self.tmp / "roles" / "chat.py").write_text(
-            'REQUIRES = {"test_cap"}\n'
-        )
+        (self.tmp / "roles" / "chat.py").write_text('REQUIRES = {"test_cap"}\n')
         self.logger = MagicMock()
         self.orchestrator = MagicMock()
         self.mock_cap = MagicMock()
@@ -236,6 +232,7 @@ class TestVOXAgentBootCapabilities(unittest.TestCase):
 
     def tearDown(self):
         import shutil
+
         if self.tmp.exists():
             shutil.rmtree(self.tmp)
 
@@ -256,21 +253,19 @@ class TestVOXAgentBootCapabilities(unittest.TestCase):
 
 
 class TestVOXAgentDegradedParams(unittest.TestCase):
-
     def setUp(self):
         self.tmp = Path("/tmp") / f"test_vox_degraded_{id(self)}"
         (self.tmp / "roles").mkdir(parents=True, exist_ok=True)
         (self.tmp / "agent.yml").write_text(
             "name: TestAgent\nid: test-uuid-5678\nautostart: false\n"
         )
-        (self.tmp / "roles" / "chat.py").write_text(
-            'REQUIRES = {"strict_cap"}\n'
-        )
+        (self.tmp / "roles" / "chat.py").write_text('REQUIRES = {"strict_cap"}\n')
         self.logger = MagicMock()
         self.orchestrator = MagicMock()
 
         class _StrictCap(VOXCapability):
             CAPABILITY_NAME = "strict_cap"
+            # noqa: RUF012 — test-local override, intentionally mutable.
             PARAMS = {"API_KEY": ["Required API key", None]}
 
         self.cap = _StrictCap()
@@ -280,6 +275,7 @@ class TestVOXAgentDegradedParams(unittest.TestCase):
 
     def tearDown(self):
         import shutil
+
         if self.tmp.exists():
             shutil.rmtree(self.tmp)
 
@@ -303,6 +299,7 @@ class TestVOXAgentDegradedParams(unittest.TestCase):
             if cap_id == "missing_cap":
                 return None
             return self.cap
+
         self.orchestrator.get_capability_instance.side_effect = _get_cap
 
         agent = VOXAgent(self.tmp, self.logger, self.orchestrator)
@@ -314,16 +311,17 @@ class TestVOXAgentDegradedParams(unittest.TestCase):
 
 class _SensitiveCapForTest(VOXCapability):
     CAPABILITY_NAME = "sensitive_cap"
+    # noqa: RUF012 — test-local override, intentionally mutable.
     SENSITIVE_PARAMS = {"API_KEY"}
 
 
 class _PlainCapForTest(VOXCapability):
     CAPABILITY_NAME = "plain_cap"
+    # noqa: RUF012 — test-local override, intentionally mutable.
     SENSITIVE_PARAMS = set()
 
 
 class TestVOXAgentVaultFailFast(_MessengerMockMixin, unittest.TestCase):
-
     def setUp(self):
         self.tmp = Path("/tmp") / f"test_vox_vault_fail_{id(self)}"
         (self.tmp / "roles").mkdir(parents=True, exist_ok=True)
@@ -337,13 +335,12 @@ class TestVOXAgentVaultFailFast(_MessengerMockMixin, unittest.TestCase):
         if self._saved_key is not None:
             os.environ["VOX_MASTER_KEY"] = self._saved_key
         import shutil
+
         if self.tmp.exists():
             shutil.rmtree(self.tmp)
 
     def test_boot_fails_when_vault_missing_with_sensitive_params(self):
-        (self.tmp / "roles" / "chat.py").write_text(
-            'REQUIRES = {"sensitive_cap"}\n'
-        )
+        (self.tmp / "roles" / "chat.py").write_text('REQUIRES = {"sensitive_cap"}\n')
 
         sensitive_cap = _SensitiveCapForTest()
         sensitive_cap.id = "sensitive_cap"
@@ -353,6 +350,7 @@ class TestVOXAgentVaultFailFast(_MessengerMockMixin, unittest.TestCase):
             if cap_id == "comm.gateway":
                 return self.mock_messenger_cap
             return sensitive_cap
+
         self.orchestrator.get_capability_instance.side_effect = _get_cap
 
         agent = VOXAgent(self.tmp, self.logger, self.orchestrator)
@@ -361,9 +359,7 @@ class TestVOXAgentVaultFailFast(_MessengerMockMixin, unittest.TestCase):
         self.assertEqual(agent.state, AgentState.FAILED)
 
     def test_boot_succeeds_without_vault_when_no_sensitive_params(self):
-        (self.tmp / "roles" / "chat.py").write_text(
-            'REQUIRES = {"plain_cap"}\n'
-        )
+        (self.tmp / "roles" / "chat.py").write_text('REQUIRES = {"plain_cap"}\n')
 
         plain_cap = _PlainCapForTest()
         plain_cap.id = "plain_cap"
@@ -373,6 +369,7 @@ class TestVOXAgentVaultFailFast(_MessengerMockMixin, unittest.TestCase):
             if cap_id == "comm.gateway":
                 return self.mock_messenger_cap
             return plain_cap
+
         self.orchestrator.get_capability_instance.side_effect = _get_cap
 
         agent = VOXAgent(self.tmp, self.logger, self.orchestrator)

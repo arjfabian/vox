@@ -7,10 +7,10 @@ Each call reads fresh from disk to support hot-reload scenarios where
 the manifest may have changed.
 """
 
-import yaml
 from pathlib import Path
 from typing import Any
 
+import yaml
 from dotenv import dotenv_values
 
 from vox.observability import VOXForensicLogger
@@ -18,7 +18,7 @@ from vox.observability import VOXForensicLogger
 
 class AgentProvisionError(Exception):
     """Raised when agent configuration or identity validation fails."""
-    pass
+
 
 
 class AgentLoader:
@@ -30,16 +30,17 @@ class AgentLoader:
     the agent runtime.
     """
 
+    # noqa: RUF012 — immutable schema definition; intentionally shared, never mutated.
     MANIFEST_SCHEMA: dict[str, tuple] = {
-        "name":                   (str,   True,  "Agent display name"),
-        "id":                     (str,   True,  "Unique agent UUID"),
-        "master_id":              (str,   False, "Parent agent UUID (empty = root)"),
-        "autostart":              (bool,  False, "Start on orchestrator boot"),
-        "conversational":         (bool,  False, "Allow free-form LLM conversation"),
-        "roles":                  (list,  False, "Explicit role allow-list"),
-        "personality":            (dict,  False, "Personality config dict"),
-        "rate_limit_max_calls":   (int,   False, "Max events per rate-limit window"),
-        "rate_limit_window":      (int,   False, "Rate-limit window in seconds"),
+        "name": (str, True, "Agent display name"),
+        "id": (str, True, "Unique agent UUID"),
+        "master_id": (str, False, "Parent agent UUID (empty = root)"),
+        "autostart": (bool, False, "Start on orchestrator boot"),
+        "conversational": (bool, False, "Allow free-form LLM conversation"),
+        "roles": (list, False, "Explicit role allow-list"),
+        "personality": (dict, False, "Personality config dict"),
+        "rate_limit_max_calls": (int, False, "Max events per rate-limit window"),
+        "rate_limit_window": (int, False, "Rate-limit window in seconds"),
     }
 
     def __init__(
@@ -80,20 +81,22 @@ class AgentLoader:
             with open(manifest_path, "r") as f:
                 data = yaml.safe_load(f) or {}
             self._validate_manifest(data)
-            config.update({
-                "name": data.get("name"),
-                "id": data.get("id"),
-                "master_id": data.get("master_id"),
-                "autostart": data.get("autostart", False),
-                "roles": data.get("roles", []),
-                "personality": data.get("personality", {}),
-                "rate_limit_max_calls": data.get("rate_limit_max_calls", 30),
-                "rate_limit_window": data.get("rate_limit_window", 60),
-            })
+            config.update(
+                {
+                    "name": data.get("name"),
+                    "id": data.get("id"),
+                    "master_id": data.get("master_id"),
+                    "autostart": data.get("autostart", False),
+                    "roles": data.get("roles", []),
+                    "personality": data.get("personality", {}),
+                    "rate_limit_max_calls": data.get("rate_limit_max_calls", 30),
+                    "rate_limit_window": data.get("rate_limit_window", 60),
+                }
+            )
             return True
         except AgentProvisionError:
             raise
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — defensive catch at manifest parse boundary
             self._logger.error(f"Manifest load error: {e}")
             return False
 
@@ -116,8 +119,7 @@ class AgentLoader:
             warnings.append(f"Unknown field '{field}' in agent.yml")
         if errors:
             raise AgentProvisionError(
-                f"Manifest validation failed for {self._dir.name}: "
-                + "; ".join(errors)
+                f"Manifest validation failed for {self._dir.name}: " + "; ".join(errors)
             )
         for w in warnings:
             self._logger.warning(f"[manifest] {w}")
@@ -130,7 +132,7 @@ class AgentLoader:
             env_data = dotenv_values(dotenv_path)
             config.update(env_data)
             return True
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — defensive catch at env load boundary
             self._logger.error(f"Env load error: {e}")
             return False
 

@@ -42,7 +42,7 @@ class FleetMessenger:
             )
             resp.raise_for_status()
             return True
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — HTTP send failure returns False
             self.logger.error(f"FleetMessenger send failed: {exc}")
             return False
 

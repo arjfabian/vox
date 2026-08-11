@@ -1,4 +1,4 @@
-import time
+import asyncio
 
 import pytest
 
@@ -60,7 +60,7 @@ async def test_get_recent_respects_limit(memory):
 @pytest.mark.asyncio
 async def test_get_recent_orders_by_timestamp_desc(memory):
     await memory.record("type", "first")
-    time.sleep(0.01)
+    await asyncio.sleep(0.01)
     await memory.record("type", "second")
     recent = await memory.get_recent(limit=10)
     assert recent[0]["action"] == "second"
@@ -81,7 +81,7 @@ async def test_get_thread_by_ref_id(memory):
 async def test_get_thread_orders_by_timestamp_asc(memory):
     ref = "thread-2"
     await memory.record("type", "first", ref_id=ref)
-    time.sleep(0.01)
+    await asyncio.sleep(0.01)
     await memory.record("type", "second", ref_id=ref)
     thread = await memory.get_thread(ref)
     assert thread[0]["action"] == "first"

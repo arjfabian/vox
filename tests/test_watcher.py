@@ -50,6 +50,7 @@ class TestAgentFileWatcherStandalone(unittest.TestCase):
 
     def tearDown(self):
         import shutil
+
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def _make_orchestrator(self):
@@ -121,6 +122,7 @@ class TestFileWatcherHotRestart(unittest.TestCase):
 
     def tearDown(self):
         import shutil
+
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     async def _run_watcher_test(self, interval: float = 0.1):
@@ -156,6 +158,7 @@ class TestFileWatcherHotRestart(unittest.TestCase):
             agent = orc.active_agents.get("test-watcher-uuid")
             self.assertIsNotNone(agent, "Agent should be active after restart")
             self.assertEqual(agent.name, "TestAgent")
+
         asyncio.run(run())
 
     def test_no_change_does_not_restart(self):
@@ -175,4 +178,5 @@ class TestFileWatcherHotRestart(unittest.TestCase):
             await watcher.stop()
             agent = orc.active_agents.get("test-watcher-uuid")
             self.assertIsNotNone(agent)
+
         asyncio.run(run())

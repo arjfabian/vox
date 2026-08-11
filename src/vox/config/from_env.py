@@ -6,8 +6,8 @@ typed dataclass for downstream runtime resolution.
 """
 
 import os
-
 from dataclasses import dataclass
+
 from dotenv import dotenv_values
 
 
@@ -16,6 +16,7 @@ class VOXEnvConfig:
     """
     Raw environment config before runtime resolution.
     """
+
     war_room_id: str
     verbose_logging: bool = False
 

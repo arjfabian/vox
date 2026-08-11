@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 tools/enroll_speaker.py
 
@@ -18,19 +17,20 @@ your machine.
 
 import sys
 import time
-import numpy as np
 from pathlib import Path
+
+import numpy as np
 
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
 
-IDENTITY_DIR  = Path("identity")
-OUTPUT_PATH   = IDENTITY_DIR / "master_voice.npy"
-SAMPLE_RATE   = 16000   # Hz — Whisper and resemblyzer both expect 16kHz
-RECORD_SECS   = 5       # seconds per sample
-NUM_SAMPLES   = 5       # more samples → more robust embedding
-SAMPLE_PAUSE  = 1.5     # seconds between recordings
+IDENTITY_DIR = Path("identity")
+OUTPUT_PATH = IDENTITY_DIR / "master_voice.npy"
+SAMPLE_RATE = 16000  # Hz — Whisper and resemblyzer both expect 16kHz
+RECORD_SECS = 5  # seconds per sample
+NUM_SAMPLES = 5  # more samples → more robust embedding
+SAMPLE_PAUSE = 1.5  # seconds between recordings
 
 
 def _check_dependencies():
@@ -62,7 +62,7 @@ def _record_sample(index: int, total: int) -> np.ndarray:
         int(RECORD_SECS * SAMPLE_RATE),
         samplerate=SAMPLE_RATE,
         channels=1,
-        dtype="float32"
+        dtype="float32",
     )
     sd.wait()
     print("  Done.")
@@ -80,9 +80,9 @@ def _compute_embedding(samples: list) -> np.ndarray:
             wav = preprocess_wav(audio, source_sr=SAMPLE_RATE)
             emb = encoder.embed_utterance(wav)
             embeddings.append(emb)
-            print(f"  Embedding {i+1}/{len(samples)} computed.")
-        except Exception as e:
-            print(f"  [WARN] Sample {i+1} skipped: {e}")
+            print(f"  Embedding {i + 1}/{len(samples)} computed.")
+        except Exception as e:  # noqa: BLE001 — sample skip is non-fatal
+            print(f"  [WARN] Sample {i + 1} skipped: {e}")
 
     if not embeddings:
         print("\n[ERROR] No valid embeddings generated. Check your microphone.")

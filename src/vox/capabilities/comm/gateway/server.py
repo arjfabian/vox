@@ -13,15 +13,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable
 
 from aiohttp import web
 
 from .adapters.base import BaseAdapter
 from .models import VOXInboundMessage
-
-if TYPE_CHECKING:
-    pass
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +57,10 @@ class IngressServer:
         site = web.TCPSite(self._runner, self._host, self._port)
         self._task = asyncio.create_task(site.start())
         from vox.observability.constants import LOG_LEVEL_OK
-        logger.log(LOG_LEVEL_OK, "IngressServer listening on %s:%s", self._host, self._port)
+
+        logger.log(
+            LOG_LEVEL_OK, "IngressServer listening on %s:%s", self._host, self._port
+        )
 
     async def stop(self) -> None:
         if self._task is not None:
@@ -112,18 +112,18 @@ class IngressServer:
 
             try:
                 raw = await request.json()
-            except Exception:
+            except Exception:  # noqa: BLE001 — invalid JSON returns 400
                 return web.json_response({"error": "invalid JSON"}, status=400)
 
             try:
                 inbound = adapter.parse_inbound(raw)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 — parse failure returns 422
                 logger.error("Parse error [%s]: %s", channel, exc)
                 return web.json_response({"error": "parse error"}, status=422)
 
             try:
                 await self._dispatch(inbound)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 — dispatch failure returns 500
                 logger.error("Dispatch error [%s]: %s", channel, exc)
                 return web.json_response({"error": "dispatch error"}, status=500)
 
@@ -132,10 +132,12 @@ class IngressServer:
         return handler
 
     async def _handle_health(self, request: web.Request) -> web.Response:
-        return web.json_response({
-            "status": "ok",
-            "adapters": list(self._adapters.keys()),
-        })
+        return web.json_response(
+            {
+                "status": "ok",
+                "adapters": list(self._adapters.keys()),
+            }
+        )
 
     async def _handle_get(self, request: web.Request) -> web.Response:
         return web.json_response({"status": "webhook registered"})

@@ -4,8 +4,8 @@ import asyncio
 import json
 import os
 
-from vox.runtime import VOXRuntime
 from vox.observability import VOXForensicLogger
+from vox.runtime import VOXRuntime
 
 
 async def _handle_status(orchestrator, args):
@@ -103,7 +103,7 @@ async def handle_control_command(
         writer.write((json.dumps(response) + "\n").encode())
         await writer.drain()
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — UDS handler must not crash
         error_msg = f"UDS Server Error: {e}"
         logger.error(error_msg)
         try:
@@ -111,7 +111,7 @@ async def handle_control_command(
                 (json.dumps({"ok": False, "error": error_msg}) + "\n").encode()
             )
             await writer.drain()
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort error response
             logger.warning("Failed to send error response to UDS client")
     finally:
         writer.close()

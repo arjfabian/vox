@@ -12,12 +12,10 @@ import httpx
 
 from .models import LLMChatRequest, LLMGenerationResult
 
-
 logger = logging.getLogger(__name__)
 
 
 class LLMClient:
-
     def __init__(self, base_url: str, timeout: float = 60.0) -> None:
         self.base_url = base_url.rstrip("/")
         self._client = httpx.AsyncClient(timeout=timeout)
@@ -29,14 +27,15 @@ class LLMClient:
         try:
             response = await self._client.get(f"{self.base_url}/api/tags")
             return response.status_code == 200
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — health check must not raise
             logger.warning("LLM health check failed: %s", e)
             return False
 
     async def chat(self, request: LLMChatRequest) -> LLMGenerationResult:
         payload = asdict(request)
         response = await self._client.post(
-            f"{self.base_url}/api/chat", json=payload,
+            f"{self.base_url}/api/chat",
+            json=payload,
         )
         response.raise_for_status()
         data = response.json()
@@ -76,7 +75,8 @@ class LLMClient:
             payload["format"] = "json"
 
         response = await self._client.post(
-            f"{self.base_url}/api/chat", json=payload,
+            f"{self.base_url}/api/chat",
+            json=payload,
         )
         response.raise_for_status()
         data = response.json()

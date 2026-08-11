@@ -1,13 +1,9 @@
-import time
 import uuid
+from pathlib import Path
 
 import pytest
 
-from pathlib import Path
-from unittest.mock import patch
-
 from vox.capabilities.ai.llm.cache import SemanticCache, _sha256
-
 
 # ---------------------------------------------------------------------------
 # _sha256 unit tests (pure, no DB)

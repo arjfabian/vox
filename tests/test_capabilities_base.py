@@ -2,11 +2,10 @@ import asyncio
 import unittest
 from unittest.mock import AsyncMock, MagicMock
 
-from vox.capabilities.base import VOXCapability, VOXBoundCapability
+from vox.capabilities.base import VOXBoundCapability, VOXCapability
 
 
 class TestVOXCapability(unittest.TestCase):
-
     def test_default_health_check_passes(self):
         self.assertTrue(asyncio.run(VOXCapability.health_check()))
 
@@ -35,7 +34,9 @@ class TestVOXCapability(unittest.TestCase):
 
     def test_initialize_raises_for_missing_required_params(self):
         class StrictCap(VOXCapability):
+            # noqa: RUF012 — test-local override, intentionally mutable.
             PARAMS = {"REQUIRED_KEY": ["desc", None]}
+
         cap = StrictCap()
         cap.id = "test"
         cap.logger = MagicMock()
@@ -51,13 +52,14 @@ class TestVOXCapability(unittest.TestCase):
 
     def test_get_params_returns_list(self):
         class TestCap(VOXCapability):
+            # noqa: RUF012 — test-local override, intentionally mutable.
             PARAMS = {"A": ["desc a", 1], "B": ["desc b", 2]}
+
         params = TestCap.get_params()
         self.assertEqual(params, ["A", "B"])
 
 
 class TestVOXBoundCapability(unittest.TestCase):
-
     def setUp(self):
         self.agent = MagicMock()
         self.agent.logger = MagicMock()
@@ -127,7 +129,6 @@ class TestVOXBoundCapability(unittest.TestCase):
 
 
 class TestVOXBoundCapabilityEdgeCases(unittest.TestCase):
-
     def setUp(self):
         self.agent = MagicMock()
         self.agent.logger = MagicMock()

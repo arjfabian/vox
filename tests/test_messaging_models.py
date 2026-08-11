@@ -4,7 +4,6 @@ from vox.messaging.models import VOXMessage
 
 
 class TestVOXMessage(unittest.TestCase):
-
     def test_minimal_construction(self):
         msg = VOXMessage(
             message_id="00000000-0000-4000-8000-000000000001",

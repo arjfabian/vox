@@ -9,9 +9,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, Awaitable, Callable
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from vox.messaging.models import VOXMessage
@@ -62,9 +63,7 @@ class VOXWarRoom:
     """Async in-memory incident queue with read tracking and history."""
 
     def __init__(self, max_queue: int = 1024) -> None:
-        self._queue: asyncio.Queue[WarRoomMessage] = asyncio.Queue(
-            maxsize=max_queue
-        )
+        self._queue: asyncio.Queue[WarRoomMessage] = asyncio.Queue(maxsize=max_queue)
         self._history: list[WarRoomMessage] = []
         self._lock: asyncio.Lock = asyncio.Lock()
 
@@ -74,9 +73,7 @@ class VOXWarRoom:
             self._history.append(message)
         await self._queue.put(message)
 
-    async def acknowledge(
-        self, message_id: str, agent_name: str
-    ) -> bool:
+    async def acknowledge(self, message_id: str, agent_name: str) -> bool:
         """Mark an alert as read by a given agent.
 
         Returns True if the message was found and acknowledged.
@@ -84,31 +81,19 @@ class VOXWarRoom:
         async with self._lock:
             for msg in self._history:
                 if msg.message_id == message_id:
-                    msg.read_by[agent_name] = datetime.now(
-                        timezone.utc
-                    ).isoformat()
+                    msg.read_by[agent_name] = datetime.now(timezone.utc).isoformat()
                     return True
             return False
 
     def get_unread(self, agent_name: str) -> list[WarRoomMessage]:
         """Return alerts not yet acknowledged by the agent."""
-        return [
-            msg
-            for msg in self._history
-            if agent_name not in msg.read_by
-        ]
+        return [msg for msg in self._history if agent_name not in msg.read_by]
 
-    def get_history(
-        self, since: str | None = None
-    ) -> list[WarRoomMessage]:
+    def get_history(self, since: str | None = None) -> list[WarRoomMessage]:
         """Return full alert history, optionally filtered by timestamp."""
         if since is None:
             return list(self._history)
-        return [
-            msg
-            for msg in self._history
-            if msg.emitted_at >= since
-        ]
+        return [msg for msg in self._history if msg.emitted_at >= since]
 
     def flush_to_disk(self) -> None:
         """Best-effort synchronous flush of pending queue items.
@@ -172,9 +157,7 @@ class VOXWarRoomMaster:
         """Continuously drain the war room queue."""
         while self._running:
             try:
-                msg = await asyncio.wait_for(
-                    self._war_room._queue.get(), timeout=1.0
-                )
+                msg = await asyncio.wait_for(self._war_room._queue.get(), timeout=1.0)
             except asyncio.TimeoutError:
                 continue
             except asyncio.CancelledError:
@@ -182,13 +165,13 @@ class VOXWarRoomMaster:
 
             try:
                 await self._fanout_to_agents(msg)
-            except Exception:
+            except Exception:  # noqa: BLE001, S110 — fanout failure must not block queue
                 pass
 
             try:
                 text = self._format_alert(msg)
                 await self._broadcast(text)
-            except Exception:
+            except Exception:  # noqa: BLE001, S110 — broadcast failure must not block queue
                 pass
 
     @staticmethod
@@ -204,8 +187,6 @@ class VOXWarRoomMaster:
         agents = list(self._orc.active_agents.values())
         for agent in agents:
             try:
-                asyncio.create_task(
-                    agent.emit("on_war_room_alert", message=msg)
-                )
-            except Exception:
+                asyncio.create_task(agent.emit("on_war_room_alert", message=msg))
+            except Exception:  # noqa: BLE001, S112 — resilient fanout, skip failed agents
                 continue

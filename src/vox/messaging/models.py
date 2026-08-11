@@ -4,8 +4,9 @@ Conforms to the VOX Messaging Contract v1.0 envelope fields.
 """
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
+
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -15,36 +16,29 @@ class VOXMessage(BaseModel):
     Every message exchanged between agents MUST use this structure.
     See ``vox.wiki/Messaging-Contract.md`` for the full specification.
     """
-    message_id: UUID = Field(
-        description="Globally unique UUID for the message"
-    )
+
+    message_id: UUID = Field(description="Globally unique UUID for the message")
     message_source: str = Field(
         description="Source of truth (e.g., email address, interface name)"
     )
     emitted_at: str = Field(
         description="ISO-8601 datetime with timezone when the message was emitted"
     )
-    source: UUID = Field(
-        description="UUID of the sender agent"
-    )
-    target: UUID = Field(
-        description="UUID of the recipient agent"
-    )
+    source: UUID = Field(description="UUID of the sender agent")
+    target: UUID = Field(description="UUID of the recipient agent")
     type: str = Field(
         description="Semantic intent of the message (e.g., job_detected, data_request)"
     )
     details: dict[str, Any] = Field(
-        default_factory=dict,
-        description="Event-specific variable payload"
+        default_factory=dict, description="Event-specific variable payload"
     )
-    reply_to: Optional[UUID] = Field(
-        default=None,
-        description="UUID of the message this message is replying to"
+    reply_to: UUID | None = Field(
+        default=None, description="UUID of the message this message is replying to"
     )
 
     model_config = {
         "frozen": True,  # enforces immutability
-        "populate_by_name": True
+        "populate_by_name": True,
     }
 
     @field_validator("emitted_at")

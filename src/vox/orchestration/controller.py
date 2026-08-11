@@ -10,14 +10,13 @@ control-plane requests.
 from __future__ import annotations
 
 import asyncio
-
 from typing import TYPE_CHECKING, Any
 
 from vox.observability import VOXForensicLogger
 
 if TYPE_CHECKING:
-    from vox.orchestration.registry import VOXRegistry
     from vox.orchestration.graph import AgentGraph
+    from vox.orchestration.registry import VOXRegistry
 
 
 class FleetController:
@@ -117,7 +116,9 @@ class FleetController:
         async with self._get_agent_lock(agent_id):
             agent = self._inactive_agents.get(agent_id)
             if not agent:
-                self._logger.error(f"Agent '{agent_name}' is already active or not found")
+                self._logger.error(
+                    f"Agent '{agent_name}' is already active or not found"
+                )
                 return False
             ok = await agent.boot()
             if ok:

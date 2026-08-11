@@ -1,29 +1,33 @@
-#!/usr/bin/env python3
 """Statically inspect a VOX agent directory for manifest, roles, and capability dependencies."""
 
 import ast
 import sys
 from pathlib import Path
 
-
 # ---------------------------------------------------------------------------
 # ANSI helpers
 # ---------------------------------------------------------------------------
 
+
 def _ok(msg):
     return f"\033[32m[OK]\033[0m {msg}"
+
 
 def _warn(msg):
     return f"\033[33m[WARN]\033[0m {msg}"
 
+
 def _err(msg):
     return f"\033[31m[ERROR]\033[0m {msg}"
+
 
 def _crit(msg):
     return f"\033[41m\033[37m[CRITICAL]\033[0m {msg}"
 
+
 def _info(msg):
     return f"\033[36m[INFO]\033[0m {msg}"
+
 
 def _heading(msg):
     return f"\n\033[1;34m=== {msg} ===\033[0m"
@@ -33,12 +37,14 @@ def _heading(msg):
 # 1. Manifest parsing
 # ---------------------------------------------------------------------------
 
+
 def load_manifest(agent_dir: Path) -> dict:
     manifest_path = agent_dir / "agent.yml"
     if not manifest_path.exists():
         return {"error": f"agent.yml not found in {agent_dir}"}
     try:
         import yaml
+
         with open(manifest_path, "r") as f:
             data = yaml.safe_load(f) or {}
         return {
@@ -49,7 +55,7 @@ def load_manifest(agent_dir: Path) -> dict:
             "roles_allowlist": data.get("roles", []),
             "personality": data.get("personality", {}),
         }
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — parse failure returns error dict
         return {"error": f"Failed to parse agent.yml: {e}"}
 
 
@@ -57,18 +63,20 @@ def load_manifest(agent_dir: Path) -> dict:
 # 2. Role discovery (AST-based, no imports)
 # ---------------------------------------------------------------------------
 
+
 def find_role_files(agent_dir: Path) -> list[Path]:
     roles_dir = agent_dir / "roles"
     if not roles_dir.exists():
         return []
     top_level = sorted(
-        p for p in roles_dir.glob("*.py")
+        p
+        for p in roles_dir.glob("*.py")
         if not p.name.startswith("_") and not p.name.endswith("_new.py")
     )
     sub = sorted(
-        p for p in roles_dir.rglob("*.py")
-        if "__pycache__" not in p.parts
-        and p.parent != roles_dir
+        p
+        for p in roles_dir.rglob("*.py")
+        if "__pycache__" not in p.parts and p.parent != roles_dir
     )
     return top_level, sub
 
@@ -79,7 +87,11 @@ def extract_requires_from_ast(tree: ast.AST, source: str) -> set[str]:
         if not isinstance(node, ast.ClassDef):
             continue
         for item in node.body:
-            if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name) and item.target.id == "REQUIRES":
+            if (
+                isinstance(item, ast.AnnAssign)
+                and isinstance(item.target, ast.Name)
+                and item.target.id == "REQUIRES"
+            ):
                 vals = _extract_set_literals(item.value)
                 requires.update(vals)
             elif isinstance(item, ast.Assign):
@@ -93,15 +105,21 @@ def extract_requires_from_ast(tree: ast.AST, source: str) -> set[str]:
 def _extract_set_literals(node: ast.AST) -> list[str]:
     if isinstance(node, ast.Set):
         return [
-            elt.value for elt in node.elts
+            elt.value
+            for elt in node.elts
             if isinstance(elt, ast.Constant) and isinstance(elt.value, str)
         ]
-    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "set":
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "set"
+    ):
         if node.args:
             arg = node.args[0]
             if isinstance(arg, ast.List):
                 return [
-                    elt.value for elt in arg.elts
+                    elt.value
+                    for elt in arg.elts
                     if isinstance(elt, ast.Constant) and isinstance(elt.value, str)
                 ]
         return []
@@ -111,7 +129,7 @@ def _extract_set_literals(node: ast.AST) -> list[str]:
 def _is_capabilities_chain(node: ast.AST) -> bool:
     if isinstance(node, ast.Attribute) and node.attr == "capabilities":
         inner = node.value
-        return isinstance(inner, ast.Attribute) or isinstance(inner, ast.Name)
+        return isinstance(inner, (ast.Attribute, ast.Name))
     return False
 
 
@@ -128,7 +146,9 @@ def extract_cap_usage_from_ast(tree: ast.AST) -> set[str]:
 def _walk_subscript_cap(node: ast.Subscript, acc: set[str]) -> None:
     if not _is_capabilities_chain(node.value):
         return
-    if not isinstance(node.slice, ast.Constant) or not isinstance(node.slice.value, str):
+    if not isinstance(node.slice, ast.Constant) or not isinstance(
+        node.slice.value, str
+    ):
         return
     acc.add(node.slice.value)
 
@@ -139,7 +159,11 @@ def _walk_get_call_cap(node: ast.Call, acc: set[str]) -> None:
         return
     if not _is_capabilities_chain(func.value):
         return
-    if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
+    if (
+        node.args
+        and isinstance(node.args[0], ast.Constant)
+        and isinstance(node.args[0].value, str)
+    ):
         acc.add(node.args[0].value)
 
 
@@ -152,16 +176,26 @@ def extract_command_decorators(tree: ast.AST) -> list[dict]:
             if not isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
             for deco in item.decorator_list:
-                if isinstance(deco, ast.Call) and isinstance(deco.func, ast.Name) and deco.func.id == "command":
+                if (
+                    isinstance(deco, ast.Call)
+                    and isinstance(deco.func, ast.Name)
+                    and deco.func.id == "command"
+                ):
                     meta = {"name": None, "description": "", "requires": set()}
                     for kw in deco.keywords:
                         if kw.arg == "name" and isinstance(kw.value, ast.Constant):
                             meta["name"] = kw.value.value
-                        elif kw.arg == "description" and isinstance(kw.value, ast.Constant):
+                        elif kw.arg == "description" and isinstance(
+                            kw.value, ast.Constant
+                        ):
                             meta["description"] = kw.value.value
-                        elif kw.arg == "requires" and isinstance(kw.value, (ast.List, ast.Set, ast.Tuple)):
+                        elif kw.arg == "requires" and isinstance(
+                            kw.value, (ast.List, ast.Set, ast.Tuple)
+                        ):
                             for elt in kw.value.elts:
-                                if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
+                                if isinstance(elt, ast.Constant) and isinstance(
+                                    elt.value, str
+                                ):
                                     meta["requires"].add(elt.value)
                     commands.append(meta)
     return commands
@@ -170,6 +204,7 @@ def extract_command_decorators(tree: ast.AST) -> list[dict]:
 # ---------------------------------------------------------------------------
 # 3. Delta analysis
 # ---------------------------------------------------------------------------
+
 
 def compute_delta(
     static_requires: set[str],
@@ -188,6 +223,7 @@ def compute_delta(
 # ---------------------------------------------------------------------------
 # 4. Report
 # ---------------------------------------------------------------------------
+
 
 def print_manifest_report(manifest: dict) -> None:
     print(_heading("Manifest"))
@@ -211,7 +247,11 @@ def print_role_report(
     cap_usage: set[str],
     commands: list[dict],
 ) -> None:
-    rel = role_file.relative_to(role_file.anchor) if role_file.is_absolute() else role_file
+    rel = (
+        role_file.relative_to(role_file.anchor)
+        if role_file.is_absolute()
+        else role_file
+    )
     print(f"\n  Role: {role_file.stem}  ({rel})")
     if requires:
         for r in sorted(requires):
@@ -239,12 +279,15 @@ def print_delta_report(delta: dict) -> None:
         for cap in delta["required_but_not_used"]:
             print(_warn(f"REQUIRES '{cap}' but no runtime usage found"))
     if not delta["used_but_not_required"] and not delta["required_but_not_used"]:
-        print(_ok("All capability references are consistent (REQUIRES ↔ runtime usage)"))
+        print(
+            _ok("All capability references are consistent (REQUIRES ↔ runtime usage)")
+        )
 
 
 # ---------------------------------------------------------------------------
 # 5. Main
 # ---------------------------------------------------------------------------
+
 
 def inspect_agent(agent_name: str) -> int:
     base = Path(__file__).resolve().parent.parent / "agents"
@@ -276,8 +319,10 @@ def inspect_agent(agent_name: str) -> int:
         total_cap_usage: set[str] = set()
 
         if sub:
-            print(f"  ({len(sub)} submodule(s) found but not loaded directly —"
-                  f" VOX only loads top-level role files)\n")
+            print(
+                f"  ({len(sub)} submodule(s) found but not loaded directly —"
+                f" VOX only loads top-level role files)\n"
+            )
 
         for rf in top_level:
             try:

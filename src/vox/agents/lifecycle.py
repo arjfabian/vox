@@ -9,8 +9,7 @@ from __future__ import annotations
 
 from collections import deque
 from enum import Enum, auto
-from typing import Any, Dict, List, NamedTuple
-
+from typing import Any, NamedTuple
 
 _DEFAULT_EVENT_QUEUE_CAPACITY = 256
 
@@ -34,38 +33,42 @@ class AgentState(Enum):
 
 
 _TRANSITIONS: dict[AgentState, set[AgentState]] = {
-    AgentState.BOOTING:   {AgentState.IDLE, AgentState.ACTIVE, AgentState.FAILED, AgentState.STOPPING},
-    AgentState.IDLE:      {AgentState.BOOTING, AgentState.STOPPING},
-    AgentState.ACTIVE:    {AgentState.PAUSING, AgentState.STOPPING},
-    AgentState.PAUSING:   {AgentState.PAUSED, AgentState.STOPPING},
-    AgentState.PAUSED:    {AgentState.RESUMING, AgentState.STOPPING},
-    AgentState.RESUMING:  {AgentState.ACTIVE, AgentState.STOPPING},
-    AgentState.STOPPING:  {AgentState.STOPPED},
-    AgentState.STOPPED:   {AgentState.BOOTING},
-    AgentState.FAILED:    {AgentState.BOOTING},
+    AgentState.BOOTING: {
+        AgentState.IDLE,
+        AgentState.ACTIVE,
+        AgentState.FAILED,
+        AgentState.STOPPING,
+    },
+    AgentState.IDLE: {AgentState.BOOTING, AgentState.STOPPING},
+    AgentState.ACTIVE: {AgentState.PAUSING, AgentState.STOPPING},
+    AgentState.PAUSING: {AgentState.PAUSED, AgentState.STOPPING},
+    AgentState.PAUSED: {AgentState.RESUMING, AgentState.STOPPING},
+    AgentState.RESUMING: {AgentState.ACTIVE, AgentState.STOPPING},
+    AgentState.STOPPING: {AgentState.STOPPED},
+    AgentState.STOPPED: {AgentState.BOOTING},
+    AgentState.FAILED: {AgentState.BOOTING},
 }
 
 
 class PendingEvent(NamedTuple):
     event_name: str
-    kwargs: Dict[str, Any]
+    kwargs: dict[str, Any]
 
 
 class EventQueue:
-
     def __init__(self, capacity: int = _DEFAULT_EVENT_QUEUE_CAPACITY) -> None:
         self._capacity: int = capacity
         self._queue: deque[PendingEvent] = deque()
         self._dropped_count: int = 0
 
-    def enqueue(self, event_name: str, kwargs: Dict[str, Any]) -> bool:
+    def enqueue(self, event_name: str, kwargs: dict[str, Any]) -> bool:
         if len(self._queue) >= self._capacity:
             self._dropped_count += 1
             return False
         self._queue.append(PendingEvent(event_name, kwargs))
         return True
 
-    def drain(self) -> List[PendingEvent]:
+    def drain(self) -> list[PendingEvent]:
         events = list(self._queue)
         self._queue.clear()
         return events

@@ -6,9 +6,9 @@ They do NOT self-discover; they declare capabilities.
 """
 
 import weakref
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable, Dict
-
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Command marker — used by the @command decorator
@@ -28,9 +28,11 @@ def command(name: str, description: str = "", **metadata):
             @command("do_thing", description="Does a thing")
             async def do_thing(self, ...): ...
     """
+
     def decorator(fn):
         fn._vox_command_meta = (name, description, metadata)
         return fn
+
     return decorator
 
 
@@ -42,11 +44,11 @@ def command(name: str, description: str = "", **metadata):
 @dataclass
 class CommandInfo:
     """Metadata for an explicitly registered command handler."""
+
     handler: Callable[..., Awaitable[Any]]
     description: str = ""
-    params: Dict[str, str] = field(default_factory=dict)
+    params: dict[str, str] = field(default_factory=dict)
     sample_prompts: list | None = None
-
 
 
 # ---------------------------------------------------------------------------
@@ -78,13 +80,15 @@ class VOXRole:
           or None to use the agent's default.
     """
 
+    # noqa: RUF012 — mutable defaults are intentional; subclasses override per-role,
+    # and ClassVar would prevent per-instance overrides.
     REQUIRES: set[str] = set()
     PREFERRED_MODEL: str | None = None
 
     def __init__(self, agent: Any) -> None:
         self._agent_ref = weakref.ref(agent)
-        self._handlers: Dict[str, Callable[..., Awaitable[None]]] = {}
-        self._commands: Dict[str, CommandInfo] = {}
+        self._handlers: dict[str, Callable[..., Awaitable[None]]] = {}
+        self._commands: dict[str, CommandInfo] = {}
         self._discover_commands()
 
     def _discover_commands(self) -> None:
@@ -97,7 +101,9 @@ class VOXRole:
                 bound = getattr(self, attr_name)
                 self._handlers[name] = bound
                 self._commands[name] = CommandInfo(
-                    handler=bound, description=description, **metadata,
+                    handler=bound,
+                    description=description,
+                    **metadata,
                 )
 
     @property
@@ -114,9 +120,11 @@ class VOXRole:
         Use this for non-command events (``on_boot``, ``inbound_message``,
         etc.). For command handlers prefer the ``@command`` decorator.
         """
+
         def decorator(fn):
             self._handlers[event] = fn
             return fn
+
         return decorator
 
     async def handle_event(self, event: str, **kwargs) -> bool:
@@ -126,6 +134,6 @@ class VOXRole:
         await handler(**kwargs)
         return True
 
-    def get_commands(self) -> Dict[str, CommandInfo]:
+    def get_commands(self) -> dict[str, CommandInfo]:
         """Returns {command_name: CommandInfo} for all registered commands."""
         return dict(self._commands)

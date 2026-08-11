@@ -1,11 +1,11 @@
-import aiosmtplib
 from email.message import EmailMessage
+
+import aiosmtplib
 
 from .models import EmailConfig
 
 
 class EmailClient:
-
     def __init__(self, config: EmailConfig) -> None:
         self._config = config
 
@@ -27,5 +27,5 @@ class EmailClient:
                 start_tls=self._config.port == 587,
             )
             return True
-        except Exception:
+        except Exception:  # noqa: BLE001 — SMTP send failure returns False
             return False

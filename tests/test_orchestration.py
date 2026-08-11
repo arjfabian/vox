@@ -1,17 +1,16 @@
 import asyncio
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 from vox.agents.base import VOXAgent
 from vox.orchestration.base import (
-    VOXOrchestrator,
     CapabilityEntry,
+    VOXOrchestrator,
 )
 
 
 class TestCapabilityEntry(unittest.TestCase):
-
     def test_default_instance_is_none(self):
         entry = CapabilityEntry(cls=str, healthy=True)
         self.assertIs(entry.cls, str)
@@ -24,7 +23,6 @@ class TestCapabilityEntry(unittest.TestCase):
 
 
 class TestVOXOrchestrator(unittest.TestCase):
-
     def setUp(self):
         self.config = MagicMock()
         self.config.uds_path = "/tmp/test.sock"
@@ -57,7 +55,9 @@ class TestVOXOrchestrator(unittest.TestCase):
     def test_injectable_dirs_fall_back_to_defaults(self):
         base = Path(__file__).resolve().parent.parent / "src" / "vox"
         self.assertEqual(self.orc.capabilities_dir, base / "capabilities")
-        self.assertEqual(self.orc.agents_dir, Path(__file__).resolve().parent.parent / "agents")
+        self.assertEqual(
+            self.orc.agents_dir, Path(__file__).resolve().parent.parent / "agents"
+        )
 
     def test_all_agents_merges_active_and_inactive(self):
         agent_a = MagicMock()
@@ -104,7 +104,8 @@ class TestVOXOrchestrator(unittest.TestCase):
 
     def test_get_fleet_snapshot_includes_capabilities(self):
         self.orc.capability_registry["test.cap"] = CapabilityEntry(
-            cls=MagicMock, healthy=True,
+            cls=MagicMock,
+            healthy=True,
         )
         snapshot = self.orc.get_fleet_snapshot()
         caps = snapshot["capabilities"]
@@ -115,7 +116,6 @@ class TestVOXOrchestrator(unittest.TestCase):
 
 
 class TestVOXOrchestratorShutdown(unittest.TestCase):
-
     def setUp(self):
         self.config = MagicMock()
         self.logger = MagicMock()
@@ -139,7 +139,9 @@ class TestVOXOrchestratorShutdown(unittest.TestCase):
         cap = MagicMock()
         cap.shutdown = AsyncMock(side_effect=RuntimeError("oops"))
         self.orc.capability_registry["test.cap"] = CapabilityEntry(
-            cls=MagicMock, healthy=True, instance=cap,
+            cls=MagicMock,
+            healthy=True,
+            instance=cap,
         )
 
         asyncio.run(self.orc.shutdown())
@@ -147,16 +149,16 @@ class TestVOXOrchestratorShutdown(unittest.TestCase):
         cap.shutdown.assert_awaited_once()
 
     def test_shutdown_skips_unloaded_capabilities(self):
-        cap = MagicMock()
         self.orc.capability_registry["unloaded.cap"] = CapabilityEntry(
-            cls=MagicMock, healthy=True, instance=None,
+            cls=MagicMock,
+            healthy=True,
+            instance=None,
         )
         asyncio.run(self.orc.shutdown())
         self.logger.ok.assert_any_call("VOX fleet shut down.")
 
 
 class TestVOXOrchestratorCapabilityMethods(unittest.TestCase):
-
     def setUp(self):
         self.config = MagicMock()
         self.logger = MagicMock()
@@ -168,7 +170,8 @@ class TestVOXOrchestratorCapabilityMethods(unittest.TestCase):
 
     def test_get_capability_instance_unhealthy(self):
         self.orc.capability_registry["broken"] = CapabilityEntry(
-            cls=MagicMock, healthy=False,
+            cls=MagicMock,
+            healthy=False,
         )
         result = self.orc.get_capability_instance("broken")
         self.assertIsNone(result)
@@ -176,7 +179,9 @@ class TestVOXOrchestratorCapabilityMethods(unittest.TestCase):
     def test_get_capability_instance_returns_cached(self):
         inst = MagicMock()
         self.orc.capability_registry["my.cap"] = CapabilityEntry(
-            cls=MagicMock, healthy=True, instance=inst,
+            cls=MagicMock,
+            healthy=True,
+            instance=inst,
         )
         result = self.orc.get_capability_instance("my.cap")
         self.assertIs(result, inst)
@@ -184,7 +189,8 @@ class TestVOXOrchestratorCapabilityMethods(unittest.TestCase):
     def test_get_capability_instance_lazy_instantiates(self):
         cls = MagicMock()
         self.orc.capability_registry["lazy.cap"] = CapabilityEntry(
-            cls=cls, healthy=True,
+            cls=cls,
+            healthy=True,
         )
         result = self.orc.get_capability_instance("lazy.cap")
         cls.assert_called_once()
@@ -194,7 +200,6 @@ class TestVOXOrchestratorCapabilityMethods(unittest.TestCase):
 
 
 class TestVOXOrchestratorLifecycleMethods(unittest.TestCase):
-
     def setUp(self):
         self.config = MagicMock()
         self.logger = MagicMock()
@@ -203,6 +208,7 @@ class TestVOXOrchestratorLifecycleMethods(unittest.TestCase):
 
     def tearDown(self):
         import shutil
+
         for p in self._tmp_agents:
             shutil.rmtree(p, ignore_errors=True)
 
@@ -225,9 +231,7 @@ class TestVOXOrchestratorLifecycleMethods(unittest.TestCase):
             "    def __init__(self, agent): super().__init__(agent)\n"
             "    def get_commands(self): return {}\n"
         )
-        (tmp / ".env").write_text(
-            "TELEGRAM_BOT_TOKEN=dummy\nTELEGRAM_USER_ID=dummy\n"
-        )
+        (tmp / ".env").write_text("TELEGRAM_BOT_TOKEN=dummy\nTELEGRAM_USER_ID=dummy\n")
         self._tmp_agents.append(tmp)
         agent = VOXAgent(
             tmp,
@@ -302,13 +306,15 @@ class TestVOXOrchestratorLifecycleMethods(unittest.TestCase):
         mock_cap = MagicMock()
         mock_cap.mount.return_value = mock_bound
         self.orc.capability_registry["comm.gateway"] = CapabilityEntry(
-            cls=type(mock_cap), healthy=True, instance=mock_cap,
+            cls=type(mock_cap),
+            healthy=True,
+            instance=mock_cap,
         )
 
     def test_restart_agent(self):
         self._register_mock_system_cap()
 
-        folder, agent = self._make_real_agent_dir("tina", "a1")
+        _folder, agent = self._make_real_agent_dir("tina", "a1")
         agent.shutdown = AsyncMock()
         self.orc.active_agents["a1"] = agent
         result = asyncio.run(self.orc.restart_agent("tina"))
@@ -318,7 +324,7 @@ class TestVOXOrchestratorLifecycleMethods(unittest.TestCase):
     def test_restart_agent_from_inactive(self):
         self._register_mock_system_cap()
 
-        folder, agent = self._make_real_agent_dir("leah", "a2")
+        _folder, agent = self._make_real_agent_dir("leah", "a2")
         agent.shutdown = AsyncMock()
         self.orc.inactive_agents["a2"] = agent
         result = asyncio.run(self.orc.restart_agent("leah"))
@@ -384,12 +390,13 @@ class TestVOXOrchestratorLifecycleMethods(unittest.TestCase):
             self.assertIsInstance(r, bool)
 
         trues = sum(1 for r in results if r is True)
-        self.assertEqual(trues, 1,
-                         "Exactly one stop_agent call should succeed")
-        self.assertNotIn("a1", self.orc.active_agents,
-                         "Agent must not remain in active_agents")
-        self.assertIn("a1", self.orc.inactive_agents,
-                      "Agent must end up in inactive_agents")
+        self.assertEqual(trues, 1, "Exactly one stop_agent call should succeed")
+        self.assertNotIn(
+            "a1", self.orc.active_agents, "Agent must not remain in active_agents"
+        )
+        self.assertIn(
+            "a1", self.orc.inactive_agents, "Agent must end up in inactive_agents"
+        )
         agent.stop.assert_called_once()
 
     def test_concurrent_start_and_stop_no_corruption(self):
@@ -416,7 +423,7 @@ class TestVOXOrchestratorLifecycleMethods(unittest.TestCase):
                 raise r
             self.assertTrue(r, "Both operations should succeed")
 
-        self.assertIn("a1", self.orc.active_agents,
-                      "Tina should be active after start")
-        self.assertIn("a2", self.orc.inactive_agents,
-                      "Leah should be inactive after stop")
+        self.assertIn("a1", self.orc.active_agents, "Tina should be active after start")
+        self.assertIn(
+            "a2", self.orc.inactive_agents, "Leah should be inactive after stop"
+        )

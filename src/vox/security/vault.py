@@ -12,14 +12,11 @@ public methods use ``aiosqlite`` and are fully async.
 import os
 import sqlite3 as _sync_sqlite3
 from pathlib import Path
-from typing import Optional
 
 import aiosqlite
-
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-
 
 _VAULT_FILENAME = "secrets.vault"
 _PBKDF2_ITERATIONS = 200_000
@@ -32,8 +29,9 @@ class VaultAccessError(RuntimeError):
 
 
 class AgentVault:
-
-    def __init__(self, agent_dir: Path, agent_id: str, config: dict | None = None) -> None:
+    def __init__(
+        self, agent_dir: Path, agent_id: str, config: dict | None = None
+    ) -> None:
         self._vault_path = agent_dir / _VAULT_FILENAME
         self._agent_id = agent_id
         self._config = config or {}
@@ -86,7 +84,7 @@ class AgentVault:
                     )
                     await conn.commit()
 
-    async def get(self, capability_name: str, secret_key: str) -> Optional[str]:
+    async def get(self, capability_name: str, secret_key: str) -> str | None:
         """Return decrypted value from vault, falling back to config/.env.
 
         If the key exists in the database but is marked *inactive*, returns
@@ -108,7 +106,9 @@ class AgentVault:
 
         return self._config.get(secret_key)
 
-    async def set(self, capability_name: str, secret_key: str, value: str, status: str = "active") -> None:
+    async def set(
+        self, capability_name: str, secret_key: str, value: str, status: str = "active"
+    ) -> None:
         encrypted = self._encrypt(value)
         await self._execute(
             "INSERT OR REPLACE INTO secrets (capability_name, secret_key, encrypted_value, status) "
@@ -154,7 +154,7 @@ class AgentVault:
     # Synchronous get() for bootstrap path
     # ------------------------------------------------------------------
 
-    def get_sync(self, capability_name: str, secret_key: str) -> Optional[str]:
+    def get_sync(self, capability_name: str, secret_key: str) -> str | None:
         """Synchronous get() variant for use during ``__init__``-time bootstrap.
 
         Shares the exact same decryption logic as the async ``get()``.
@@ -217,7 +217,7 @@ class AgentVault:
 
             conn.execute(
                 "INSERT OR IGNORE INTO vault_meta (key, value) VALUES ('salt', ?)",
-                (candidate_salt,)
+                (candidate_salt,),
             )
             conn.commit()
 
@@ -284,7 +284,7 @@ class AgentVault:
     # Internal — storage (async runtime)
     # ------------------------------------------------------------------
 
-    async def _query(self, sql: str, params: tuple = ()) -> Optional[tuple]:
+    async def _query(self, sql: str, params: tuple = ()) -> tuple | None:
         async with aiosqlite.connect(self._vault_path) as conn:
             cursor = await conn.execute(sql, params)
             rows = await cursor.fetchmany(1)
