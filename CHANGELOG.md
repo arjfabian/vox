@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > **Note**: No API stability guarantees are implied — VOX remains pre-1.0.
 
+## [0.5.2] - 2026.08.11
+
+### Added
+- **`BaseAdapter.WEBHOOK_PATH`** — adapters now declare their own inbound HTTP route (e.g. Telegram `"/webhook/telegram"`, generic `"/webhook/generic"`). The shared `IngressServer` registers channels from these paths, so a new provider (WhatsApp, Slack, Discord, …) plugs in with **zero server changes**.
+- **`BaseAdapter.handle_verification(query)`** — optional provider GET subscription handshake hook. Returns the challenge string to echo (e.g. Meta's `hub.challenge`) or `None` to reject with 403.
+- **`verify_request(request, body)`** — the inbound verifier now receives the raw, unparsed request body, enabling body-signing providers (Meta's `X-Hub-Signature-256` HMAC-SHA256 over the exact payload bytes).
+- **`IngressServer._make_verification_handler()`** — per-channel GET handshake routes that echo the raw challenge as plain text (not JSON), as Meta and other providers require.
+- **`TestIngressServerGenericRoutes`** — new test class covering: generic route registration from adapter-declared `WEBHOOK_PATH`, Meta-style body-signature verification (valid HMAC dispatches, forged signature returns 403), and the `hub.challenge` echo handshake (valid token echoes, mismatch returns 403).
+
+### Changed
+- **`comm.gateway` fully decoupled from the Telegram adapter** — `IngressServer._register_routes()` no longer contains any `telegram`/`webhook` branches; it iterates the mounted adapters and registers `POST` (payload) and `GET` (handshake or generic "registered" response) from each adapter's `WEBHOOK_PATH`. This is the final step of the `comm.telegram → comm.gateway` migration: the gateway core now has no channel-specific knowledge whatsoever.
+- **Body-first inbound verification** — the webhook handler reads the raw request body before verifying, then passes it to `verify_request(request, body)`. aiohttp caches the payload, so the subsequent `request.json()` is unaffected; header-token channels (Telegram, generic webhook) simply ignore the new argument.
+- **`TelegramAdapter` / `WebhookAdapter`** — declare their own `WEBHOOK_PATH` and accept the optional `body` parameter on `verify_request` (unused by header-token channels).
+
 ## [0.5.1] - 2026-08-10
 
 ### Added

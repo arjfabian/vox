@@ -1,6 +1,6 @@
 [project]
 name = "vox"
-version = "0.5.1"
+version = "0.5.2"
 description = ""
 authors = [
     { name = "José Fabián", email = "jfabian@datorum.net" }
