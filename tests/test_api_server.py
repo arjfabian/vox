@@ -74,16 +74,16 @@ class TestVOXAPIServerHandlers(unittest.TestCase):
 
     def test_agent_found_returns_describe(self):
         mock_agent = MagicMock()
-        mock_agent.describe.return_value = {"id": "a1", "name": "tina"}
+        mock_agent.describe.return_value = {"id": "a1", "name": "agent1"}
         self.orchestrator._resolve_agent.return_value = mock_agent
         resp = self._run(self.server._handle_agent(_req(match_info={"id": "a1"})))
         data = self._check_json(resp)
-        self.assertEqual(data["name"], "tina")
+        self.assertEqual(data["name"], "agent1")
 
     def test_agent_commands(self):
         mock_agent = MagicMock()
         mock_agent.id = "a1"
-        mock_agent.name = "tina"
+        mock_agent.name = "agent1"
         mock_cmd = MagicMock()
         mock_cmd.description = "Does something"
         mock_agent.get_command_map.return_value = {"doit": mock_cmd}
@@ -106,7 +106,7 @@ class TestVOXAPIServerHandlers(unittest.TestCase):
         self.orchestrator.resolve_agent_id.return_value = "a1"
         self.orchestrator.pause_agent = AsyncMock(return_value=True)
         resp = self._run(
-            self.server._handle_pause(_req(method="POST", match_info={"id": "tina"}))
+            self.server._handle_pause(_req(method="POST", match_info={"id": "agent1"}))
         )
         data = self._check_json(resp)
         self.assertTrue(data["ok"])
@@ -115,14 +115,14 @@ class TestVOXAPIServerHandlers(unittest.TestCase):
     def test_pause_agent_failure_returns_400(self):
         self.orchestrator.pause_agent = AsyncMock(return_value=False)
         resp = self._run(
-            self.server._handle_pause(_req(method="POST", match_info={"id": "tina"}))
+            self.server._handle_pause(_req(method="POST", match_info={"id": "agent1"}))
         )
         self.assertEqual(resp.status, 400)
 
     def test_resume_agent_returns_ok(self):
         self.orchestrator.resume_agent = AsyncMock(return_value=True)
         resp = self._run(
-            self.server._handle_resume(_req(method="POST", match_info={"id": "tina"}))
+            self.server._handle_resume(_req(method="POST", match_info={"id": "agent1"}))
         )
         data = self._check_json(resp)
         self.assertTrue(data["ok"])
@@ -131,14 +131,14 @@ class TestVOXAPIServerHandlers(unittest.TestCase):
     def test_resume_agent_failure_returns_400(self):
         self.orchestrator.resume_agent = AsyncMock(return_value=False)
         resp = self._run(
-            self.server._handle_resume(_req(method="POST", match_info={"id": "tina"}))
+            self.server._handle_resume(_req(method="POST", match_info={"id": "agent1"}))
         )
         self.assertEqual(resp.status, 400)
 
     def test_stop_agent_not_found_returns_404(self):
         self.orchestrator.resolve_agent_id.return_value = None
         resp = self._run(
-            self.server._handle_stop(_req(method="POST", match_info={"id": "tina"}))
+            self.server._handle_stop(_req(method="POST", match_info={"id": "agent1"}))
         )
         self.assertEqual(resp.status, 404)
 
@@ -155,7 +155,7 @@ class TestVOXAPIServerHandlers(unittest.TestCase):
     def test_start_agent_returns_ok(self):
         self.orchestrator.start_agent_by_name = AsyncMock(return_value=True)
         resp = self._run(
-            self.server._handle_start(_req(method="POST", match_info={"id": "tina"}))
+            self.server._handle_start(_req(method="POST", match_info={"id": "agent1"}))
         )
         data = self._check_json(resp)
         self.assertTrue(data["ok"])
@@ -164,14 +164,16 @@ class TestVOXAPIServerHandlers(unittest.TestCase):
     def test_start_agent_failure_returns_400(self):
         self.orchestrator.start_agent_by_name = AsyncMock(return_value=False)
         resp = self._run(
-            self.server._handle_start(_req(method="POST", match_info={"id": "tina"}))
+            self.server._handle_start(_req(method="POST", match_info={"id": "agent1"}))
         )
         self.assertEqual(resp.status, 400)
 
     def test_restart_agent_returns_ok(self):
         self.orchestrator.restart_agent = AsyncMock(return_value=True)
         resp = self._run(
-            self.server._handle_restart(_req(method="POST", match_info={"id": "tina"}))
+            self.server._handle_restart(
+                _req(method="POST", match_info={"id": "agent1"})
+            )
         )
         data = self._check_json(resp)
         self.assertTrue(data["ok"])
@@ -180,7 +182,9 @@ class TestVOXAPIServerHandlers(unittest.TestCase):
     def test_restart_agent_failure_returns_400(self):
         self.orchestrator.restart_agent = AsyncMock(return_value=False)
         resp = self._run(
-            self.server._handle_restart(_req(method="POST", match_info={"id": "tina"}))
+            self.server._handle_restart(
+                _req(method="POST", match_info={"id": "agent1"})
+            )
         )
         self.assertEqual(resp.status, 400)
 

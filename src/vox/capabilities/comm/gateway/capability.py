@@ -1,7 +1,7 @@
 """comm.gateway — multi-channel communication gateway capability.
 
 Provides inbound webhook ingestion and outbound message delivery across
-configured channels (Telegram, generic HTTP webhook, and future adapters).
+configured channels (Telegram, WhatsApp, generic HTTP webhook).
 Normalises all inbound traffic into VOXInboundMessage before dispatching
 to the orchestrator.
 
@@ -181,16 +181,3 @@ class CommGatewayCapability(VOXCapability):
             metadata=metadata,
         )
         return await self.send_message(msg)
-
-    async def send_broadcast(self, text: str) -> bool:
-        """Agent-facing convenience — sends text via the default channel.
-
-        Resolves channel (``"telegram"``) and recipient
-        (``TELEGRAM_USER_ID``) from the agent's config automatically.
-        """
-        channel = "telegram"
-        recipient_id = self._agent.config.get("TELEGRAM_USER_ID", "")
-        if not recipient_id:
-            self.error("No TELEGRAM_USER_ID configured — cannot broadcast")
-            return False
-        return await self.send_text(channel, recipient_id, text)

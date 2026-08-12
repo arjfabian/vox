@@ -17,12 +17,12 @@ class TestSourceTag(unittest.TestCase):
         self.assertEqual(_source_tag(record), "vox")
 
     def test_dotted_name(self):
-        record = logging.LogRecord("vox.tina", logging.INFO, "", 0, "msg", (), None)
-        self.assertEqual(_source_tag(record), "tina")
+        record = logging.LogRecord("vox.agent1", logging.INFO, "", 0, "msg", (), None)
+        self.assertEqual(_source_tag(record), "agent1")
 
     def test_deeply_dotted_name(self):
         record = logging.LogRecord(
-            "vox.agents.tina.roles.chat", logging.INFO, "", 0, "msg", (), None
+            "vox.agents.agent1.roles.chat", logging.INFO, "", 0, "msg", (), None
         )
         self.assertEqual(_source_tag(record), "chat")
 
@@ -31,11 +31,11 @@ class TestVOXLogSource(unittest.TestCase):
     def test_display_name_with_all_fields(self):
         src = VOXLogSource(
             source_type="agent",
-            source_name="tina",
+            source_name="agent1",
             source_uuid="12345678-1234-1234-1234-123456789abc",
         )
         self.assertIn("agent", src.display_name)
-        self.assertIn("tina", src.display_name)
+        self.assertIn("agent1", src.display_name)
 
     def test_display_name_without_uuid(self):
         src = VOXLogSource(source_type="capability", source_name="ollama")
@@ -95,14 +95,14 @@ class TestVOXForensicLogger(unittest.TestCase):
         self.assertIn("should appear", self.stream.getvalue())
 
     def test_get_child_returns_new_logger(self):
-        child = self.logger.get_child("tina")
+        child = self.logger.get_child("agent1")
         self.assertIsNot(child, self.logger)
         self.assertIsInstance(child, VOXForensicLogger)
 
     def test_get_child_name_is_dotted(self):
-        child = self.logger.get_child("tina")
+        child = self.logger.get_child("agent1")
         child.info("from child")
-        # The record name should be vox.test.tina
+        # The record name should be vox.test.agent1
         self.assertIn("from child", self.stream.getvalue())
 
 
@@ -166,6 +166,8 @@ class TestVOXPlainFormatter(unittest.TestCase):
         self.assertIn("[vox]", result)
 
     def test_format_dotted_source(self):
-        record = logging.LogRecord("vox.tina", logging.WARNING, "", 0, "warn", (), None)
+        record = logging.LogRecord(
+            "vox.agent1", logging.WARNING, "", 0, "warn", (), None
+        )
         result = self.fmt.format(record)
-        self.assertIn("[tina]", result)
+        self.assertIn("[agent1]", result)

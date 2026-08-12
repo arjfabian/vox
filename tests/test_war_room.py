@@ -13,8 +13,8 @@ from vox.orchestration.war_room import VOXWarRoom, VOXWarRoomMaster, WarRoomMess
 
 class TestWarRoomMessage(unittest.TestCase):
     def test_default_fields(self):
-        msg = WarRoomMessage(source="tori", payload={"event": "test"})
-        self.assertEqual(msg.source, "tori")
+        msg = WarRoomMessage(source="agent3", payload={"event": "test"})
+        self.assertEqual(msg.source, "agent3")
         self.assertEqual(msg.target, "everyone")
         self.assertEqual(msg.payload, {"event": "test"})
         self.assertEqual(msg.read_by, {})
@@ -24,19 +24,19 @@ class TestWarRoomMessage(unittest.TestCase):
         from vox.messaging.models import VOXMessage
 
         msg = WarRoomMessage(
-            source="tori",
+            source="agent3",
             payload={"event": "vps_breach", "severity": "CRITICAL"},
         )
         vox = msg.to_vox_message()
         self.assertIsInstance(vox, VOXMessage)
-        self.assertEqual(vox.message_source, "tori")
+        self.assertEqual(vox.message_source, "agent3")
         self.assertEqual(vox.details, msg.payload)
 
     def test_acknowledge_tracking(self):
         msg = WarRoomMessage(source="system")
-        self.assertNotIn("leah", msg.read_by)
-        msg.read_by["leah"] = "2026-01-01T00:00:00"
-        self.assertIn("leah", msg.read_by)
+        self.assertNotIn("agent2", msg.read_by)
+        msg.read_by["agent2"] = "2026-01-01T00:00:00"
+        self.assertIn("agent2", msg.read_by)
 
 
 # ------------------------------------------------------------------
@@ -49,7 +49,7 @@ class TestVOXWarRoom(unittest.IsolatedAsyncioTestCase):
         self.war_room = VOXWarRoom()
 
     async def test_publish_enqueues_and_records_history(self):
-        msg = WarRoomMessage(source="tori", payload={"event": "test"})
+        msg = WarRoomMessage(source="agent3", payload={"event": "test"})
         await self.war_room.publish(msg)
         self.assertIn(msg, self.war_room._history)
         self.assertEqual(self.war_room._queue.qsize(), 1)
@@ -57,22 +57,22 @@ class TestVOXWarRoom(unittest.IsolatedAsyncioTestCase):
     async def test_acknowledge_marks_read(self):
         msg = WarRoomMessage(source="system")
         await self.war_room.publish(msg)
-        ok = await self.war_room.acknowledge(msg.message_id, "leah")
+        ok = await self.war_room.acknowledge(msg.message_id, "agent2")
         self.assertTrue(ok)
-        self.assertIn("leah", msg.read_by)
+        self.assertIn("agent2", msg.read_by)
 
     async def test_acknowledge_unknown_id_returns_false(self):
-        ok = await self.war_room.acknowledge("nonexistent", "tina")
+        ok = await self.war_room.acknowledge("nonexistent", "agent1")
         self.assertFalse(ok)
 
     async def test_get_unread_excludes_acknowledged(self):
         msg = WarRoomMessage(source="system")
         await self.war_room.publish(msg)
-        await self.war_room.acknowledge(msg.message_id, "leah")
-        unread = self.war_room.get_unread("leah")
+        await self.war_room.acknowledge(msg.message_id, "agent2")
+        unread = self.war_room.get_unread("agent2")
         self.assertEqual(unread, [])
-        unread_tina = self.war_room.get_unread("tina")
-        self.assertEqual(len(unread_tina), 1)
+        unread_agent1 = self.war_room.get_unread("agent1")
+        self.assertEqual(len(unread_agent1), 1)
 
     async def test_get_history_with_since_filter(self):
         msg1 = WarRoomMessage(source="a", payload={"seq": 1})
@@ -149,11 +149,11 @@ class TestVOXWarRoomMaster(unittest.IsolatedAsyncioTestCase):
 
     async def test_format_alert_contains_source(self):
         msg = WarRoomMessage(
-            source="tori",
+            source="agent3",
             payload={"event": "intrusion", "severity": "HIGH"},
         )
         text = VOXWarRoomMaster._format_alert(msg)
-        self.assertIn("tori", text)
+        self.assertIn("agent3", text)
         self.assertIn("intrusion", text)
         self.assertIn("HIGH", text)
 
@@ -224,10 +224,10 @@ class TestAlertRouting(unittest.IsolatedAsyncioTestCase):
 
         orc = VOXOrchestrator(config=self.config, logger=self.logger)
         payload = {"type": "alert", "event": "breach", "severity": "CRITICAL"}
-        await orc.dispatch_inbound_message("tori", payload)
+        await orc.dispatch_inbound_message("agent3", payload)
         history = orc._war_room.get_history()
         self.assertEqual(len(history), 1)
-        self.assertEqual(history[0].source, "tori")
+        self.assertEqual(history[0].source, "agent3")
         self.assertEqual(history[0].payload, payload)
 
     async def test_non_alert_message_skips_war_room(self):

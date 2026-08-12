@@ -145,12 +145,12 @@ class TestLoadCliArgs(unittest.TestCase):
             self.assertIsNone(args.agent_name)
 
     def test_start_command(self):
-        with patch("sys.argv", ["vox", "start", "tina"]):
+        with patch("sys.argv", ["vox", "start", "agent1"]):
             from vox.config.from_cli import load_cli_args
 
             args = load_cli_args()
             self.assertEqual(args.command, "start")
-            self.assertEqual(args.agent_name, "tina")
+            self.assertEqual(args.agent_name, "agent1")
 
     def test_unknown_command_rejected_by_argparse(self):
         with patch("sys.argv", ["vox", "fly"]):
@@ -181,13 +181,13 @@ class TestLoadCliArgs(unittest.TestCase):
             self.assertFalse(args.verbose)
 
     def test_verbose_with_command(self):
-        with patch("sys.argv", ["vox", "-v", "start", "tina"]):
+        with patch("sys.argv", ["vox", "-v", "start", "agent1"]):
             from vox.config.from_cli import load_cli_args
 
             args = load_cli_args()
             self.assertTrue(args.verbose)
             self.assertEqual(args.command, "start")
-            self.assertEqual(args.agent_name, "tina")
+            self.assertEqual(args.agent_name, "agent1")
 
 
 class TestLoadConfig(unittest.TestCase):

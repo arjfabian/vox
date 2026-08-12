@@ -33,7 +33,7 @@ async def test_record_with_all_fields(memory):
     event_id = await memory.record(
         event_type="cmd",
         action="run",
-        actor="tina",
+        actor="agent1",
         details={"key": "value"},
         ref_id="ref-1",
         status="PENDING",

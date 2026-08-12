@@ -6,7 +6,7 @@ Provision secrets into an agent's encrypted ``secrets.vault``.
 Usage::
 
     export VOX_MASTER_KEY="your-strong-passphrase"
-    python tools/provision_vault.py --agent tina
+    python tools/provision_vault.py --agent <agent_name>
 
 Scans the agent's roles, discovers required capabilities and their
 sensitive params, then performs a delta sync against the vault:
@@ -201,9 +201,7 @@ async def _sync_vault(vault: AgentVault, desired: dict[str, dict]) -> None:
 
 async def main() -> None:
     parser = argparse.ArgumentParser(description="Provision secrets into agent vault")
-    parser.add_argument(
-        "--agent", required=True, help="Agent folder name (e.g. tina, leah)"
-    )
+    parser.add_argument("--agent", required=True, help="Agent folder name")
     args = parser.parse_args()
 
     agent_dir = AGENTS_DIR / args.agent.lower()

@@ -107,7 +107,7 @@ class TestHandleControlCommand(unittest.TestCase):
 
     def test_list_command(self):
         self.runtime.orchestrator.get_fleet_snapshot.return_value = {
-            "agents": [{"id": "a1", "name": "tina"}],
+            "agents": [{"id": "a1", "name": "agent1"}],
         }
         asyncio.run(self._send_command("list"))
         resp = self._decode_response()
@@ -117,10 +117,10 @@ class TestHandleControlCommand(unittest.TestCase):
     def test_stop_command_with_args(self):
         self.runtime.orchestrator.resolve_agent_id.return_value = "a1"
         self.runtime.orchestrator.stop_agent = AsyncMock(return_value=True)
-        asyncio.run(self._send_command("stop", ["tina"]))
+        asyncio.run(self._send_command("stop", ["agent1"]))
         resp = self._decode_response()
         self.assertTrue(resp["ok"])
-        self.assertIn("tina", resp["data"])
+        self.assertIn("agent1", resp["data"])
 
     def test_stop_command_without_args(self):
         asyncio.run(self._send_command("stop"))
@@ -129,22 +129,22 @@ class TestHandleControlCommand(unittest.TestCase):
 
     def test_restart_command(self):
         self.runtime.orchestrator.restart_agent = AsyncMock(return_value=True)
-        asyncio.run(self._send_command("restart", ["tina"]))
+        asyncio.run(self._send_command("restart", ["agent1"]))
         resp = self._decode_response()
         self.assertTrue(resp["ok"])
 
     def test_start_command(self):
         self.runtime.orchestrator.start_agent_by_name = AsyncMock(return_value=True)
-        asyncio.run(self._send_command("start", ["tina"]))
+        asyncio.run(self._send_command("start", ["agent1"]))
         resp = self._decode_response()
         self.assertTrue(resp["ok"])
 
     def test_pause_command(self):
         self.runtime.orchestrator.pause_agent = AsyncMock(return_value=True)
-        asyncio.run(self._send_command("pause", ["tina"]))
+        asyncio.run(self._send_command("pause", ["agent1"]))
         resp = self._decode_response()
         self.assertTrue(resp["ok"])
-        self.assertIn("tina", resp["data"])
+        self.assertIn("agent1", resp["data"])
 
     def test_pause_command_without_args(self):
         asyncio.run(self._send_command("pause"))
@@ -153,10 +153,10 @@ class TestHandleControlCommand(unittest.TestCase):
 
     def test_resume_command(self):
         self.runtime.orchestrator.resume_agent = AsyncMock(return_value=True)
-        asyncio.run(self._send_command("resume", ["tina"]))
+        asyncio.run(self._send_command("resume", ["agent1"]))
         resp = self._decode_response()
         self.assertTrue(resp["ok"])
-        self.assertIn("tina", resp["data"])
+        self.assertIn("agent1", resp["data"])
 
     def test_resume_command_without_args(self):
         asyncio.run(self._send_command("resume"))

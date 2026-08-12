@@ -121,8 +121,8 @@ agents and mirrored to an external channel through the orchestrator's
 `TELEGRAM_BOT_TOKEN` and `VOX_WAR_ROOM_ID` are configured). Role-level
 messaging is handled by `comm.gateway` — a domain-agnostic multi-channel
 gateway with adapter-driven inbound and outbound (Telegram via webhook or
-`getUpdates` long-polling, generic HTTP webhook) — mounted per agent as
-`CommGatewayCapability` and used via `send_broadcast()`.
+`getUpdates` long-polling, WhatsApp Cloud API, generic HTTP webhook) —
+mounted per agent as `CommGatewayCapability` and used via `send_text()`.
 
 Built-in capabilities:
 
@@ -130,7 +130,7 @@ Built-in capabilities:
 |---|---|---|
 | LLM text generation | `ai.llm` | Ollama (local) routed via complexity classifier (optional cloud fallback) |
 | Headless browser | `net.browser` | Playwright (Firefox) |
-| Messaging (inbound + broadcast) | `comm.gateway` | Telegram (webhook / `getUpdates` long-poll) / generic webhook |
+| Messaging (inbound + outbound) | `comm.gateway` | Telegram (webhook / `getUpdates` long-poll) / WhatsApp Cloud API / generic webhook |
 | Email dispatch | `comm.email` | SMTP |
 | Speech-to-text | `comm.voicetotext` | faster-whisper |
 
@@ -240,7 +240,8 @@ structured.
 - Python 3.11+
 - [Ollama](https://ollama.ai) (for `ai.llm` capability)
 - [Playwright](https://playwright.dev) browsers: `playwright install firefox`
-- Telegram Bot Token (for `comm.gateway` Telegram adapter)
+- Telegram Bot Token — fleet-level War Room / `FleetMessenger` alert mirroring, and the optional `comm.gateway` Telegram adapter (only if you use Telegram)
+- WhatsApp Cloud API credentials — optional, only for the `comm.gateway` WhatsApp adapter
 
 ### Installation
 
@@ -265,8 +266,8 @@ TELEGRAM_USER_ID=...
 |---|---|---|
 | `VOX_MASTER_KEY` | — | Master passphrase for the per-agent encrypted vault (`AgentVault`). Required when capabilities declare `SENSITIVE_PARAMS` that are not provided via `.env`. |
 | `VOX_WAR_ROOM_ID` | — | Telegram chat ID for War Room alert mirroring. **Required** — VOX refuses to start without it. |
-| `TELEGRAM_BOT_TOKEN` | — | Telegram Bot API token for messenger connectors |
-| `TELEGRAM_USER_ID` | — | Telegram chat/user ID for per-agent broadcast delivery |
+| `TELEGRAM_BOT_TOKEN` | — | Telegram Bot API token — fleet-level War Room / `FleetMessenger` alert mirroring, and the optional `comm.gateway` Telegram adapter |
+| `TELEGRAM_USER_ID` | — | Telegram chat/user ID injected into every agent config (global agent key) and used as the outbound recipient for `comm.gateway` Telegram messages |
 | `LLM_API_BASE_URL` | `http://localhost:11434` | Ollama endpoint for `ai.llm` capability (capability param) |
 | `TELEGRAM_LONG_TIMEOUT` | `25` | `comm.gateway` Telegram `getUpdates` long-poll timeout (seconds); the HTTP client read timeout is derived from it (+5s buffer) |
 | `VOX_API_HOST` | `127.0.0.1` | HTTP API bind address |
@@ -274,6 +275,8 @@ TELEGRAM_USER_ID=...
 | `VOX_WATCH_DISABLED` | — | Set to `true` to disable the agent file watcher |
 | `VOX_VERBOSE_LOGGING` | `false` | Enable verbose debug logging |
 | `VOX_UDS_PATH` | `/tmp/vox.sock` | Unix domain socket path |
+
+Channel credentials for the optional `comm.gateway` adapters are adapter-owned and only required for the channel you use — e.g. the WhatsApp Cloud API adapter reads `WHATSAPP_ACCESS_TOKEN` and `WHATSAPP_PHONE_NUMBER_ID` (plus `WHATSAPP_APP_SECRET` / `WHATSAPP_VERIFY_TOKEN` when webhook verification is enabled). `TELEGRAM_BOT_TOKEN` additionally powers fleet-level War Room mirroring via `FleetMessenger` when `VOX_WAR_ROOM_ID` is set.
 
 The HTTP API always binds to port `8000` (fixed in `api_server.py`, no env override).
 
@@ -372,13 +375,14 @@ vox/
 │   │   │   ├── sanitizer.py             input control-char/boilerplate cleaning
 │   │   │   └── models.py                LLM request/response types
 │   │   ├── net/browser/                 headless browser via Playwright
-│   │   ├── comm/gateway/                  multi-channel communication gateway
+│   │   ├── comm/gateway/                multi-channel communication gateway
 │   │   │   ├── capability.py            CommGatewayCapability wrapper
 │   │   │   ├── models.py                VOXInboundMessage / VOXOutboundMessage
 │   │   │   ├── server.py                IngressServer (shared aiohttp listener)
 │   │   │   ├── adapters/
 │   │   │   │   ├── base.py              BaseAdapter ABC
 │   │   │   │   ├── telegram.py          Telegram Bot API adapter
+│   │   │   │   ├── whatsapp.py          WhatsApp Cloud API adapter
 │   │   │   │   └── webhook.py           generic HTTP webhook adapter
 │   │   │   └── capability.yml           capability manifest
 │   │   ├── comm/email/                  SMTP email dispatch
@@ -417,9 +421,6 @@ vox/
 │   │   └── fleet_messenger.py           FleetMessenger — boot-level Telegram broadcast
 │   ├── api_server.py                    HTTP API (aiohttp, auth + guardrail middleware)
 │   └── provider.py                      CapabilityProviderProtocol protocol
-├── docs/
-│   └── internal/
-│       └── todo.md                      roadmap
 ├── tests/
 └── pyproject.toml
 ```

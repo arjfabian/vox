@@ -4,7 +4,7 @@ version: 0.1.0
 description: |
   Multi-channel communication gateway for VOX agents.
   Provides inbound webhook ingestion and outbound message delivery
-  with a unified adapter abstraction (Telegram, generic HTTP webhook).
+  with a unified adapter abstraction (Telegram, WhatsApp, generic HTTP webhook).
 
 capability_class: CommGatewayCapability
 
@@ -25,5 +25,7 @@ params:
     default: "0.0.0.0"
 
 # Channel-specific params (TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET,
-# TELEGRAM_LONG_TIMEOUT, GATEWAY_WEBHOOK_SECRET) are declared by each adapter
-# in comm/gateway/adapters/*.py and aggregated at runtime by the capability.
+# TELEGRAM_LONG_TIMEOUT, GATEWAY_WEBHOOK_SECRET, WHATSAPP_ACCESS_TOKEN,
+# WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_APP_SECRET, WHATSAPP_VERIFY_TOKEN,
+# WHATSAPP_API_VERSION) are declared by each adapter in
+# comm/gateway/adapters/*.py and aggregated at runtime by the capability.

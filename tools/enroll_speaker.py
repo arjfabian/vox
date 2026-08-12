@@ -106,13 +106,6 @@ def main():
     - Vary your sentences across samples (don't repeat the same phrase)
     - Avoid background music; ambient noise is fine
     - You can speak in any language VOX will use (ES, EN, PT)
-
-  Example phrases to use across your samples:
-    "Tina, what's the status of the system?"
-    "Ejecuta el análisis de logs de hoy."
-    "VOX, reinicia el agente Leah."
-    "Quero saber o estado dos agentes ativos."
-    "Run a full diagnostic and report back."
 """)
 
     _check_dependencies()

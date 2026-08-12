@@ -1,0 +1,50 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "TEST_WABA_ID",
+      "changes": [
+        {
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {
+              "display_phone_number": "15550000000",
+              "phone_number_id": "TEST_PHONE_NUMBER_ID"
+            },
+            "contacts": [
+              {
+                "profile": {
+                  "name": "Test User One"
+                },
+                "wa_id": "+5490000000000",
+                "user_id": "TEST_USER_ID_001",
+                "country_code": "AR"
+              }
+            ],
+            "messages": [
+              {
+                "from": "+5490000000000",
+                "from_user_id": "TEST_USER_ID_001",
+                "id": "TEST_MESSAGE_002",
+                "timestamp": "1700000004",
+                "text": {
+                  "body": "Thanks for the confirmation"
+                },
+                "from_logical_id": "TEST_LOGICAL_ID_001",
+                "type": "text",
+                "internal_1p_only_data": {
+                  "account_context": {
+                    "waac_id": "TEST_WAAC_ID",
+                    "cs_id": "TEST_CS_ID",
+                    "account_context_type": "non_paid_messaging"
+                  }
+                }
+              }
+            ]
+          },
+          "field": "messages"
+        }
+      ]
+    }
+  ]
+}

@@ -241,25 +241,25 @@ class TestVOXOrchestratorLifecycleMethods(unittest.TestCase):
         return tmp, agent
 
     def test_resolve_agent_id_by_name(self):
-        agent = self._make_agent("tina", "a1")
+        agent = self._make_agent("agent1", "a1")
         self.orc.active_agents["a1"] = agent
-        self.assertEqual(self.orc.resolve_agent_id("tina"), "a1")
+        self.assertEqual(self.orc.resolve_agent_id("agent1"), "a1")
 
     def test_resolve_agent_id_case_insensitive(self):
-        agent = self._make_agent("Tina", "a1")
+        agent = self._make_agent("Agent1", "a1")
         self.orc.active_agents["a1"] = agent
-        self.assertEqual(self.orc.resolve_agent_id("tina"), "a1")
+        self.assertEqual(self.orc.resolve_agent_id("agent1"), "a1")
 
     def test_resolve_agent_id_none_if_not_found(self):
         self.assertIsNone(self.orc.resolve_agent_id("ghost"))
 
     def test_resolve_agent_id_searches_inactive_too(self):
-        agent = self._make_agent("leah", "a2")
+        agent = self._make_agent("Agent2", "a2")
         self.orc.inactive_agents["a2"] = agent
-        self.assertEqual(self.orc.resolve_agent_id("leah"), "a2")
+        self.assertEqual(self.orc.resolve_agent_id("agent2"), "a2")
 
     def test_stop_agent_moves_to_inactive(self):
-        agent = self._make_agent("tina", "a1")
+        agent = self._make_agent("agent1", "a1")
         agent.stop = AsyncMock()
         self.orc.active_agents["a1"] = agent
         result = asyncio.run(self.orc.stop_agent("a1"))
@@ -273,27 +273,27 @@ class TestVOXOrchestratorLifecycleMethods(unittest.TestCase):
         self.assertFalse(result)
 
     def test_start_agent_by_name_moves_to_active(self):
-        agent = self._make_agent("leah", "a2")
+        agent = self._make_agent("agent2", "a2")
         agent.boot = AsyncMock(return_value=True)
         self.orc.inactive_agents["a2"] = agent
-        result = asyncio.run(self.orc.start_agent_by_name("leah"))
+        result = asyncio.run(self.orc.start_agent_by_name("agent2"))
         self.assertTrue(result)
         self.assertIn("a2", self.orc.active_agents)
         self.assertNotIn("a2", self.orc.inactive_agents)
         agent.boot.assert_awaited_once()
 
     def test_start_agent_by_name_boot_failure(self):
-        agent = self._make_agent("leah", "a2")
+        agent = self._make_agent("agent2", "a2")
         agent.boot = AsyncMock(return_value=False)
         self.orc.inactive_agents["a2"] = agent
-        result = asyncio.run(self.orc.start_agent_by_name("leah"))
+        result = asyncio.run(self.orc.start_agent_by_name("agent2"))
         self.assertFalse(result)
         self.assertNotIn("a2", self.orc.active_agents)
 
     def test_start_agent_by_name_already_active(self):
-        agent = self._make_agent("tina", "a1")
+        agent = self._make_agent("agent1", "a1")
         self.orc.active_agents["a1"] = agent
-        result = asyncio.run(self.orc.start_agent_by_name("tina"))
+        result = asyncio.run(self.orc.start_agent_by_name("agent1"))
         self.assertFalse(result)
 
     def _register_mock_system_cap(self):
@@ -314,20 +314,20 @@ class TestVOXOrchestratorLifecycleMethods(unittest.TestCase):
     def test_restart_agent(self):
         self._register_mock_system_cap()
 
-        _folder, agent = self._make_real_agent_dir("tina", "a1")
+        _folder, agent = self._make_real_agent_dir("agent1", "a1")
         agent.shutdown = AsyncMock()
         self.orc.active_agents["a1"] = agent
-        result = asyncio.run(self.orc.restart_agent("tina"))
+        result = asyncio.run(self.orc.restart_agent("agent1"))
         self.assertTrue(result)
         agent.shutdown.assert_awaited_once()
 
     def test_restart_agent_from_inactive(self):
         self._register_mock_system_cap()
 
-        _folder, agent = self._make_real_agent_dir("leah", "a2")
+        _folder, agent = self._make_real_agent_dir("agent2", "a2")
         agent.shutdown = AsyncMock()
         self.orc.inactive_agents["a2"] = agent
-        result = asyncio.run(self.orc.restart_agent("leah"))
+        result = asyncio.run(self.orc.restart_agent("agent2"))
         self.assertTrue(result)
         new_agent = self.orc.active_agents.get("a2")
         self.assertIsNotNone(new_agent)
@@ -338,17 +338,17 @@ class TestVOXOrchestratorLifecycleMethods(unittest.TestCase):
         self.assertFalse(result)
 
     def test_pause_agent(self):
-        agent = self._make_agent("tina", "a1")
+        agent = self._make_agent("agent1", "a1")
         agent.pause = AsyncMock()
         self.orc.active_agents["a1"] = agent
-        result = asyncio.run(self.orc.pause_agent("tina"))
+        result = asyncio.run(self.orc.pause_agent("agent1"))
         self.assertTrue(result)
         agent.pause.assert_awaited_once()
 
     def test_pause_agent_not_active(self):
-        agent = self._make_agent("leah", "a2")
+        agent = self._make_agent("agent2", "a2")
         self.orc.inactive_agents["a2"] = agent
-        result = asyncio.run(self.orc.pause_agent("leah"))
+        result = asyncio.run(self.orc.pause_agent("agent2"))
         self.assertFalse(result)
 
     def test_pause_agent_not_found(self):
@@ -356,22 +356,22 @@ class TestVOXOrchestratorLifecycleMethods(unittest.TestCase):
         self.assertFalse(result)
 
     def test_resume_agent(self):
-        agent = self._make_agent("tina", "a1")
+        agent = self._make_agent("agent1", "a1")
         agent.resume = AsyncMock()
         self.orc.active_agents["a1"] = agent
-        result = asyncio.run(self.orc.resume_agent("tina"))
+        result = asyncio.run(self.orc.resume_agent("agent1"))
         self.assertTrue(result)
         agent.resume.assert_awaited_once()
 
     def test_resume_agent_not_active(self):
-        agent = self._make_agent("leah", "a2")
+        agent = self._make_agent("agent2", "a2")
         self.orc.inactive_agents["a2"] = agent
-        result = asyncio.run(self.orc.resume_agent("leah"))
+        result = asyncio.run(self.orc.resume_agent("agent2"))
         self.assertFalse(result)
 
     def test_concurrent_stop_agent_calls_no_race(self):
         """Two concurrent stop_agent calls on the same agent must not corrupt dicts."""
-        agent = self._make_agent("tina", "a1")
+        agent = self._make_agent("agent1", "a1")
         agent.stop = AsyncMock()
         self.orc.active_agents["a1"] = agent
 
@@ -401,17 +401,17 @@ class TestVOXOrchestratorLifecycleMethods(unittest.TestCase):
 
     def test_concurrent_start_and_stop_no_corruption(self):
         """Concurrent start (from inactive) and stop (of different agent) don't interfere."""
-        agent_a = self._make_agent("tina", "a1")
+        agent_a = self._make_agent("agent1", "a1")
         agent_a.boot = AsyncMock(return_value=True)
         agent_a.stop = AsyncMock()
-        agent_b = self._make_agent("leah", "a2")
+        agent_b = self._make_agent("agent2", "a2")
         agent_b.stop = AsyncMock()
         self.orc.inactive_agents["a1"] = agent_a
         self.orc.active_agents["a2"] = agent_b
 
         async def race():
             results = await asyncio.gather(
-                self.orc.start_agent_by_name("tina"),
+                self.orc.start_agent_by_name("agent1"),
                 self.orc.stop_agent("a2"),
                 return_exceptions=True,
             )
@@ -423,7 +423,9 @@ class TestVOXOrchestratorLifecycleMethods(unittest.TestCase):
                 raise r
             self.assertTrue(r, "Both operations should succeed")
 
-        self.assertIn("a1", self.orc.active_agents, "Tina should be active after start")
         self.assertIn(
-            "a2", self.orc.inactive_agents, "Leah should be inactive after stop"
+            "a1", self.orc.active_agents, "Agent1 should be active after start"
+        )
+        self.assertIn(
+            "a2", self.orc.inactive_agents, "Agent2 should be inactive after stop"
         )

@@ -3,6 +3,8 @@
 import asyncio
 import hashlib
 import hmac
+import json
+import pathlib
 import unittest
 from unittest.mock import AsyncMock, patch
 
@@ -12,7 +14,8 @@ from aiohttp import web
 from vox.capabilities.comm.gateway.adapters.base import BaseAdapter
 from vox.capabilities.comm.gateway.adapters.telegram import TelegramAdapter
 from vox.capabilities.comm.gateway.adapters.webhook import WebhookAdapter
-from vox.capabilities.comm.gateway.models import VOXInboundMessage
+from vox.capabilities.comm.gateway.adapters.whatsapp import WhatsAppAdapter
+from vox.capabilities.comm.gateway.models import VOXInboundMessage, VOXOutboundMessage
 from vox.capabilities.comm.gateway.server import IngressServer
 
 _TELEGRAM_API = "https://api.telegram.org"
@@ -205,10 +208,12 @@ class TestCommGatewayAdapterParams(unittest.TestCase):
 
         specs = CommGatewayCapability.adapter_param_specs()
         self.assertEqual(
-            set(specs), {"telegram", "webhook"}
+            set(specs), {"telegram", "webhook", "whatsapp"}
         )
         self.assertIn("TELEGRAM_BOT_TOKEN", specs["telegram"])
         self.assertIn("GATEWAY_WEBHOOK_SECRET", specs["webhook"])
+        self.assertIn("WHATSAPP_ACCESS_TOKEN", specs["whatsapp"])
+        self.assertIn("WHATSAPP_PHONE_NUMBER_ID", specs["whatsapp"])
 
     def test_is_configured(self):
         from vox.capabilities.comm.gateway.adapters.telegram import TelegramAdapter
@@ -219,6 +224,18 @@ class TestCommGatewayAdapterParams(unittest.TestCase):
             TelegramAdapter.is_configured({"TELEGRAM_BOT_TOKEN": "123:ABC"})
         )
         self.assertTrue(WebhookAdapter.is_configured({}))
+        self.assertFalse(WhatsAppAdapter.is_configured({}))
+        self.assertFalse(
+            WhatsAppAdapter.is_configured({"WHATSAPP_PHONE_NUMBER_ID": "123"})
+        )
+        self.assertFalse(
+            WhatsAppAdapter.is_configured({"WHATSAPP_ACCESS_TOKEN": "EAAG"})
+        )
+        self.assertTrue(
+            WhatsAppAdapter.is_configured(
+                {"WHATSAPP_ACCESS_TOKEN": "EAAG", "WHATSAPP_PHONE_NUMBER_ID": "123"}
+            )
+        )
 
 
 class _BodySigningAdapter(BaseAdapter):
@@ -374,6 +391,625 @@ class TestIngressServerGenericRoutes(unittest.TestCase):
         }
         self.assertNotIn("/webhook/signing", paths)
         self.assertIn("/health", paths)
+
+
+_APP_SECRET = "my-test-app-secret"
+_ACCESS_TOKEN = "EAAG_test_token"
+_PHONE_NUMBER_ID = "1234567890"
+_VERIFY_TOKEN = "my-verify-token"
+
+
+class TestWhatsAppAdapter(unittest.TestCase):
+    def _adapter(self, **overrides):
+
+        config = {
+            "WHATSAPP_ACCESS_TOKEN": _ACCESS_TOKEN,
+            "WHATSAPP_PHONE_NUMBER_ID": _PHONE_NUMBER_ID,
+            "WHATSAPP_APP_SECRET": _APP_SECRET,
+            "WHATSAPP_VERIFY_TOKEN": _VERIFY_TOKEN,
+            "WHATSAPP_API_VERSION": "v25.0",
+        }
+        config.update(overrides)
+        return WhatsAppAdapter(config)
+
+    # ---- parse_inbound ---------------------------------------------------
+
+    def test_parse_inbound_text_message(self):
+        adapter = self._adapter()
+        payload = {
+            "object": "whatsapp_business_account",
+            "entry": [
+                {
+                    "id": "WABA_ID",
+                    "changes": [
+                        {
+                            "field": "messages",
+                            "value": {
+                                "messaging_product": "whatsapp",
+                                "metadata": {
+                                    "display_phone_number": "+1 555 078 3881",
+                                    "phone_number_id": _PHONE_NUMBER_ID,
+                                },
+                                "contacts": [
+                                    {
+                                        "profile": {"name": "John Doe"},
+                                        "wa_id": "5511999999999",
+                                    }
+                                ],
+                                "messages": [
+                                    {
+                                        "from": "5511999999999",
+                                        "id": "wamid.ABGGN1XX102",
+                                        "timestamp": "1700000000",
+                                        "type": "text",
+                                        "text": {"body": "Hello there"},
+                                    }
+                                ],
+                            },
+                        }
+                    ],
+                }
+            ],
+        }
+        inbound = adapter.parse_inbound(payload)
+
+        self.assertEqual(inbound.channel, "whatsapp")
+        self.assertEqual(inbound.sender_id, "5511999999999")
+        self.assertEqual(inbound.text, "Hello there")
+        self.assertEqual(inbound.content_type, "text")
+        self.assertEqual(inbound.message_id, "wamid.ABGGN1XX102")
+        self.assertEqual(inbound.sender_metadata["profile_name"], "John Doe")
+        self.assertEqual(inbound.sender_metadata["phone_number_id"], _PHONE_NUMBER_ID)
+        self.assertEqual(inbound.sender_metadata["msg_type"], "text")
+
+    def test_parse_inbound_status_update(self):
+        adapter = self._adapter()
+        payload = {
+            "object": "whatsapp_business_account",
+            "entry": [
+                {
+                    "changes": [
+                        {
+                            "field": "messages",
+                            "value": {
+                                "statuses": [
+                                    {
+                                        "id": "wamid.ABGGN1XX203",
+                                        "status": "delivered",
+                                        "timestamp": "1700000001",
+                                        "recipient_id": "5511888888888",
+                                    }
+                                ]
+                            },
+                        }
+                    ],
+                }
+            ],
+        }
+        inbound = adapter.parse_inbound(payload)
+
+        self.assertEqual(inbound.channel, "whatsapp")
+        self.assertEqual(inbound.sender_id, "5511888888888")
+        self.assertEqual(inbound.content_type, "event")
+        self.assertEqual(inbound.text, "delivered")
+        self.assertEqual(inbound.message_id, "wamid.ABGGN1XX203")
+        self.assertEqual(inbound.sender_metadata["status"], "delivered")
+
+    def test_parse_inbound_image_message(self):
+        adapter = self._adapter()
+        payload = {
+            "entry": [
+                {
+                    "changes": [
+                        {
+                            "field": "messages",
+                            "value": {
+                                "contacts": [
+                                    {"profile": {"name": "Jane"}, "wa_id": "5511777777777"}
+                                ],
+                                "messages": [
+                                    {
+                                        "from": "5511777777777",
+                                        "id": "wamid.IMG001",
+                                        "timestamp": "1700000002",
+                                        "type": "image",
+                                        "image": {
+                                            "caption": "Check this out",
+                                            "mime_type": "image/jpeg",
+                                            "sha256": "abc123",
+                                        },
+                                    }
+                                ],
+                            },
+                        }
+                    ],
+                }
+            ],
+        }
+        inbound = adapter.parse_inbound(payload)
+
+        self.assertEqual(inbound.content_type, "image")
+        self.assertEqual(inbound.text, "Check this out")
+
+    def test_parse_inbound_malformed_payload_raises(self):
+        adapter = self._adapter()
+        with self.assertRaises(ValueError):
+            adapter.parse_inbound({})
+        with self.assertRaises(ValueError):
+            adapter.parse_inbound({"entry": []})
+
+    def test_parse_inbound_unknown_type_returns_event(self):
+        adapter = self._adapter()
+        payload = {
+            "entry": [
+                {
+                    "changes": [
+                        {
+                            "field": "messages",
+                            "value": {
+                                "messages": [
+                                    {
+                                        "from": "5511666666666",
+                                        "id": "wamid.UNKNOWN",
+                                        "timestamp": "1700000003",
+                                        "type": "reaction",
+                                    }
+                                ],
+                            },
+                        }
+                    ],
+                }
+            ],
+        }
+        inbound = adapter.parse_inbound(payload)
+        self.assertEqual(inbound.content_type, "event")
+
+    # ---- verify_request (X-Hub-Signature-256) ---------------------------
+
+    def test_verify_request_no_secret_allows_all(self):
+        adapter = self._adapter(WHATSAPP_APP_SECRET="")
+        self.assertTrue(adapter.verify_request(object()))
+
+    def test_verify_request_valid_signature(self):
+        adapter = self._adapter()
+        import httpx as _httpx
+
+        body = b'{"entry":[{"changes":[{"value":{"messages":[]}}]}]}'
+        sig = "sha256=" + hmac.new(
+            _APP_SECRET.encode(), body, hashlib.sha256
+        ).hexdigest()
+        req = _httpx.Request("POST", "https://example.com", content=body)
+        req.headers["X-Hub-Signature-256"] = sig
+        self.assertTrue(adapter.verify_request(req, body))
+
+    def test_verify_request_rejects_wrong_signature(self):
+        adapter = self._adapter()
+        import httpx as _httpx
+
+        body = b'{"hello":"world"}'
+        req = _httpx.Request("POST", "https://example.com", content=body)
+        req.headers["X-Hub-Signature-256"] = "sha256=deadbeef"
+        self.assertFalse(adapter.verify_request(req, body))
+
+    def test_verify_request_rejects_missing_header(self):
+        adapter = self._adapter()
+        import httpx as _httpx
+
+        req = _httpx.Request("POST", "https://example.com", content=b"{}")
+        self.assertFalse(adapter.verify_request(req, b"{}"))
+
+    def test_verify_request_rejects_non_sha256_prefix(self):
+        adapter = self._adapter()
+        import httpx as _httpx
+
+        req = _httpx.Request("POST", "https://example.com", content=b"{}")
+        req.headers["X-Hub-Signature-256"] = "md5=abc"
+        self.assertFalse(adapter.verify_request(req, b"{}"))
+
+    # ---- handle_verification (hub.challenge) -----------------------------
+
+    def test_handle_verification_echoes_challenge(self):
+        adapter = self._adapter()
+        result = adapter.handle_verification(
+            {
+                "hub.mode": "subscribe",
+                "hub.verify_token": _VERIFY_TOKEN,
+                "hub.challenge": "1158201444",
+            }
+        )
+        self.assertEqual(result, "1158201444")
+
+    def test_handle_verification_rejects_wrong_token(self):
+        adapter = self._adapter()
+        result = adapter.handle_verification(
+            {
+                "hub.mode": "subscribe",
+                "hub.verify_token": "wrong-token",
+                "hub.challenge": "1158201444",
+            }
+        )
+        self.assertIsNone(result)
+
+    def test_handle_verification_rejects_wrong_mode(self):
+        adapter = self._adapter()
+        result = adapter.handle_verification(
+            {
+                "hub.mode": "unsubscribe",
+                "hub.verify_token": _VERIFY_TOKEN,
+                "hub.challenge": "1158201444",
+            }
+        )
+        self.assertIsNone(result)
+
+    # ---- send_outbound ---------------------------------------------------
+
+    def test_send_outbound_success(self):
+        async def run():
+            adapter = self._adapter()
+            import httpx as _httpx
+
+            def handler(request: _httpx.Request) -> _httpx.Response:
+                self.assertIn("/v25.0/1234567890/messages", str(request.url))
+                self.assertEqual(
+                    request.headers["authorization"], f"Bearer {_ACCESS_TOKEN}"
+                )
+                import json
+                body = json.loads(request.content)
+                self.assertEqual(body["messaging_product"], "whatsapp")
+                self.assertEqual(body["to"], "5511999999999")
+                self.assertEqual(body["text"]["body"], "Hello from VOX")
+                return _httpx.Response(200, json={"messages": [{"id": "wamid.SENT"}]})
+
+            adapter._client = _httpx.AsyncClient(
+                base_url="https://graph.facebook.com",
+                headers={"Authorization": f"Bearer {_ACCESS_TOKEN}"},
+                transport=_httpx.MockTransport(handler),
+            )
+            msg = VOXOutboundMessage(channel="whatsapp", recipient_id="5511999999999", text="Hello from VOX")
+            result = await adapter.send_outbound(msg)
+            self.assertTrue(result)
+
+        asyncio.run(run())
+
+    def test_send_outbound_failure(self):
+        async def run():
+            adapter = self._adapter()
+            import httpx as _httpx
+
+            def handler(request: _httpx.Request) -> _httpx.Response:
+                return _httpx.Response(401, json={"error": "OAuthException"})
+
+            adapter._client = _httpx.AsyncClient(
+                base_url="https://graph.facebook.com",
+                headers={"Authorization": f"Bearer {_ACCESS_TOKEN}"},
+                transport=_httpx.MockTransport(handler),
+            )
+            msg = VOXOutboundMessage(channel="whatsapp", recipient_id="5511999999999", text="test")
+            result = await adapter.send_outbound(msg)
+            self.assertFalse(result)
+
+        asyncio.run(run())
+
+    def test_send_outbound_no_token_fails(self):
+        async def run():
+
+            adapter = WhatsAppAdapter(
+                {"WHATSAPP_ACCESS_TOKEN": "", "WHATSAPP_PHONE_NUMBER_ID": "123"}
+            )
+            msg = VOXOutboundMessage(channel="whatsapp", recipient_id="x", text="test")
+            result = await adapter.send_outbound(msg)
+            self.assertFalse(result)
+
+        asyncio.run(run())
+
+
+class _ProviderAdapter(BaseAdapter):
+    """Minimal adapter for testing the abstraction with an arbitrary name."""
+
+    CHANNEL = "test_provider"
+    WEBHOOK_PATH = "/webhook/test-provider"
+    PARAMS = {"TEST_PROVIDER_TOKEN": {"label": "API Token", "required": True}}  # noqa: RUF012
+    SENSITIVE_PARAMS = ("TEST_PROVIDER_TOKEN",)
+
+    def __init__(self, config: dict):
+        self._config = config
+
+    @classmethod
+    def is_configured(cls, config: dict) -> bool:
+        return bool(config.get("TEST_PROVIDER_TOKEN"))
+
+    async def start(self) -> None:
+        pass
+
+    async def shutdown(self) -> None:
+        pass
+
+    def verify_request(self, request, body: bytes | None = None) -> bool:
+        return request.headers.get("X-Secret") == "valid"
+
+    def handle_verification(self, query: dict) -> str | None:
+        return None
+
+    async def parse_inbound(self, request, body: bytes) -> VOXInboundMessage | None:
+        import json
+
+        data = json.loads(body)
+        return VOXInboundMessage(
+            channel="test_provider",
+            sender_id=data["sender_id"],
+            text=data.get("text", ""),
+            message_id=data.get("message_id", "1"),
+        )
+
+    async def send_outbound(self, message: VOXOutboundMessage) -> bool:
+        return True
+
+
+class _ProviderAdapterNoWebhook(BaseAdapter):
+    """Adapter without WEBHOOK_PATH for testing skip logic."""
+
+    CHANNEL = "no_webhook_provider"
+    PARAMS = {}  # noqa: RUF012
+
+    @classmethod
+    def is_configured(cls, config: dict) -> bool:
+        return True
+
+    async def start(self) -> None:
+        pass
+
+    async def shutdown(self) -> None:
+        pass
+
+    def verify_request(self, request, body: bytes | None = None) -> bool:
+        return True
+
+    def handle_verification(self, query: dict) -> str | None:
+        return None
+
+    async def parse_inbound(self, request, body: bytes) -> VOXInboundMessage | None:
+        return None
+
+    async def send_outbound(self, message: VOXOutboundMessage) -> bool:
+        return True
+
+
+class TestIngressServerAbstraction(unittest.TestCase):
+    def test_adapters_without_webhook_path_skipped(self):
+        """Adapter without WEBHOOK_PATH doesn't register a route."""
+        server = IngressServer.__new__(IngressServer)
+        server._app = web.Application()
+        server._adapters = {"no_webhook_provider": _ProviderAdapterNoWebhook()}
+        server._bot = AsyncMock()
+        server._bot.config = {}
+        server._verification_handler = lambda req: web.Response(text="ok")
+        server._register_routes()
+        resource_paths = [r.canonical for r in server._app.router.resources()]
+        self.assertNotIn("/no_webhook_provider", resource_paths)
+        self.assertIn("/health", resource_paths)
+
+    def test_adapters_without_webhook_path_still_registered(self):
+        """Adapter without WEBHOOK_PATH still in _adapters dict."""
+        server = IngressServer.__new__(IngressServer)
+        server._app = web.Application()
+        server._adapters = {"no_webhook_provider": _ProviderAdapterNoWebhook()}
+        server._bot = AsyncMock()
+        server._bot.config = {}
+        server._verification_handler = lambda req: web.Response(text="ok")
+        server._register_routes()
+        self.assertIn("no_webhook_provider", server._adapters)
+
+    def test_adapter_without_webhook_path_parse_inbound(self):
+        """Adapter without webhook path can still handle inbound messages."""
+        adapter = _ProviderAdapter({"TEST_PROVIDER_TOKEN": "tok"})
+        import json
+
+        async def run():
+            request = AsyncMock()
+            body = json.dumps(
+                {"sender_id": "u1", "text": "hello", "message_id": "42"}
+            ).encode()
+            msg = await adapter.parse_inbound(request, body)
+            self.assertEqual(msg.channel, "test_provider")
+            self.assertEqual(msg.sender_id, "u1")
+            self.assertEqual(msg.text, "hello")
+
+        asyncio.run(run())
+
+    def test_lifecycle_start_shutdown(self):
+        """Adapters can be started and shut down."""
+
+        async def run():
+            adapter = _ProviderAdapter({"TEST_PROVIDER_TOKEN": "tok"})
+            await adapter.start()
+            await adapter.shutdown()
+
+        asyncio.run(run())
+
+    def test_gateway_configured_for_adapter(self):
+        """CommGatewayCapability PARAMS includes params from registered adapters."""
+        from vox.capabilities.comm.gateway import CommGatewayCapability
+
+        self.assertIn("TELEGRAM_BOT_TOKEN", CommGatewayCapability.PARAMS)
+        self.assertIn("WHATSAPP_ACCESS_TOKEN", CommGatewayCapability.PARAMS)
+        self.assertIn("GATEWAY_WEBHOOK_SECRET", CommGatewayCapability.PARAMS)
+
+    def test_adapter_base_params_union(self):
+        """BaseAdapter.PARAMS is empty; specific adapters override."""
+        self.assertEqual(BaseAdapter.PARAMS, {})
+
+
+_FIXTURES_DIR = pathlib.Path(__file__).parent / "fixtures" / "whatsapp"
+
+
+def _load_whatsapp_fixture(name: str) -> dict:
+    """Load a WhatsApp webhook fixture exactly as captured (JSON round-trip)."""
+    with open(_FIXTURES_DIR / f"{name}.json", encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+class TestWhatsAppCompatibilityFixtures(unittest.TestCase):
+    """Real Meta WhatsApp Cloud API v25.0 webhook payloads, as regression fixtures.
+
+    WhatsApp Cloud API v25.0
+
+    Tested payload shapes:
+    - inbound text message
+    - outbound status: sent
+    - outbound status: delivered
+
+    Fixtures under ``tests/fixtures/whatsapp/`` were captured from Meta's
+    developer console (Graph API v25.0) and preserve the observed payload
+    topology; all real identifiers are replaced with deterministic synthetic
+    placeholders (see ``test_fixtures_contain_no_real_captured_identifiers``).
+    They pin the provider→VOXInboundMessage normalization contract; no claim
+    is made that the complete v25.0 surface is supported.
+    """
+
+    def _adapter(self, **overrides):
+        config = {
+            "WHATSAPP_ACCESS_TOKEN": _ACCESS_TOKEN,
+            "WHATSAPP_PHONE_NUMBER_ID": _PHONE_NUMBER_ID,
+            "WHATSAPP_APP_SECRET": _APP_SECRET,
+            "WHATSAPP_VERIFY_TOKEN": _VERIFY_TOKEN,
+            "WHATSAPP_API_VERSION": "v25.0",
+        }
+        config.update(overrides)
+        return WhatsAppAdapter(config)
+
+    def test_parse_inbound_text_fixture(self):
+        adapter = self._adapter()
+        message = adapter.parse_inbound(_load_whatsapp_fixture("inbound_text"))
+
+        self.assertIsInstance(message, VOXInboundMessage)
+        self.assertEqual(message.channel, "whatsapp")
+        self.assertEqual(message.message_id, "TEST_MESSAGE_002")
+        self.assertEqual(message.sender_id, "+5490000000000")
+        self.assertEqual(message.content_type, "text")
+        self.assertEqual(message.text, "Thanks for the confirmation")
+        self.assertEqual(message.sender_metadata["profile_name"], "Test User One")
+
+    def test_inbound_text_raw_payload_preserved(self):
+        adapter = self._adapter()
+        message = adapter.parse_inbound(_load_whatsapp_fixture("inbound_text"))
+
+        # Provider-specific data stays in raw_payload, not the generic contract.
+        self.assertEqual(message.raw_payload["type"], "text")
+        self.assertEqual(message.raw_payload["from_user_id"], "TEST_USER_ID_001")
+        self.assertEqual(
+            message.raw_payload["internal_1p_only_data"]["account_context"][
+                "waac_id"
+            ],
+            "TEST_WAAC_ID",
+        )
+
+    def test_parse_sent_status_fixture(self):
+        adapter = self._adapter()
+        message = adapter.parse_inbound(_load_whatsapp_fixture("status_sent"))
+
+        self.assertIsInstance(message, VOXInboundMessage)
+        self.assertEqual(message.channel, "whatsapp")
+        self.assertEqual(message.content_type, "event")
+        self.assertEqual(message.text, "sent")
+        self.assertEqual(message.message_id, "TEST_MESSAGE_001")
+        # Recipient is preserved in the normalized representation.
+        self.assertEqual(message.sender_id, "+5490000000000")
+
+    def test_parse_delivered_status_fixture(self):
+        adapter = self._adapter()
+        message = adapter.parse_inbound(_load_whatsapp_fixture("status_delivered"))
+
+        self.assertIsInstance(message, VOXInboundMessage)
+        self.assertEqual(message.channel, "whatsapp")
+        self.assertEqual(message.content_type, "event")
+        self.assertEqual(message.text, "delivered")
+        self.assertEqual(message.message_id, "TEST_MESSAGE_001")
+        self.assertEqual(message.sender_id, "+5490000000000")
+
+    def test_status_raw_payload_preserved(self):
+        adapter = self._adapter()
+        message = adapter.parse_inbound(_load_whatsapp_fixture("status_delivered"))
+
+        self.assertEqual(message.sender_metadata["status"], "delivered")
+        self.assertEqual(message.raw_payload["pricing"]["category"], "utility")
+        self.assertEqual(
+            message.raw_payload["conversation"]["origin"]["type"], "utility"
+        )
+
+    def test_fixtures_contain_no_real_captured_identifiers(self):
+        """Regression guard: real Meta test-environment values must not return.
+
+        The compatibility fixtures were sanitized to deterministic placeholders;
+        if any known real captured identifier reappears, the suite fails.
+        """
+        known_real_values = [
+            "José Fabián",
+            "5491122543927",
+            "15556765588",
+            "1181524698387615",
+            "2568720346912662",
+            "1605439644524932",
+            "2007496036688892",
+            "95378389123273",
+            "AR.2279416016208233",
+            "06e2f0b67a9d5d5ff6c45f59a7282c4b",
+            "wamid.HBgNNTQ5MTEyMjU0MzkyNxUCABEYEjcxQkU3NkY3Q0FDODc3NzU2MgA=",
+            "wamid.HBgNNTQ5MTEyMjU0MzkyNxUCABIYIEFDRTBCQkUxMDg4QzFCOTEzQTA5OTgyNkFFMzc0QTg4AA==",
+            "1786472061",
+            "1786472062",
+            "1786472485",
+            "FQAWiIbDu/GI2gUWyLXD0Ao2rN7w/JmPkAkYCWdyYXBoX2FwaUwWvtKG/+SlmQQWrN7w/JmPkAkWiIbDu/GI2gUlAgAA",
+        ]
+        for name in ("inbound_text", "status_sent", "status_delivered"):
+            serialized = json.dumps(
+                _load_whatsapp_fixture(name), ensure_ascii=False
+            )
+            for value in known_real_values:
+                self.assertNotIn(
+                    value, serialized, f"{name}.json still contains {value!r}"
+                )
+
+    def test_fixtures_use_deterministic_placeholders(self):
+        """Sanitized fixtures keep cross-fixture synthetic identity values."""
+        for name in ("inbound_text", "status_sent", "status_delivered"):
+            serialized = json.dumps(_load_whatsapp_fixture(name))
+            self.assertIn("TEST_WABA_ID", serialized, name)
+            self.assertIn("TEST_PHONE_NUMBER_ID", serialized, name)
+            self.assertIn("TEST_USER_ID_001", serialized, name)
+            self.assertIn("+5490000000000", serialized, name)
+
+    def test_send_outbound_graph_api_request_shape(self):
+        async def run():
+            adapter = self._adapter()
+
+            def handler(request: httpx.Request) -> httpx.Response:
+                self.assertEqual(request.method, "POST")
+                self.assertIn("/v25.0/1234567890/messages", str(request.url))
+                self.assertEqual(
+                    request.headers["authorization"], f"Bearer {_ACCESS_TOKEN}"
+                )
+                body = json.loads(request.content)
+                self.assertEqual(body["messaging_product"], "whatsapp")
+                self.assertEqual(body["recipient_type"], "individual")
+                self.assertEqual(body["to"], "5491122543927")
+                self.assertEqual(body["type"], "text")
+                self.assertEqual(body["text"]["body"], "Thanks for the confirmation")
+                return httpx.Response(200, json={"messages": [{"id": "wamid.XYZ"}]})
+
+            adapter._client = httpx.AsyncClient(
+                base_url="https://graph.facebook.com",
+                headers={"Authorization": f"Bearer {_ACCESS_TOKEN}"},
+                transport=httpx.MockTransport(handler),
+            )
+            msg = VOXOutboundMessage(
+                channel="whatsapp",
+                recipient_id="5491122543927",
+                text="Thanks for the confirmation",
+            )
+            result = await adapter.send_outbound(msg)
+            self.assertTrue(result)
+
+        asyncio.run(run())
 
 
 if __name__ == "__main__":

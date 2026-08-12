@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > **Note**: No API stability guarantees are implied — VOX remains pre-1.0.
 
+## [0.5.3] - 2026.08.11
+
+### Added
+- **WhatsApp Cloud API adapter (`WhatsAppAdapter`)** — a second `comm.gateway` provider beside Telegram, built on the same adapter contract. Declares `CHANNEL="whatsapp"`, `WEBHOOK_PATH="/webhook/whatsapp"`, its own `PARAMS` (`WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_APP_SECRET`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_API_VERSION`, default `v25.0`) and `SENSITIVE_PARAMS` for vault injection. Implements inbound webhook parsing (`messages[]` text/image/audio/document/video plus `statuses[]`), Meta `X-Hub-Signature-256` HMAC-SHA256 verification, the `hub.challenge` subscription handshake, and outbound text messages via `POST /{version}/{phone_id}/messages` using an `httpx.AsyncClient`.
+- **Real Meta webhook compatibility fixtures** — three webhook payloads captured from the WhatsApp Cloud API / Graph API v25.0 test environment, preserved under `tests/fixtures/whatsapp/` (`inbound_text.json`, `status_sent.json`, `status_delivered.json`) as permanent regression fixtures. The observed v25.0 payload topology is preserved exactly; all real identifiers (names, phone numbers, WABA/phone-number/app/conversation/message IDs, timestamps, opaque `internal_1p_only_data` values) were replaced with deterministic synthetic placeholders, and a regression guard (`test_fixtures_contain_no_real_captured_identifiers`) fails the suite if any captured value returns. Compatibility surface documented as: WhatsApp Cloud API v25.0 — tested payload shapes: inbound text message, outbound status: sent, outbound status: delivered.
+- **`TestWhatsAppCompatibilityFixtures`** — fixture-driven tests proving captured (sanitized) v25.0 payload shapes normalize into the provider-agnostic `VOXInboundMessage` contract (channel, message_id, sender_id, content_type, text, `sender_metadata["profile_name"]`) and that provider-specific data remains reachable via `raw_payload` rather than leaking into the generic contract. Includes an outbound test asserting the exact Graph API request shape (`messaging_product`, `recipient_type`, `to`, `type`, `text.body`) against `POST /v25.0/{PHONE_NUMBER_ID}/messages`, using the existing `httpx.MockTransport` pattern.
+- **`TestWhatsAppAdapter`** — unit suite for the new adapter: text/status/image/malformed/unknown parsing, HMAC verification (valid, wrong, missing header, non-`sha256=` prefix), `hub.challenge` handshake (valid, wrong token, wrong mode), and outbound send (success, failure, unconfigured).
+- **`TestIngressServerAbstraction`** — contract tests proving the abstraction holds for arbitrary providers: a `test_provider` adapter (custom channel + webhook path) and a `no_webhook_provider` adapter (no webhook path) parse inbound, pass lifecycle start/shutdown, and register/omit webhook routes correctly.
+- **`WHATSAPP-SETUP.md`** — step-by-step setup guide (Meta credentials, VOX config, tunnel, webhook verification, curl smoke test).
+
+### Changed
+- **`ADAPTER_REGISTRY` extended** — now maps three channels (`telegram`, `webhook`, `whatsapp`); gateway `PARAMS`/`SENSITIVE_PARAMS` aggregate over the registry and `capability.yml` holds only gateway-owned params (`GATEWAY_PORT`, `GATEWAY_HOST`).
+- **`tests/test_comm_gateway.py`** — grown from 28 to 48 tests covering all three adapters, generic server routing, body-signing, handshakes, outbound mocking, adapter-contract abstraction, the sanitized compatibility fixtures, and the fixture privacy guards.
+- **Agent roles** (per-agent `chat`/`buyer` role modules) — call `comm.gateway.send_text("telegram", TELEGRAM_USER_ID, text)` explicitly now that `send_broadcast()` no longer exists.
+
+### Removed
+- **`CommGatewayCapability.send_broadcast()`** — the last provider-specific method in the gateway core (hardcoded `channel="telegram"` plus `TELEGRAM_USER_ID`). Removed per the provider-decoupling refactor; callers must pass the channel and recipient explicitly to `send_text()`.
+
+### Fixed
+- **WhatsApp credentials no longer degrade unconfigured agents** — `WHATSAPP_ACCESS_TOKEN` and `WHATSAPP_PHONE_NUMBER_ID` now default to the empty "unconfigured" sentinel (`""`) instead of `None` (the "required" marker in `VOXBoundCapability.validate_params()`). Because `comm.gateway` is a system capability mounted on every agent, the previously required-marked params caused any agent not running WhatsApp (e.g. Telegram-only agents) to be flagged `DEGRADED` at bootstrap. The WhatsApp channel now activates only when both credentials are present, matching `WhatsAppAdapter.is_configured()` semantics and the vault-injection flow.
+- **`TestIngressServerAbstraction` helper adapters renamed** — `TestProviderAdapter` / `TestProviderAdapterNoWebhook` are stub adapters, not test classes; their `Test*` names made pytest attempt collection and emit a `PytestCollectionWarning` (class has `__init__`). Renamed to `_ProviderAdapter` / `_ProviderAdapterNoWebhook` to exclude them from the default collection pattern.
+
 ## [0.5.2] - 2026.08.11
 
 ### Added

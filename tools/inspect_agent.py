@@ -353,7 +353,6 @@ def inspect_agent(agent_name: str) -> int:
 def main():
     if len(sys.argv) < 2:
         print(f"Usage: {sys.argv[0]} <agent_name_or_path>")
-        print(f"Example: {sys.argv[0]} tina")
         return 1
     return inspect_agent(sys.argv[1])
 
