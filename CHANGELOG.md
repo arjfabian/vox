@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > **Note**: No API stability guarantees are implied — VOX remains pre-1.0.
 
+## [0.5.4] - 2026.08.12
+
+### Added
+- **`AGENTS.md`** — a repository-local instruction file for LLM coding agents (Claude Code, Codex, OpenCode and similar). It carries the working rules an agent needs to avoid architectural drift, and also records test conventions, the Conventional Commits / release ritual, and a conservative done checklist. The file deliberately stays short and operational — it is agent guidance, not project documentation; load-bearing invariants remain enforced by the test suite rather than by prose.
+
+### Removed
+- **`WHATSAPP-SETUP.md`** — the setup guide for the WhatsApp Cloud API channel (Meta credentials, VOX config, tunnel, webhook verification, curl smoke test) now lives in the Wiki; this repository no longer carries it.
+
 ## [0.5.3] - 2026.08.11
 
 ### Added
