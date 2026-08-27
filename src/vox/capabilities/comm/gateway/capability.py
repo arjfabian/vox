@@ -133,7 +133,10 @@ class CommGatewayCapability(VOXCapability):
                 continue
             params, secrets = load_config_yml(config_yml)
             specs[channel] = {
-                **{name: [meta.description, meta.default] for name, meta in params.items()},
+                **{
+                    name: [meta.description, meta.default]
+                    for name, meta in params.items()
+                },
                 **{name: [meta.description, ""] for name, meta in secrets.items()},
             }
         return specs
@@ -178,11 +181,34 @@ class CommGatewayCapability(VOXCapability):
         # out of the bound config. A channel is skipped when it is not
         # configured (e.g. no bot token for Telegram).
         adapters: dict[str, Any] = {}
-        all_config = {**self._params, **self._secrets}
+
         for channel, adapter_cls in ADAPTER_REGISTRY.items():
-            adapter_config = {key: value for key, value in all_config.items() if value != ""}
+            config_yml = (
+                Path(__file__).resolve().parent / "adapters" / channel / "config.yml"
+            )
+            if not config_yml.is_file():
+                logger.warning(
+                    "Adapter '%s' has no config.yml — skipping",
+                    channel,
+                )
+                continue
+
+            params, secrets = load_config_yml(config_yml)
+
+            adapter_keys = set(params) | set(secrets)
+
+            adapter_config = {
+                key: value
+                for key, value in {
+                    **self._params,
+                    **self._secrets,
+                }.items()
+                if key in adapter_keys
+            }
+
             if not adapter_cls.is_configured(adapter_config):
                 continue
+
             adapters[channel] = adapter_cls(adapter_config, dispatch=dispatch)
 
         if not adapters:
