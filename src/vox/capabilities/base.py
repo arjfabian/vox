@@ -100,15 +100,13 @@ def _parse_params(raw_params: dict, source: str) -> dict[str, ParamMeta]:
     ``source`` is used in error messages (e.g. file path).
     """
     if not isinstance(raw_params, dict):
-        raise ValueError(f"Invalid 'params' section in: {source}")
+        raise TypeError(f"Invalid 'params' section in: {source}")
 
     params: dict[str, ParamMeta] = {}
 
     for pname, pdef in raw_params.items():
         if not isinstance(pdef, dict):
-            raise ValueError(
-                f"Invalid parameter definition '{pname}' in: {source}"
-            )
+            raise TypeError(f"Invalid parameter definition '{pname}' in: {source}")
 
         params[pname] = ParamMeta(
             name=pname,
@@ -126,15 +124,13 @@ def _parse_secrets(raw_secrets: dict, source: str) -> dict[str, SecretMeta]:
     ``source`` is used in error messages (e.g. file path).
     """
     if not isinstance(raw_secrets, dict):
-        raise ValueError(f"Invalid 'secrets' section in: {source}")
+        raise TypeError(f"Invalid 'secrets' section in: {source}")
 
     secrets: dict[str, SecretMeta] = {}
 
     for sname, sdef in raw_secrets.items():
         if not isinstance(sdef, dict):
-            raise ValueError(
-                f"Invalid secret definition '{sname}' in: {source}"
-            )
+            raise TypeError(f"Invalid secret definition '{sname}' in: {source}")
 
         secrets[sname] = SecretMeta(
             name=sname,

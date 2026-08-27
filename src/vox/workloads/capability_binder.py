@@ -168,7 +168,7 @@ class CapabilityBinder:
             overrides_config = {}
 
         if not isinstance(overrides_config, dict):
-            raise ValueError("Workload 'overrides' must be a mapping")
+            raise TypeError("Workload 'overrides' must be a mapping")
 
         override = overrides_config.get(cap_id, {})
 
@@ -176,7 +176,7 @@ class CapabilityBinder:
             override = {}
 
         if not isinstance(override, dict):
-            raise ValueError(f"Override for capability '{cap_id}' must be a mapping")
+            raise TypeError(f"Override for capability '{cap_id}' must be a mapping")
 
         return cap.mount(
             workload,
@@ -233,13 +233,17 @@ class CapabilityBinder:
             for role_file in roles_dir.glob("*.py"):
                 if role_file.name.startswith("_"):
                     continue
-                for cap_id, names in ASTWorkloadAnalyzer.scan_required_secrets(role_file).items():
+                for cap_id, names in ASTWorkloadAnalyzer.scan_required_secrets(
+                    role_file
+                ).items():
                     role_required.setdefault(cap_id, set()).update(names)
 
         # Intersect with YAML contract's required secrets
         result: dict[str, set[str]] = {}
         for cap_id, bound in workload.capabilities.items():
-            contract_required = bound._capability._ensure_contract().required_secret_names
+            contract_required = (
+                bound._capability._ensure_contract().required_secret_names
+            )
             if not contract_required:
                 continue
             role_names = role_required.get(cap_id, set())
@@ -273,7 +277,8 @@ class CapabilityBinder:
         if vault is None:
             if required_names:
                 return [
-                    n for n in bound._capability.get_secret_names()
+                    n
+                    for n in bound._capability.get_secret_names()
                     if n in required_names
                 ]
             return []
