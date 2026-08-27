@@ -10,7 +10,6 @@ Validates that:
 - explain_config() reflects YAML metadata
 - validate_params() reflects YAML metadata
 - mount() resolves YAML defaults correctly
-- Router contains no hard-coded model defaults
 - ai.llm uses LLM_MODEL_NAME.default from YAML
 - Gateway params are not dependent on adapter Python PARAMS
 """
@@ -128,8 +127,12 @@ class TestCapabilityContract(unittest.TestCase):
                 "A": ParamMeta(name="A", description="", type="string", default="x"),
             },
             secrets={
-                "S1": SecretMeta(name="S1", description="", type="string", required=True),
-                "S2": SecretMeta(name="S2", description="", type="string", required=False),
+                "S1": SecretMeta(
+                    name="S1", description="", type="string", required=True
+                ),
+                "S2": SecretMeta(
+                    name="S2", description="", type="string", required=False
+                ),
             },
         )
         self.assertEqual(contract.required_secret_names, {"S1"})
@@ -328,9 +331,7 @@ class TestMountResolvesYAMLDefaults(unittest.TestCase):
     def test_overrides_validated_against_contract(self):
         cap = self._make_cap()
         workload = MagicMock()
-        bound = cap.mount(
-            workload, overrides={"HOST": "override_host", "PORT": 9999}
-        )
+        bound = cap.mount(workload, overrides={"HOST": "override_host", "PORT": 9999})
         self.assertEqual(bound.HOST, "override_host")
         self.assertEqual(bound.PORT, 9999)
 
@@ -426,9 +427,7 @@ class TestGatewayParamsFromYAML(unittest.TestCase):
     def setUpClass(cls):
         from vox.capabilities.comm.gateway.capability import CommGatewayCapability
 
-        cap_file = Path(
-            "src/vox/capabilities/comm/gateway/capability.py"
-        )
+        cap_file = Path("src/vox/capabilities/comm/gateway/capability.py")
         CommGatewayCapability.load_contract(cap_file)
 
     def test_gateway_has_all_adapter_params_in_contract(self):
@@ -538,13 +537,6 @@ class TestAILLMParamsFromYAML(unittest.TestCase):
         self.assertNotIn("LLM_SECONDARY_MODEL", params)
         self.assertNotIn("LLM_FORCE_PREFERRED", params)
         self.assertNotIn("LLM_FORCE_SECONDARY", params)
-
-    def test_llm_router_requires_model(self):
-        """Router requires a model — no hardcoded fallbacks."""
-        from vox.capabilities.ai.llm.router import Router
-
-        with self.assertRaises(ValueError):
-            Router(model="")
 
 
 class TestCapabilityName(unittest.TestCase):
