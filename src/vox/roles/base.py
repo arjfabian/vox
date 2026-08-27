@@ -1,7 +1,7 @@
 """
 core/roles/base.py — VOX Role contract (v2)
 
-Roles are explicit behavioral modules attached to an agent.
+Roles are explicit behavioral modules attached to a workload.
 They do NOT self-discover; they declare capabilities.
 """
 
@@ -56,7 +56,7 @@ class CommandInfo:
 # ---------------------------------------------------------------------------
 
 
-class AgentHostDeadError(Exception):
+class WorkloadHostDeadError(Exception):
     pass
 
 
@@ -72,21 +72,19 @@ class VOXRole:
     Responsibilities:
     - Handle events
     - Expose command handlers explicitly via ``@command`` decorator
-    - Access agent via safe weakref
+    - Access workload via safe weakref
 
     Class variables:
       REQUIRES: set[str] — capability IDs this role must be mounted with.
       PREFERRED_MODEL: str | None — which Ollama model this role prefers,
-          or None to use the agent's default.
+          or None to use the workload's default.
     """
 
-    # noqa: RUF012 — mutable defaults are intentional; subclasses override per-role,
-    # and ClassVar would prevent per-instance overrides.
-    REQUIRES: set[str] = set()
+    REQUIRES: set[str] = set()  # noqa: RUF012
     PREFERRED_MODEL: str | None = None
 
-    def __init__(self, agent: Any) -> None:
-        self._agent_ref = weakref.ref(agent)
+    def __init__(self, workload: Any) -> None:
+        self._workload_ref = weakref.ref(workload)
         self._handlers: dict[str, Callable[..., Awaitable[None]]] = {}
         self._commands: dict[str, CommandInfo] = {}
         self._discover_commands()
@@ -107,10 +105,10 @@ class VOXRole:
                 )
 
     @property
-    def agent(self) -> Any:
-        inst = self._agent_ref()
+    def workload(self) -> Any:
+        inst = self._workload_ref()
         if inst is None:
-            raise AgentHostDeadError("Agent host is gone.")
+            raise WorkloadHostDeadError("Workload host is gone.")
         return inst
 
     def on(self, event: str):

@@ -1,6 +1,6 @@
 """HTTP interface over the VOX runtime.
 
-Read-only queries (GET) and lifecycle commands (POST) for agents.
+Read-only queries (GET) and lifecycle commands (POST) for workloads.
 The orchestrator is the single source of truth.
 """
 
@@ -93,15 +93,15 @@ class VOXAPIServer:
         routes = [
             ("GET", "/", self._handle_root),
             ("GET", "/fleet", self._handle_fleet),
-            ("GET", "/agents", self._handle_agents),
-            ("GET", "/agents/{id}", self._handle_agent),
+            ("GET", "/workloads", self._handle_workloads),
+            ("GET", "/workloads/{id}", self._handle_workload),
             ("GET", "/capabilities", self._handle_capabilities),
-            ("GET", "/agents/{id}/commands", self._handle_agent_commands),
-            ("POST", "/agents/{id}/pause", self._handle_pause),
-            ("POST", "/agents/{id}/resume", self._handle_resume),
-            ("POST", "/agents/{id}/stop", self._handle_stop),
-            ("POST", "/agents/{id}/start", self._handle_start),
-            ("POST", "/agents/{id}/restart", self._handle_restart),
+            ("GET", "/workloads/{id}/commands", self._handle_workload_commands),
+            ("POST", "/workloads/{id}/pause", self._handle_pause),
+            ("POST", "/workloads/{id}/resume", self._handle_resume),
+            ("POST", "/workloads/{id}/stop", self._handle_stop),
+            ("POST", "/workloads/{id}/start", self._handle_start),
+            ("POST", "/workloads/{id}/restart", self._handle_restart),
         ]
         for method, path, handler in routes:
             self._app.router.add_route(method, path, handler)
@@ -114,7 +114,7 @@ class VOXAPIServer:
             {
                 "system": snapshot.get("system"),
                 "capabilities": snapshot.get("capabilities"),
-                "agents": snapshot.get("agents"),
+                "workloads": snapshot.get("workloads"),
             }
         )
 
@@ -127,33 +127,33 @@ class VOXAPIServer:
             }
         )
 
-    async def _handle_agents(self, request: web.Request) -> web.Response:
+    async def _handle_workloads(self, request: web.Request) -> web.Response:
         snapshot = self._orc.get_fleet_snapshot()
         return self._json(
             {
-                "agents": snapshot.get("agents", []),
+                "workloads": snapshot.get("workloads", []),
                 "hierarchy": snapshot.get("hierarchy"),
             }
         )
 
-    async def _handle_agent(self, request: web.Request) -> web.Response:
+    async def _handle_workload(self, request: web.Request) -> web.Response:
         identifier = request.match_info["id"]
-        agent = self._orc._resolve_agent(identifier)
-        if not agent:
-            return self._json({"error": f"Agent '{identifier}' not found"}, status=404)
-        return self._json(agent.describe())
+        workload = self._orc._resolve_workload(identifier)
+        if not workload:
+            return self._json({"error": f"Workload '{identifier}' not found"}, status=404)
+        return self._json(workload.describe())
 
-    async def _handle_agent_commands(self, request: web.Request) -> web.Response:
+    async def _handle_workload_commands(self, request: web.Request) -> web.Response:
         identifier = request.match_info["id"]
-        agent = self._orc._resolve_agent(identifier)
-        if not agent:
-            return self._json({"error": f"Agent '{identifier}' not found"}, status=404)
-        cmd_map = agent.get_command_map()
+        workload = self._orc._resolve_workload(identifier)
+        if not workload:
+            return self._json({"error": f"Workload '{identifier}' not found"}, status=404)
+        cmd_map = workload.get_command_map()
         commands = {
             name: {"description": info.description} for name, info in cmd_map.items()
         }
         return self._json(
-            {"agent_id": agent.id, "agent_name": agent.name, "commands": commands}
+            {"workload_id": workload.id, "workload_name": workload.name, "commands": commands}
         )
 
     async def _handle_capabilities(self, request: web.Request) -> web.Response:
@@ -163,41 +163,41 @@ class VOXAPIServer:
 
     async def _handle_pause(self, request: web.Request) -> web.Response:
         identifier = request.match_info["id"]
-        ok = await self._orc.pause_agent(identifier)
+        ok = await self._orc.pause_workload(identifier)
         if ok:
-            return self._json({"ok": True, "data": "Agent paused"})
-        return self._json({"error": "Failed to pause agent"}, status=400)
+            return self._json({"ok": True, "data": "Workload paused"})
+        return self._json({"error": "Failed to pause workload"}, status=400)
 
     async def _handle_resume(self, request: web.Request) -> web.Response:
         identifier = request.match_info["id"]
-        ok = await self._orc.resume_agent(identifier)
+        ok = await self._orc.resume_workload(identifier)
         if ok:
-            return self._json({"ok": True, "data": "Agent resumed"})
-        return self._json({"error": "Failed to resume agent"}, status=400)
+            return self._json({"ok": True, "data": "Workload resumed"})
+        return self._json({"error": "Failed to resume workload"}, status=400)
 
     async def _handle_stop(self, request: web.Request) -> web.Response:
         identifier = request.match_info["id"]
-        agent_id = self._orc.resolve_agent_id(identifier)
-        if not agent_id:
-            return self._json({"error": f"Agent '{identifier}' not found"}, status=404)
-        ok = await self._orc.stop_agent(agent_id)
+        workload_id = self._orc.resolve_workload_id(identifier)
+        if not workload_id:
+            return self._json({"error": f"Workload '{identifier}' not found"}, status=404)
+        ok = await self._orc.stop_workload(workload_id)
         if ok:
-            return self._json({"ok": True, "data": "Agent stopped"})
-        return self._json({"error": "Failed to stop agent"}, status=400)
+            return self._json({"ok": True, "data": "Workload stopped"})
+        return self._json({"error": "Failed to stop workload"}, status=400)
 
     async def _handle_start(self, request: web.Request) -> web.Response:
         identifier = request.match_info["id"]
-        ok = await self._orc.start_agent_by_name(identifier)
+        ok = await self._orc.start_workload_by_name(identifier)
         if ok:
-            return self._json({"ok": True, "data": "Agent started"})
-        return self._json({"error": "Failed to start agent"}, status=400)
+            return self._json({"ok": True, "data": "Workload started"})
+        return self._json({"error": "Failed to start workload"}, status=400)
 
     async def _handle_restart(self, request: web.Request) -> web.Response:
         identifier = request.match_info["id"]
-        ok = await self._orc.restart_agent(identifier)
+        ok = await self._orc.restart_workload(identifier)
         if ok:
-            return self._json({"ok": True, "data": "Agent restarted"})
-        return self._json({"error": "Failed to restart agent"}, status=400)
+            return self._json({"ok": True, "data": "Workload restarted"})
+        return self._json({"error": "Failed to restart workload"}, status=400)
 
     @staticmethod
     def _json(data: dict[str, Any], status: int = 200) -> web.Response:

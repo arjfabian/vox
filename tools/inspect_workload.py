@@ -1,4 +1,4 @@
-"""Statically inspect a VOX agent directory for manifest, roles, and capability dependencies."""
+"""Statically inspect a VOX persona directory for manifest, roles, and capability dependencies."""
 
 import ast
 import sys
@@ -38,10 +38,10 @@ def _heading(msg):
 # ---------------------------------------------------------------------------
 
 
-def load_manifest(agent_dir: Path) -> dict:
-    manifest_path = agent_dir / "agent.yml"
+def load_manifest(persona_dir: Path) -> dict:
+    manifest_path = persona_dir / "manifest.yml"
     if not manifest_path.exists():
-        return {"error": f"agent.yml not found in {agent_dir}"}
+        return {"error": f"manifest.yml not found in {persona_dir}"}
     try:
         import yaml
 
@@ -56,7 +56,7 @@ def load_manifest(agent_dir: Path) -> dict:
             "personality": data.get("personality", {}),
         }
     except Exception as e:  # noqa: BLE001 — parse failure returns error dict
-        return {"error": f"Failed to parse agent.yml: {e}"}
+        return {"error": f"Failed to parse manifest.yml: {e}"}
 
 
 # ---------------------------------------------------------------------------
@@ -64,8 +64,8 @@ def load_manifest(agent_dir: Path) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def find_role_files(agent_dir: Path) -> list[Path]:
-    roles_dir = agent_dir / "roles"
+def find_role_files(persona_dir: Path) -> list[Path]:
+    roles_dir = persona_dir / "roles"
     if not roles_dir.exists():
         return []
     top_level = sorted(
@@ -289,27 +289,27 @@ def print_delta_report(delta: dict) -> None:
 # ---------------------------------------------------------------------------
 
 
-def inspect_agent(agent_name: str) -> int:
-    base = Path(__file__).resolve().parent.parent / "agents"
-    candidate = Path(agent_name)
+def inspect_workload(workload_name: str) -> int:
+    base = Path(__file__).resolve().parent.parent / "instance" / "personas"
+    candidate = Path(workload_name)
     if candidate.is_dir():
-        agent_dir = candidate.resolve()
+        persona_dir = candidate.resolve()
     else:
-        agent_dir = (base / agent_name).resolve()
-        if not agent_dir.exists():
-            print(_err(f"Agent directory not found: {agent_dir}"))
+        persona_dir = (base / workload_name).resolve()
+        if not persona_dir.exists():
+            print(_err(f"Persona directory not found: {persona_dir}"))
             return 1
 
-    agent_dir = agent_dir.resolve()
-    print(_heading(f"Inspecting Agent: {agent_dir.name}"))
-    print(f"  Path: {agent_dir}")
+    persona_dir = persona_dir.resolve()
+    print(_heading(f"Inspecting Workload: {persona_dir.name}"))
+    print(f"  Path: {persona_dir}")
 
     errors = 0
 
-    manifest = load_manifest(agent_dir)
+    manifest = load_manifest(persona_dir)
     print_manifest_report(manifest)
 
-    top_level, sub = find_role_files(agent_dir)
+    top_level, sub = find_role_files(persona_dir)
     if not top_level and not sub:
         print(_heading("Roles"))
         print(_warn("No role files found in roles/"))
@@ -352,9 +352,9 @@ def inspect_agent(agent_name: str) -> int:
 
 def main():
     if len(sys.argv) < 2:
-        print(f"Usage: {sys.argv[0]} <agent_name_or_path>")
+        print(f"Usage: {sys.argv[0]} <workload_name_or_path>")
         return 1
-    return inspect_agent(sys.argv[1])
+    return inspect_workload(sys.argv[1])
 
 
 if __name__ == "__main__":

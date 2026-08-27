@@ -1,7 +1,7 @@
-"""AgentVault — per-agent encrypted secret store.
+"""WorkloadVault — per-workload encrypted secret store.
 
 Uses AES-256-GCM with PBKDF2HMAC key derivation.
-Each agent gets an isolated ``secrets.vault`` SQLite file.
+Each workload gets an isolated ``secrets.vault`` SQLite file.
 Fallback chain: vault → local ``.env`` (via config dict).
 
 Synchronous ``sqlite3`` is used only inside ``__init__`` for schema
@@ -28,12 +28,12 @@ class VaultAccessError(RuntimeError):
     (e.g. missing VOX_MASTER_KEY)."""
 
 
-class AgentVault:
+class WorkloadVault:
     def __init__(
-        self, agent_dir: Path, agent_id: str, config: dict | None = None
+        self, persona_dir: Path, workload_id: str, config: dict | None = None
     ) -> None:
-        self._vault_path = agent_dir / _VAULT_FILENAME
-        self._agent_id = agent_id
+        self._vault_path = persona_dir / _VAULT_FILENAME
+        self._workload_id = workload_id
         self._config = config or {}
         self._key: bytes | None = None
 
@@ -70,7 +70,6 @@ class AgentVault:
             await conn.commit()
 
             # --- one-time capability rename migration -------------------
-            # comm.messenger → comm.gateway (v0.5.0)
             async with conn.execute(
                 "SELECT COUNT(*) FROM secrets WHERE capability_name = ?",
                 ("comm.messenger",),
@@ -266,7 +265,6 @@ class AgentVault:
             conn.commit()
 
             # --- one-time capability rename migration -------------------
-            # comm.messenger → comm.gateway (v0.5.0)
             cursor = conn.execute(
                 "SELECT COUNT(*) FROM secrets WHERE capability_name = ?",
                 ("comm.messenger",),

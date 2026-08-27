@@ -12,8 +12,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from ..models import VOXInboundMessage, VOXOutboundMessage
-from .base import BaseAdapter
+from ...models import VOXInboundMessage, VOXOutboundMessage
+from ..base import BaseAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -21,16 +21,6 @@ logger = logging.getLogger(__name__)
 class WebhookAdapter(BaseAdapter):
     CHANNEL = "webhook"
     WEBHOOK_PATH = "/webhook/generic"
-
-    PARAMS: dict[str, list[Any]] = {  # noqa: RUF012
-        "GATEWAY_WEBHOOK_SECRET": [
-            "Shared secret for generic webhook validation",
-            "",
-        ],
-    }
-    SENSITIVE_PARAMS: set[str] = {  # noqa: RUF012
-        "GATEWAY_WEBHOOK_SECRET",
-    }
 
     def __init__(self, config: dict, dispatch: Any | None = None) -> None:
         self._webhook_secret: str = config.get("GATEWAY_WEBHOOK_SECRET", "")

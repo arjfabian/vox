@@ -1,8 +1,7 @@
-"""VOXRegistry — agent and capability discovery from disk.
+"""VOXRegistry — workload and capability discovery from disk.
 
-Part of the v0.5.0 service-oriented orchestrator decomposition.
 Isolates all directory-traversal, YAML parsing, and dynamic
-import logic for capabilities and agents.
+import logic for capabilities and workloads.
 """
 
 from __future__ import annotations
@@ -16,9 +15,9 @@ from typing import TYPE_CHECKING
 import yaml
 from dotenv import dotenv_values
 
-from vox.agents import VOXAgent
 from vox.capabilities import VOXCapability
 from vox.observability import VOXForensicLogger
+from vox.workloads import VOXWorkload
 
 if TYPE_CHECKING:
     from vox.orchestration.base import VOXOrchestrator
@@ -32,15 +31,15 @@ class CapabilityEntry:
 
 
 class VOXRegistry:
-    """Filesystem scanner and loader for capabilities and agents.
+    """Filesystem scanner and loader for capabilities and workloads.
 
     Responsible for:
     * Recursive discovery of ``capability.py`` files under the
       capabilities directory.
     * Dynamic import and health-checking of each ``VOXCapability``
       subclass.
-    * Scanning ``agent.yml`` manifests in the agents directory.
-    * Hiring (constructing) ``VOXAgent`` instances from disk.
+    * Scanning ``manifest.yml`` manifests in the personas directory.
+    * Hiring (constructing) ``VOXWorkload`` instances from disk.
     """
 
     def __init__(
@@ -93,6 +92,7 @@ class VOXRegistry:
                 raise ImportError(
                     f"{module_name} does not export a VOXCapability subclass"
                 )
+            capability_class.load_contract(capability_file)
             healthy = await capability_class.health_check()
             self._orc.capability_registry[capability_id] = CapabilityEntry(
                 cls=capability_class,
@@ -127,27 +127,27 @@ class VOXRegistry:
         return instance
 
     # ------------------------------------------------------------------
-    # Agent discovery
+    # Workload discovery
     # ------------------------------------------------------------------
 
-    def scan_agent_manifests(self):
-        agent_specs = []
-        for agent_folder in sorted(self._orc.agents_dir.iterdir()):
+    def scan_workload_manifests(self):
+        workload_specs = []
+        for persona_folder in sorted(self._orc.personas_dir.iterdir()):
             if (
-                not agent_folder.is_dir()
-                or agent_folder.name.startswith(".")
-                or agent_folder.name == "__pycache__"
+                not persona_folder.is_dir()
+                or persona_folder.name.startswith(".")
+                or persona_folder.name == "__pycache__"
             ):
                 continue
-            manifest_path = agent_folder / "agent.yml"
+            manifest_path = persona_folder / "manifest.yml"
             if not manifest_path.exists():
-                self._logger.warning(f"Missing manifest: {agent_folder.name}")
+                self._logger.warning(f"Missing manifest: {persona_folder.name}")
                 continue
             try:
                 data = yaml.safe_load(manifest_path.read_text()) or {}
-                agent_specs.append(
+                workload_specs.append(
                     {
-                        "folder": agent_folder,
+                        "folder": persona_folder,
                         "id": data.get("id"),
                         "master_id": data.get("master_id"),
                         "autostart": data.get("autostart", False),
@@ -155,20 +155,20 @@ class VOXRegistry:
                     }
                 )
             except Exception as e:  # noqa: BLE001 — defensive catch at manifest parse
-                self._logger.error(f"Failed parsing {agent_folder}: {e}")
-        agents_by_id = {}
-        for spec in agent_specs:
+                self._logger.error(f"Failed parsing {persona_folder}: {e}")
+        workloads_by_id = {}
+        for spec in workload_specs:
             if spec["id"]:
-                agents_by_id[spec["id"]] = spec
-        self._logger.info(f"Found {len(agent_specs)} agent manifest(s)")
-        return agent_specs, agents_by_id
+                workloads_by_id[spec["id"]] = spec
+        self._logger.info(f"Found {len(workload_specs)} workload manifest(s)")
+        return workload_specs, workloads_by_id
 
-    async def discover_agents(self) -> bool:
-        agent_specs, agents_by_id = self.scan_agent_manifests()
+    async def discover_workloads(self) -> bool:
+        workload_specs, workloads_by_id = self.scan_workload_manifests()
 
         created = set()
         failed = set()
-        pending = list(agent_specs)
+        pending = list(workload_specs)
 
         def _can_create(spec):
             master = spec["master_id"] or ""
@@ -180,27 +180,29 @@ class VOXRegistry:
                 if not _can_create(spec):
                     continue
 
-                agent = self.hire_agent(spec["folder"], spec["id"])
-                if agent:
-                    if agent._degraded or not agent.health_check():
-                        self._orc.degraded_agents[agent.id] = agent
-                        agent.logger.warning(
-                            "Agent DEGRADED \u2014 No active roles available. "
+                workload = self.hire_workload(spec["folder"], spec["id"])
+                if workload:
+                    if workload._degraded or not workload.health_check():
+                        self._orc.degraded_workloads[workload.id] = workload
+                        workload.logger.warning(
+                            "Workload DEGRADED \u2014 No active roles available. "
                             "Skipping onboarding."
                         )
                     elif spec["autostart"]:
-                        ok = await agent.boot()
+                        ok = await workload.boot()
                         if ok:
-                            self._orc.active_agents[agent.id] = agent
-                            agent.logger.ok(f"Agent {agent.name} onboarded and active.")
+                            self._orc.active_workloads[workload.id] = workload
+                            workload.logger.ok(
+                                f"Workload {workload.name} onboarded and active."
+                            )
                         else:
                             failed.add(spec["id"])
                             pending.remove(spec)
                             progress = True
                             continue
                     else:
-                        self._orc.inactive_agents[agent.id] = agent
-                        agent.logger.info("Onboarded \u2014 autostart disabled.")
+                        self._orc.inactive_workloads[workload.id] = workload
+                        workload.logger.info("Onboarded \u2014 autostart disabled.")
                     created.add(spec["id"])
                     pending.remove(spec)
                     progress = True
@@ -213,42 +215,44 @@ class VOXRegistry:
                 for spec in pending:
                     master = spec["master_id"]
                     if master in failed:
-                        master_name = agents_by_id.get(master, {}).get("name", master)
+                        master_name = workloads_by_id.get(master, {}).get(
+                            "name", master
+                        )
                         self._logger.error(
-                            f"Master Agent '{master_name}' not available \u2014 "
+                            f"Master Workload '{master_name}' not available \u2014 "
                             f"cannot create {spec['name']}"
                         )
                     else:
                         self._logger.error(
-                            f"Unresolvable dependency for agent {spec['name']} "
+                            f"Unresolvable dependency for workload {spec['name']} "
                             f"(master_id={master})"
                         )
                 return False
 
-        degraded = len(self._orc.degraded_agents)
+        degraded = len(self._orc.degraded_workloads)
         msg = (
-            f"Fleet ready: {len(self._orc.active_agents)} active, "
-            f"{len(self._orc.inactive_agents)} inactive"
+            f"Fleet ready: {len(self._orc.active_workloads)} active, "
+            f"{len(self._orc.inactive_workloads)} inactive"
         )
         if degraded:
             msg += f", {degraded} degraded"
         self._logger.info(msg)
         return True
 
-    def hire_agent(self, folder: Path, agent_id: str | None = None):
+    def hire_workload(self, folder: Path, workload_id: str | None = None):
         try:
             env = {**dotenv_values(".env"), **os.environ}
             global_env = {}
-            for key in VOXAgent.GLOBAL_AGENT_KEYS:
+            for key in VOXWorkload.GLOBAL_WORKLOAD_KEYS:
                 if key in env:
                     global_env[key] = env[key]
-            agent = VOXAgent(
+            workload = VOXWorkload(
                 folder,
                 orchestrator=self._orc,
                 logger=self._logger,
                 global_env=global_env,
             )
-            return agent
-        except Exception as e:  # noqa: BLE001 — defensive catch at agent hire
-            self._logger.error(f"hire_agent failed for {folder}: {e}")
+            return workload
+        except Exception as e:  # noqa: BLE001 — defensive catch at workload hire
+            self._logger.error(f"hire_workload failed for {folder}: {e}")
             return None

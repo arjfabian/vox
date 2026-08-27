@@ -28,7 +28,7 @@ class TestVOXConfig(unittest.TestCase):
 
 class TestResolveConfig(unittest.TestCase):
     def test_resolve_with_env(self):
-        cli = VOXCliArgs(command=None, agent_name=None)
+        cli = VOXCliArgs(command=None, workload_name=None)
         env = VOXEnvConfig(war_room_id="-1001234567890")
         cfg = resolve_config(cli, env)
         self.assertFalse(cfg.verbose_logging)
@@ -37,31 +37,31 @@ class TestResolveConfig(unittest.TestCase):
         self.assertEqual(cfg.war_room_id, "-1001234567890")
 
     def test_resolve_raises_without_war_room(self):
-        cli = VOXCliArgs(command=None, agent_name=None)
+        cli = VOXCliArgs(command=None, workload_name=None)
         env = VOXEnvConfig(war_room_id="")
         with self.assertRaises(ValueError):
             resolve_config(cli, env)
 
     def test_cli_verbose_overrides_default(self):
-        cli = VOXCliArgs(command=None, agent_name=None, verbose=True)
+        cli = VOXCliArgs(command=None, workload_name=None, verbose=True)
         env = VOXEnvConfig(war_room_id="-100")
         cfg = resolve_config(cli, env)
         self.assertTrue(cfg.verbose_logging)
 
     def test_env_verbose_used_when_cli_not_set(self):
-        cli = VOXCliArgs(command=None, agent_name=None)
+        cli = VOXCliArgs(command=None, workload_name=None)
         env = VOXEnvConfig(war_room_id="-100", verbose_logging=True)
         cfg = resolve_config(cli, env)
         self.assertTrue(cfg.verbose_logging)
 
     def test_cli_verbose_overrides_env(self):
-        cli = VOXCliArgs(command=None, agent_name=None, verbose=False)
+        cli = VOXCliArgs(command=None, workload_name=None, verbose=False)
         env = VOXEnvConfig(war_room_id="-100", verbose_logging=True)
         cfg = resolve_config(cli, env)
         self.assertFalse(cfg.verbose_logging)
 
     def test_default_verbose_when_none_set(self):
-        cli = VOXCliArgs(command=None, agent_name=None)
+        cli = VOXCliArgs(command=None, workload_name=None)
         env = VOXEnvConfig(war_room_id="-100")
         cfg = resolve_config(cli, env)
         self.assertFalse(cfg.verbose_logging)
@@ -142,15 +142,15 @@ class TestLoadCliArgs(unittest.TestCase):
 
             args = load_cli_args()
             self.assertIsNone(args.command)
-            self.assertIsNone(args.agent_name)
+            self.assertIsNone(args.workload_name)
 
     def test_start_command(self):
-        with patch("sys.argv", ["vox", "start", "agent1"]):
+        with patch("sys.argv", ["vox", "start", "workload1"]):
             from vox.config.from_cli import load_cli_args
 
             args = load_cli_args()
             self.assertEqual(args.command, "start")
-            self.assertEqual(args.agent_name, "agent1")
+            self.assertEqual(args.workload_name, "workload1")
 
     def test_unknown_command_rejected_by_argparse(self):
         with patch("sys.argv", ["vox", "fly"]):
@@ -181,13 +181,13 @@ class TestLoadCliArgs(unittest.TestCase):
             self.assertFalse(args.verbose)
 
     def test_verbose_with_command(self):
-        with patch("sys.argv", ["vox", "-v", "start", "agent1"]):
+        with patch("sys.argv", ["vox", "-v", "start", "workload1"]):
             from vox.config.from_cli import load_cli_args
 
             args = load_cli_args()
             self.assertTrue(args.verbose)
             self.assertEqual(args.command, "start")
-            self.assertEqual(args.agent_name, "agent1")
+            self.assertEqual(args.workload_name, "workload1")
 
 
 class TestLoadConfig(unittest.TestCase):
@@ -195,7 +195,7 @@ class TestLoadConfig(unittest.TestCase):
     @patch("vox.config.loader.load_env_config")
     @patch("vox.config.loader.resolve_config")
     def test_load_config_pipeline(self, mock_resolve, mock_load_env, mock_load_cli):
-        mock_load_cli.return_value = VOXCliArgs(command=None, agent_name=None)
+        mock_load_cli.return_value = VOXCliArgs(command=None, workload_name=None)
         mock_load_env.return_value = VOXEnvConfig(war_room_id="-100")
         expected = VOXConfig(
             verbose_logging=False,

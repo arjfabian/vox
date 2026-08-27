@@ -40,7 +40,7 @@ async def run_vox(runtime: VOXRuntime, logger: VOXForensicLogger) -> None:
         return
 
     if not operative:
-        logger.error("No operative agents. VOX cannot start.")
+        logger.error("No operative workloads. VOX cannot start.")
         await runtime.orchestrator.shutdown()
         return
 

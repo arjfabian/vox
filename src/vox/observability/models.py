@@ -92,10 +92,10 @@ class VOXForensicLogger:
 
     def get_child(self, name: str) -> "VOXForensicLogger":
         """Returns a new VOXForensicLogger whose records carry ``name``
-        as a dotted suffix on the logger name (e.g. ``vox.agent1``).
+        as a dotted suffix on the logger name (e.g. ``vox.workload1``).
 
         Formatters can split on ``.`` and render only the last segment
-        so that agent-scoped messages show ``[agent1]`` instead of ``[vox]``.
+        so that workload-scoped messages show ``[workload1]`` instead of ``[vox]``.
         """
         return VOXForensicLogger(
             self._logger.getChild(name),

@@ -13,8 +13,8 @@ from vox.orchestration.war_room import VOXWarRoom, VOXWarRoomMaster, WarRoomMess
 
 class TestWarRoomMessage(unittest.TestCase):
     def test_default_fields(self):
-        msg = WarRoomMessage(source="agent3", payload={"event": "test"})
-        self.assertEqual(msg.source, "agent3")
+        msg = WarRoomMessage(source="workload3", payload={"event": "test"})
+        self.assertEqual(msg.source, "workload3")
         self.assertEqual(msg.target, "everyone")
         self.assertEqual(msg.payload, {"event": "test"})
         self.assertEqual(msg.read_by, {})
@@ -24,19 +24,19 @@ class TestWarRoomMessage(unittest.TestCase):
         from vox.messaging.models import VOXMessage
 
         msg = WarRoomMessage(
-            source="agent3",
+            source="workload3",
             payload={"event": "vps_breach", "severity": "CRITICAL"},
         )
         vox = msg.to_vox_message()
         self.assertIsInstance(vox, VOXMessage)
-        self.assertEqual(vox.message_source, "agent3")
+        self.assertEqual(vox.message_source, "workload3")
         self.assertEqual(vox.details, msg.payload)
 
     def test_acknowledge_tracking(self):
         msg = WarRoomMessage(source="system")
-        self.assertNotIn("agent2", msg.read_by)
-        msg.read_by["agent2"] = "2026-01-01T00:00:00"
-        self.assertIn("agent2", msg.read_by)
+        self.assertNotIn("workload2", msg.read_by)
+        msg.read_by["workload2"] = "2026-01-01T00:00:00"
+        self.assertIn("workload2", msg.read_by)
 
 
 # ------------------------------------------------------------------
@@ -49,7 +49,7 @@ class TestVOXWarRoom(unittest.IsolatedAsyncioTestCase):
         self.war_room = VOXWarRoom()
 
     async def test_publish_enqueues_and_records_history(self):
-        msg = WarRoomMessage(source="agent3", payload={"event": "test"})
+        msg = WarRoomMessage(source="workload3", payload={"event": "test"})
         await self.war_room.publish(msg)
         self.assertIn(msg, self.war_room._history)
         self.assertEqual(self.war_room._queue.qsize(), 1)
@@ -57,22 +57,22 @@ class TestVOXWarRoom(unittest.IsolatedAsyncioTestCase):
     async def test_acknowledge_marks_read(self):
         msg = WarRoomMessage(source="system")
         await self.war_room.publish(msg)
-        ok = await self.war_room.acknowledge(msg.message_id, "agent2")
+        ok = await self.war_room.acknowledge(msg.message_id, "workload2")
         self.assertTrue(ok)
-        self.assertIn("agent2", msg.read_by)
+        self.assertIn("workload2", msg.read_by)
 
     async def test_acknowledge_unknown_id_returns_false(self):
-        ok = await self.war_room.acknowledge("nonexistent", "agent1")
+        ok = await self.war_room.acknowledge("nonexistent", "workload1")
         self.assertFalse(ok)
 
     async def test_get_unread_excludes_acknowledged(self):
         msg = WarRoomMessage(source="system")
         await self.war_room.publish(msg)
-        await self.war_room.acknowledge(msg.message_id, "agent2")
-        unread = self.war_room.get_unread("agent2")
+        await self.war_room.acknowledge(msg.message_id, "workload2")
+        unread = self.war_room.get_unread("workload2")
         self.assertEqual(unread, [])
-        unread_agent1 = self.war_room.get_unread("agent1")
-        self.assertEqual(len(unread_agent1), 1)
+        unread_workload1 = self.war_room.get_unread("workload1")
+        self.assertEqual(len(unread_workload1), 1)
 
     async def test_get_history_with_since_filter(self):
         msg1 = WarRoomMessage(source="a", payload={"seq": 1})
@@ -101,7 +101,7 @@ class TestVOXWarRoomMaster(unittest.IsolatedAsyncioTestCase):
         self.war_room = VOXWarRoom()
         self.broadcast_fn = AsyncMock(return_value=True)
         self.orchestrator = MagicMock()
-        self.orchestrator.active_agents = {}
+        self.orchestrator.active_workloads = {}
         self.master = VOXWarRoomMaster(
             war_room=self.war_room,
             broadcast_fn=self.broadcast_fn,
@@ -115,12 +115,12 @@ class TestVOXWarRoomMaster(unittest.IsolatedAsyncioTestCase):
         await self.master.stop()
         self.assertFalse(self.master._running)
 
-    async def test_dispatch_fans_out_to_agents(self):
-        agent1 = MagicMock()
-        agent1.emit = AsyncMock()
-        agent2 = MagicMock()
-        agent2.emit = AsyncMock()
-        self.orchestrator.active_agents = {"a1": agent1, "a2": agent2}
+    async def test_dispatch_fans_out_to_workloads(self):
+        workload1 = MagicMock()
+        workload1.emit = AsyncMock()
+        workload2 = MagicMock()
+        workload2.emit = AsyncMock()
+        self.orchestrator.active_workloads = {"a1": workload1, "a2": workload2}
 
         msg = WarRoomMessage(source="system", payload={"event": "alert"})
         await self.war_room.publish(msg)
@@ -129,9 +129,9 @@ class TestVOXWarRoomMaster(unittest.IsolatedAsyncioTestCase):
         await asyncio.sleep(0.2)
         await self.master.stop()
 
-        agent1.emit.assert_called_once()
-        agent2.emit.assert_called_once()
-        args, _ = agent1.emit.call_args
+        workload1.emit.assert_called_once()
+        workload2.emit.assert_called_once()
+        args, _ = workload1.emit.call_args
         self.assertEqual(args[0], "on_war_room_alert")
 
     async def test_dispatch_mirrors_to_broadcast_fn(self):
@@ -145,15 +145,15 @@ class TestVOXWarRoomMaster(unittest.IsolatedAsyncioTestCase):
         self.broadcast_fn.assert_called_once()
         called_text = self.broadcast_fn.call_args[0][0]
         self.assertIn("breach", called_text)
-        self.assertIn("🔔 Alert", called_text)
+        self.assertIn("Alert", called_text)
 
     async def test_format_alert_contains_source(self):
         msg = WarRoomMessage(
-            source="agent3",
+            source="workload3",
             payload={"event": "intrusion", "severity": "HIGH"},
         )
         text = VOXWarRoomMaster._format_alert(msg)
-        self.assertIn("agent3", text)
+        self.assertIn("workload3", text)
         self.assertIn("intrusion", text)
         self.assertIn("HIGH", text)
 
@@ -174,34 +174,34 @@ class TestPanicShutdown(unittest.TestCase):
         self.config.uds_path = "/tmp/test_panic.sock"
         self.logger = MagicMock()
 
-    def _make_orc_with_agents(self):
+    def _make_orc_with_workloads(self):
         from vox.orchestration.base import VOXOrchestrator
 
         orc = VOXOrchestrator(config=self.config, logger=self.logger)
         return orc
 
     def test_panic_shutdown_purges_vault_keys(self):
-        orc = self._make_orc_with_agents()
+        orc = self._make_orc_with_workloads()
         vault = MagicMock()
         vault._key = b"secret_key_data_32_bytes_long!!"
-        agent = MagicMock()
-        agent._vault = vault
-        agent._tasks = []
-        orc.active_agents["a1"] = agent
+        workload = MagicMock()
+        workload._vault = vault
+        workload._tasks = []
+        orc.active_workloads["a1"] = workload
 
         orc.panic_shutdown()
 
         self.assertIsNone(vault._key)
-        self.assertIsNone(agent._vault)
+        self.assertIsNone(workload._vault)
         self.logger.critical.assert_any_call("PANIC SHUTDOWN initiated")
 
-    def test_panic_shutdown_cancels_agent_tasks(self):
-        orc = self._make_orc_with_agents()
+    def test_panic_shutdown_cancels_workload_tasks(self):
+        orc = self._make_orc_with_workloads()
         task = MagicMock()
-        agent = MagicMock()
-        agent._tasks = [task]
-        agent._vault = None
-        orc.active_agents["a1"] = agent
+        workload = MagicMock()
+        workload._tasks = [task]
+        workload._vault = None
+        orc.active_workloads["a1"] = workload
 
         orc.panic_shutdown()
 
@@ -224,10 +224,10 @@ class TestAlertRouting(unittest.IsolatedAsyncioTestCase):
 
         orc = VOXOrchestrator(config=self.config, logger=self.logger)
         payload = {"type": "alert", "event": "breach", "severity": "CRITICAL"}
-        await orc.dispatch_inbound_message("agent3", payload)
+        await orc.dispatch_inbound_message("workload3", payload)
         history = orc._war_room.get_history()
         self.assertEqual(len(history), 1)
-        self.assertEqual(history[0].source, "agent3")
+        self.assertEqual(history[0].source, "workload3")
         self.assertEqual(history[0].payload, payload)
 
     async def test_non_alert_message_skips_war_room(self):

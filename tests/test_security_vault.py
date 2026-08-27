@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from vox.security.vault import AgentVault
+from vox.security.vault import WorkloadVault
 
 
 @pytest.fixture(autouse=True)
@@ -27,7 +27,7 @@ def vault_dir():
 
 @pytest.fixture
 def vault(vault_dir):
-    return AgentVault(vault_dir, "agent-uuid-1234")
+    return WorkloadVault(vault_dir, "workload-uuid-1234")
 
 
 @pytest.mark.asyncio
@@ -56,7 +56,7 @@ async def test_get_nonexistent_returns_none(vault):
 
 @pytest.mark.asyncio
 async def test_get_falls_back_to_config(vault_dir):
-    v = AgentVault(vault_dir, "agent-uuid", config={"api_key": "from-env"})
+    v = WorkloadVault(vault_dir, "workload-uuid", config={"api_key": "from-env"})
     value = await v.get("llm", "api_key")
     assert value == "from-env"
 
@@ -109,7 +109,7 @@ def test_missing_master_key_raises(vault_dir):
     key = os.environ.pop("VOX_MASTER_KEY", None)
     try:
         with pytest.raises(RuntimeError):
-            AgentVault(vault_dir, "agent-uuid")
+            WorkloadVault(vault_dir, "workload-uuid")
     finally:
         if key is not None:
             os.environ["VOX_MASTER_KEY"] = key
@@ -125,12 +125,12 @@ async def test_get_returns_none_for_inactive(vault):
 
 @pytest.mark.asyncio
 async def test_fallback_to_config_only_when_no_db_entry(vault_dir):
-    v1 = AgentVault(vault_dir, "agent-uuid-1234")
+    v1 = WorkloadVault(vault_dir, "workload-uuid-1234")
     await v1.set("llm", "key", "from-vault")
 
-    v2 = AgentVault(
+    v2 = WorkloadVault(
         vault_dir,
-        "agent-uuid-1234",
+        "workload-uuid-1234",
         config={"key": "from-env"},
     )
     value = await v2.get("llm", "key")

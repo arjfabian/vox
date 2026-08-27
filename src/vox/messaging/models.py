@@ -1,4 +1,4 @@
-"""VOXMessage — the inter-agent envelope model.
+"""VOXMessage — the inter-workload envelope model.
 
 Conforms to the VOX Messaging Contract v1.0 envelope fields.
 """
@@ -11,9 +11,9 @@ from pydantic import BaseModel, Field, field_validator
 
 
 class VOXMessage(BaseModel):
-    """Universal message envelope for inter-agent communication.
+    """Universal message envelope for inter-workload communication.
 
-    Every message exchanged between agents MUST use this structure.
+    Every message exchanged between workloads MUST use this structure.
     See ``vox.wiki/Messaging-Contract.md`` for the full specification.
     """
 
@@ -24,8 +24,8 @@ class VOXMessage(BaseModel):
     emitted_at: str = Field(
         description="ISO-8601 datetime with timezone when the message was emitted"
     )
-    source: UUID = Field(description="UUID of the sender agent")
-    target: UUID = Field(description="UUID of the recipient agent")
+    source: UUID = Field(description="UUID of the sender workload")
+    target: UUID = Field(description="UUID of the recipient workload")
     type: str = Field(
         description="Semantic intent of the message (e.g., job_detected, data_request)"
     )

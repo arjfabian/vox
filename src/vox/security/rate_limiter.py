@@ -1,6 +1,6 @@
 """Sliding-window rate limiter.
 
-Prevents event bursts by capping the number of emissions per agent
+Prevents event bursts by capping the number of emissions per workload
 within a rolling time window. Uses ``collections.deque`` for O(1)
 timestamp purge on each check.
 """
@@ -10,7 +10,7 @@ from collections import deque
 
 
 class RateLimitError(Exception):
-    """Raised when an agent exceeds its allowed event frequency."""
+    """Raised when a workload exceeds its allowed event frequency."""
 
 
 class RateLimiter:

@@ -15,7 +15,7 @@ README.md, CHANGELOG.md, and docs/internal/ for context.
 - `src/vox/capabilities/comm/gateway/` — reference architecture: core
   (`capability.py`, `server.py`) is channel-agnostic; channels are `BaseAdapter`
   subclasses under `adapters/`.
-- `agents/` — runtime agent definitions (`agent.yml`); not code.
+- `workloads/` — runtime workload definitions (`workload.yml`); not code.
 - `tools/` — one-off operational scripts.
 - `tests/` — pytest suite; `tests/fixtures/` for captured payload fixtures.
 - `docs/internal/` — architecture rationale and design documents.
@@ -23,15 +23,22 @@ README.md, CHANGELOG.md, and docs/internal/ for context.
 ## Architecture invariants
 
 - **Capability pattern.** A capability is a `VOXCapability` subclass plus a
-  `capability.yml` (`name`, `capability_class`, `provides`, `params`).
-  Declare params as `PARAMS = {"ENV_VAR": ["description", default]}` and
-  secrets in `SENSITIVE_PARAMS`. Mutable class-level `PARAMS` dicts are an
-  intentional pattern — keep `# noqa: RUF012`.
+  `capability.yml` (`name`, `version`, `description`, `provides`, `params`,
+  `secrets`). YAML is the **single source of truth** for parameter and secret
+  metadata. Python classes implement behavior only — never redeclare config
+  metadata via `PARAMS` or `SENSITIVE_PARAMS`.
+- **CapabilityContract.** Loaded from YAML; holds `params` (`dict[str, ParamMeta]`)
+  and `secrets` (`dict[str, SecretMeta]`). `SecretMeta.required` (bool,
+  default `True`) marks Vault secrets that must be present. Use
+  `CapabilityContract.required_secret_names` to query required secrets.
 - **Config sentinels.** In bound capability params, `None` means "required —
-  agent flagged DEGRADED if missing". Empty string `""` means "unconfigured /
+  workload flagged DEGRADED if missing". Empty string `""` means "unconfigured /
   feature inactive". Optional credentials MUST default to `""`, never `None`.
-- **comm.gateway channels.** A new channel is a `BaseAdapter` subclass declaring
-  `CHANNEL`, `WEBHOOK_PATH`, `PARAMS`, `SENSITIVE_PARAMS`, `is_configured`,
+- **comm.gateway channels.** Adapter config is defined in per-adapter
+  `config.yml` files (under `adapters/<channel>/config.yml`), NOT in Python
+  class attributes. The gateway's `load_contract()` aggregates adapter
+  configs into a single `CapabilityContract`. A new channel is a
+  `BaseAdapter` subclass with `CHANNEL`, `WEBHOOK_PATH`, `is_configured`,
   registered in `adapters/__init__.py` `ADAPTER_REGISTRY`.
   Do not add channel-specific code to `capability.py` or `server.py`.
 - **Body-signing.** `verify_request(request, body)` verifies against the raw
@@ -41,8 +48,14 @@ README.md, CHANGELOG.md, and docs/internal/ for context.
 - **Outbound.** No `send_broadcast()`. Call
   `send_text(channel, recipient_id, text, ...)` with explicit channel and
   recipient.
-- **Secrets.** Injected via vault through `SENSITIVE_PARAMS`. Never put
+- **Secrets.** Injected via Vault through the `secrets` section of YAML
+  contracts. Roles may declare `REQUIRED_SECRETS = {"cap_id": ["SECRET", ...]}`
+  alongside `REQUIRES`; the binder intersects these with the YAML contract's
+  `required:true` flags to determine which secrets must be present. Never put
   credentials or tokens in source, tests, logs, or commits.
+- **AST scanning.** `ASTWorkloadAnalyzer` statically scans role files for
+  `REQUIRES` (capability IDs) and `REQUIRED_SECRETS` (per-cap secret names)
+  without executing code.
 
 These invariants are protected by tests in the suite; this file only tells you
 they exist. Prose is not an enforcement mechanism.

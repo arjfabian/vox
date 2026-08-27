@@ -27,7 +27,7 @@ class TestVOXAPIServerHandlers(unittest.TestCase):
         self.orchestrator.get_fleet_snapshot.return_value = {
             "system": {"version": "VOX+1.0"},
             "capabilities": [],
-            "agents": [],
+            "workloads": [],
             "hierarchy": {},
         }
         self.server = VOXAPIServer(self.orchestrator)
@@ -46,7 +46,7 @@ class TestVOXAPIServerHandlers(unittest.TestCase):
         data = self._check_json(resp)
         self.assertIn("system", data)
         self.assertIn("capabilities", data)
-        self.assertIn("agents", data)
+        self.assertIn("workloads", data)
 
     def test_fleet_handler(self):
         resp = self._run(self.server._handle_fleet(_req(path="/fleet")))
@@ -54,10 +54,10 @@ class TestVOXAPIServerHandlers(unittest.TestCase):
         self.assertIn("system", data)
         self.assertIn("hierarchy", data)
 
-    def test_agents_handler(self):
-        resp = self._run(self.server._handle_agents(_req(path="/agents")))
+    def test_workloads_handler(self):
+        resp = self._run(self.server._handle_workloads(_req(path="/workloads")))
         data = self._check_json(resp)
-        self.assertIn("agents", data)
+        self.assertIn("workloads", data)
         self.assertIn("hierarchy", data)
 
     def test_capabilities_handler(self):
@@ -65,125 +65,125 @@ class TestVOXAPIServerHandlers(unittest.TestCase):
         data = self._check_json(resp)
         self.assertIn("capabilities", data)
 
-    def test_agent_not_found_returns_404(self):
-        self.orchestrator._resolve_agent.return_value = None
+    def test_workload_not_found_returns_404(self):
+        self.orchestrator._resolve_workload.return_value = None
         resp = self._run(
-            self.server._handle_agent(_req(match_info={"id": "nonexistent"}))
+            self.server._handle_workload(_req(match_info={"id": "nonexistent"}))
         )
         self.assertEqual(resp.status, 404)
 
-    def test_agent_found_returns_describe(self):
-        mock_agent = MagicMock()
-        mock_agent.describe.return_value = {"id": "a1", "name": "agent1"}
-        self.orchestrator._resolve_agent.return_value = mock_agent
-        resp = self._run(self.server._handle_agent(_req(match_info={"id": "a1"})))
+    def test_workload_found_returns_describe(self):
+        mock_workload = MagicMock()
+        mock_workload.describe.return_value = {"id": "a1", "name": "workload1"}
+        self.orchestrator._resolve_workload.return_value = mock_workload
+        resp = self._run(self.server._handle_workload(_req(match_info={"id": "a1"})))
         data = self._check_json(resp)
-        self.assertEqual(data["name"], "agent1")
+        self.assertEqual(data["name"], "workload1")
 
-    def test_agent_commands(self):
-        mock_agent = MagicMock()
-        mock_agent.id = "a1"
-        mock_agent.name = "agent1"
+    def test_workload_commands(self):
+        mock_workload = MagicMock()
+        mock_workload.id = "a1"
+        mock_workload.name = "workload1"
         mock_cmd = MagicMock()
         mock_cmd.description = "Does something"
-        mock_agent.get_command_map.return_value = {"doit": mock_cmd}
-        self.orchestrator._resolve_agent.return_value = mock_agent
+        mock_workload.get_command_map.return_value = {"doit": mock_cmd}
+        self.orchestrator._resolve_workload.return_value = mock_workload
         resp = self._run(
-            self.server._handle_agent_commands(_req(match_info={"id": "a1"}))
+            self.server._handle_workload_commands(_req(match_info={"id": "a1"}))
         )
         data = self._check_json(resp)
         self.assertIn("commands", data)
         self.assertIn("doit", data["commands"])
 
-    def test_agent_commands_not_found_returns_404(self):
-        self.orchestrator._resolve_agent.return_value = None
+    def test_workload_commands_not_found_returns_404(self):
+        self.orchestrator._resolve_workload.return_value = None
         resp = self._run(
-            self.server._handle_agent_commands(_req(match_info={"id": "ghost"}))
+            self.server._handle_workload_commands(_req(match_info={"id": "ghost"}))
         )
         self.assertEqual(resp.status, 404)
 
-    def test_pause_agent_returns_ok(self):
-        self.orchestrator.resolve_agent_id.return_value = "a1"
-        self.orchestrator.pause_agent = AsyncMock(return_value=True)
+    def test_pause_workload_returns_ok(self):
+        self.orchestrator.resolve_workload_id.return_value = "a1"
+        self.orchestrator.pause_workload = AsyncMock(return_value=True)
         resp = self._run(
-            self.server._handle_pause(_req(method="POST", match_info={"id": "agent1"}))
+            self.server._handle_pause(_req(method="POST", match_info={"id": "workload1"}))
         )
         data = self._check_json(resp)
         self.assertTrue(data["ok"])
-        self.assertEqual(data["data"], "Agent paused")
+        self.assertEqual(data["data"], "Workload paused")
 
-    def test_pause_agent_failure_returns_400(self):
-        self.orchestrator.pause_agent = AsyncMock(return_value=False)
+    def test_pause_workload_failure_returns_400(self):
+        self.orchestrator.pause_workload = AsyncMock(return_value=False)
         resp = self._run(
-            self.server._handle_pause(_req(method="POST", match_info={"id": "agent1"}))
+            self.server._handle_pause(_req(method="POST", match_info={"id": "workload1"}))
         )
         self.assertEqual(resp.status, 400)
 
-    def test_resume_agent_returns_ok(self):
-        self.orchestrator.resume_agent = AsyncMock(return_value=True)
+    def test_resume_workload_returns_ok(self):
+        self.orchestrator.resume_workload = AsyncMock(return_value=True)
         resp = self._run(
-            self.server._handle_resume(_req(method="POST", match_info={"id": "agent1"}))
+            self.server._handle_resume(_req(method="POST", match_info={"id": "workload1"}))
         )
         data = self._check_json(resp)
         self.assertTrue(data["ok"])
-        self.assertEqual(data["data"], "Agent resumed")
+        self.assertEqual(data["data"], "Workload resumed")
 
-    def test_resume_agent_failure_returns_400(self):
-        self.orchestrator.resume_agent = AsyncMock(return_value=False)
+    def test_resume_workload_failure_returns_400(self):
+        self.orchestrator.resume_workload = AsyncMock(return_value=False)
         resp = self._run(
-            self.server._handle_resume(_req(method="POST", match_info={"id": "agent1"}))
+            self.server._handle_resume(_req(method="POST", match_info={"id": "workload1"}))
         )
         self.assertEqual(resp.status, 400)
 
-    def test_stop_agent_not_found_returns_404(self):
-        self.orchestrator.resolve_agent_id.return_value = None
+    def test_stop_workload_not_found_returns_404(self):
+        self.orchestrator.resolve_workload_id.return_value = None
         resp = self._run(
-            self.server._handle_stop(_req(method="POST", match_info={"id": "agent1"}))
+            self.server._handle_stop(_req(method="POST", match_info={"id": "workload1"}))
         )
         self.assertEqual(resp.status, 404)
 
-    def test_stop_agent_returns_ok(self):
-        self.orchestrator.resolve_agent_id.return_value = "a1"
-        self.orchestrator.stop_agent = AsyncMock(return_value=True)
+    def test_stop_workload_returns_ok(self):
+        self.orchestrator.resolve_workload_id.return_value = "a1"
+        self.orchestrator.stop_workload = AsyncMock(return_value=True)
         resp = self._run(
             self.server._handle_stop(_req(method="POST", match_info={"id": "a1"}))
         )
         data = self._check_json(resp)
         self.assertTrue(data["ok"])
-        self.assertEqual(data["data"], "Agent stopped")
+        self.assertEqual(data["data"], "Workload stopped")
 
-    def test_start_agent_returns_ok(self):
-        self.orchestrator.start_agent_by_name = AsyncMock(return_value=True)
+    def test_start_workload_returns_ok(self):
+        self.orchestrator.start_workload_by_name = AsyncMock(return_value=True)
         resp = self._run(
-            self.server._handle_start(_req(method="POST", match_info={"id": "agent1"}))
+            self.server._handle_start(_req(method="POST", match_info={"id": "workload1"}))
         )
         data = self._check_json(resp)
         self.assertTrue(data["ok"])
-        self.assertEqual(data["data"], "Agent started")
+        self.assertEqual(data["data"], "Workload started")
 
-    def test_start_agent_failure_returns_400(self):
-        self.orchestrator.start_agent_by_name = AsyncMock(return_value=False)
+    def test_start_workload_failure_returns_400(self):
+        self.orchestrator.start_workload_by_name = AsyncMock(return_value=False)
         resp = self._run(
-            self.server._handle_start(_req(method="POST", match_info={"id": "agent1"}))
+            self.server._handle_start(_req(method="POST", match_info={"id": "workload1"}))
         )
         self.assertEqual(resp.status, 400)
 
-    def test_restart_agent_returns_ok(self):
-        self.orchestrator.restart_agent = AsyncMock(return_value=True)
+    def test_restart_workload_returns_ok(self):
+        self.orchestrator.restart_workload = AsyncMock(return_value=True)
         resp = self._run(
             self.server._handle_restart(
-                _req(method="POST", match_info={"id": "agent1"})
+                _req(method="POST", match_info={"id": "workload1"})
             )
         )
         data = self._check_json(resp)
         self.assertTrue(data["ok"])
-        self.assertEqual(data["data"], "Agent restarted")
+        self.assertEqual(data["data"], "Workload restarted")
 
-    def test_restart_agent_failure_returns_400(self):
-        self.orchestrator.restart_agent = AsyncMock(return_value=False)
+    def test_restart_workload_failure_returns_400(self):
+        self.orchestrator.restart_workload = AsyncMock(return_value=False)
         resp = self._run(
             self.server._handle_restart(
-                _req(method="POST", match_info={"id": "agent1"})
+                _req(method="POST", match_info={"id": "workload1"})
             )
         )
         self.assertEqual(resp.status, 400)

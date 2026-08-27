@@ -1,8 +1,15 @@
 import asyncio
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
-from vox.capabilities.base import VOXBoundCapability, VOXCapability
+from vox.capabilities.base import (
+    CapabilityContract,
+    ParamMeta,
+    VOXBoundCapability,
+    VOXCapability,
+)
 
 
 class TestVOXCapability(unittest.TestCase):
@@ -14,46 +21,81 @@ class TestVOXCapability(unittest.TestCase):
         asyncio.run(cap.boot())
         asyncio.run(cap.shutdown())
 
-    def test_params_initialized_as_class_attributes(self):
-        """PARAMS keys become instance attributes with default values."""
-        cap = VOXCapability()
-        cap.id = "test"
-        cap.logger = MagicMock()
-        for key, (desc, default) in cap.PARAMS.items():
-            self.assertTrue(
-                hasattr(cap, key),
-                f"Expected {key} to be set from PARAMS",
-            )
-            self.assertEqual(getattr(cap, key), default)
-
     def test_mount_creates_bound(self):
-        cap = VOXCapability()
-        agent = MagicMock()
-        bound = cap.mount(agent, {})
-        self.assertIsInstance(bound, VOXBoundCapability)
+        tmpdir = Path(tempfile.mkdtemp())
+        try:
+            cap_file = tmpdir / "capability.py"
+            cap_file.write_text("# placeholder")
+            yml = tmpdir / "capability.yml"
+            yml.write_text("name: test.cap\nparams:\n  X:\n    description: x\n    type: string\n    default: hello\n")
+
+            class MountCap(VOXCapability):
+                CAPABILITY_NAME = "test.cap"
+
+            MountCap.load_contract(cap_file)
+            cap = MountCap()
+            cap.id = "test.cap"
+            cap.logger = MagicMock()
+            workload = MagicMock()
+            bound = cap.mount(workload)
+            self.assertIsInstance(bound, VOXBoundCapability)
+        finally:
+            import shutil
+            shutil.rmtree(tmpdir, ignore_errors=True)
 
     def test_initialize_raises_for_missing_required_params(self):
-        class StrictCap(VOXCapability):
-            # noqa: RUF012 — test-local override, intentionally mutable.
-            PARAMS = {"REQUIRED_KEY": ["desc", None]}
+        tmpdir = Path(tempfile.mkdtemp())
+        try:
+            cap_file = tmpdir / "capability.py"
+            cap_file.write_text("# placeholder")
+            yml = tmpdir / "capability.yml"
+            yml.write_text(
+                "name: strict.cap\n"
+                "params:\n"
+                "  REQUIRED_KEY:\n"
+                "    description: Required\n"
+                "    type: string\n"
+                "    default: null\n"
+            )
 
-        cap = StrictCap()
-        cap.id = "test"
-        cap.logger = MagicMock()
-        agent = MagicMock()
-        bound = cap.mount(agent, {})
-        with self.assertRaises(ValueError):
-            asyncio.run(bound.initialize())
+            class StrictCap(VOXCapability):
+                CAPABILITY_NAME = "strict.cap"
+
+            StrictCap.load_contract(cap_file)
+            cap = StrictCap()
+            cap.id = "strict.cap"
+            cap.logger = MagicMock()
+            workload = MagicMock()
+            bound = cap.mount(workload)
+            with self.assertRaises(ValueError):
+                asyncio.run(bound.initialize())
+        finally:
+            import shutil
+            shutil.rmtree(tmpdir, ignore_errors=True)
 
     def test_explain_config_returns_string(self):
-        text = VOXCapability.explain_config()
+        class ExplainedCap(VOXCapability):
+            CAPABILITY_NAME = "test.explain"
+
+        ExplainedCap._contract = CapabilityContract(
+            name="test.explain",
+            params={"X": ParamMeta(name="X", description="an x", type="string", default=42)},
+        )
+        text = ExplainedCap.explain_config()
         self.assertIsInstance(text, str)
         self.assertIn("Requirements for", text)
 
     def test_get_params_returns_list(self):
         class TestCap(VOXCapability):
-            # noqa: RUF012 — test-local override, intentionally mutable.
-            PARAMS = {"A": ["desc a", 1], "B": ["desc b", 2]}
+            CAPABILITY_NAME = "test.get_params"
+
+        TestCap._contract = CapabilityContract(
+            name="test.get_params",
+            params={
+                "A": ParamMeta(name="A", description="desc a", type="string", default=1),
+                "B": ParamMeta(name="B", description="desc b", type="string", default=2),
+            },
+        )
 
         params = TestCap.get_params()
         self.assertEqual(params, ["A", "B"])
@@ -61,16 +103,21 @@ class TestVOXCapability(unittest.TestCase):
 
 class TestVOXBoundCapability(unittest.TestCase):
     def setUp(self):
-        self.agent = MagicMock()
-        self.agent.logger = MagicMock()
-        self.agent.emit = AsyncMock()
+        self.workload = MagicMock()
+        self.workload.logger = MagicMock()
+        self.workload.emit = AsyncMock()
+        self._orig_contract = VOXCapability.__dict__.get("_contract")
+        VOXCapability._contract = CapabilityContract(name="test.bound")
         self.cap = VOXCapability()
         self.cap.id = "test"
         self.cap.logger = MagicMock()
-        self.bound = VOXBoundCapability(self.cap, self.agent, {})
+        self.bound = VOXBoundCapability(self.cap, self.workload, {})
+
+    def tearDown(self):
+        VOXCapability._contract = self._orig_contract
 
     def test_capability_name(self):
-        self.assertEqual(self.bound.name, "VOXCapability")
+        self.assertEqual(self.bound.name, "test.bound")
         self.bound._capability.CAPABILITY_NAME = "custom"
         self.assertEqual(self.bound.name, "custom")
 
@@ -106,52 +153,57 @@ class TestVOXBoundCapability(unittest.TestCase):
         self.bound.ok("all good")
         self.bound.logger.ok.assert_called_once()
 
-    def test_get_safe_path_delegates_to_agent(self):
-        self.agent.get_safe_path.return_value = "/safe/path"
+    def test_get_safe_path_delegates_to_workload(self):
+        self.workload.get_safe_path.return_value = "/safe/path"
         result = self.bound.get_safe_path("evidence", "test.png")
-        self.agent.get_safe_path.assert_called_once_with("evidence", "test.png")
+        self.workload.get_safe_path.assert_called_once_with("evidence", "test.png")
         self.assertEqual(result, "/safe/path")
 
-    def test_emit_delegates_to_agent(self):
-        self.agent.orchestrator = None
+    def test_emit_delegates_to_workload(self):
+        self.workload.orchestrator = None
         asyncio.run(self.bound.emit("inbound_message", content="hi"))
-        self.agent.emit.assert_called_once_with("inbound_message", content="hi")
+        self.workload.emit.assert_called_once_with("inbound_message", content="hi")
 
     def test_get_capability_found(self):
-        self.agent.capabilities = {"ollama": "ollama_instance"}
+        self.workload.capabilities = {"ollama": "ollama_instance"}
         result = self.bound.get_capability("ollama")
         self.assertEqual(result, "ollama_instance")
 
     def test_get_capability_not_found(self):
-        self.agent.capabilities = {}
+        self.workload.capabilities = {}
         result = self.bound.get_capability("nonexistent")
         self.assertIsNone(result)
 
 
 class TestVOXBoundCapabilityEdgeCases(unittest.TestCase):
     def setUp(self):
-        self.agent = MagicMock()
-        self.agent.logger = MagicMock()
+        self.workload = MagicMock()
+        self.workload.logger = MagicMock()
+        self._orig_contract = VOXCapability.__dict__.get("_contract")
+        VOXCapability._contract = CapabilityContract(name="test.edge")
         self.cap = VOXCapability()
         self.cap.id = "test"
         self.cap.logger = MagicMock()
 
+    def tearDown(self):
+        VOXCapability._contract = self._orig_contract
+
     def test_ok_without_logger_set(self):
-        bound = VOXBoundCapability(self.cap, self.agent, {})
+        bound = VOXBoundCapability(self.cap, self.workload, {})
         bound.logger = MagicMock()
         bound.ok("ok msg")
         bound.logger.ok.assert_called_once()
 
-    def test_get_safe_path_no_agent_get_safe_path(self):
-        del self.agent.get_safe_path
-        bound = VOXBoundCapability(self.cap, self.agent, {})
+    def test_get_safe_path_no_workload_get_safe_path(self):
+        del self.workload.get_safe_path
+        bound = VOXBoundCapability(self.cap, self.workload, {})
         with self.assertRaises(AttributeError):
             bound.get_safe_path("a", "b")
 
     def test_emit_with_orchestrator_delegates_to_dispatch(self):
-        self.agent.orchestrator = MagicMock()
-        self.agent.orchestrator.dispatch_inbound_message = AsyncMock()
-        bound = VOXBoundCapability(self.cap, self.agent, {})
+        self.workload.orchestrator = MagicMock()
+        self.workload.orchestrator.dispatch_inbound_message = AsyncMock()
+        bound = VOXBoundCapability(self.cap, self.workload, {})
         bound.logger = MagicMock()
         asyncio.run(bound.emit("evt"))
-        self.agent.orchestrator.dispatch_inbound_message.assert_awaited_once()
+        self.workload.orchestrator.dispatch_inbound_message.assert_awaited_once()

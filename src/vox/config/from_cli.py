@@ -18,7 +18,7 @@ class VOXCliArgs:
     """
 
     command: str | None
-    agent_name: str | None
+    workload_name: str | None
     verbose: bool | None = None
 
 
@@ -27,24 +27,24 @@ def load_cli_args() -> VOXCliArgs:
     Parses and returns CLI arguments.
 
     Supported commands:
-        vox start <agent>
-        vox stop <agent>
-        vox restart <agent>
+        vox start <workload>
+        vox stop <workload>
+        vox restart <workload>
     """
 
-    parser = argparse.ArgumentParser(description="VOX Agent Orchestrator")
+    parser = argparse.ArgumentParser(description="VOX Workload Orchestrator")
 
     parser.add_argument(
         "command",
         nargs="?",
         choices=["start", "stop", "restart", "pause", "resume"],
-        help="Agent lifecycle command.",
+        help="Workload lifecycle command.",
     )
 
     parser.add_argument(
-        "agent_name",
+        "workload_name",
         nargs="?",
-        help="Target agent name.",
+        help="Target workload name.",
     )
 
     parser.add_argument(
@@ -58,6 +58,6 @@ def load_cli_args() -> VOXCliArgs:
 
     return VOXCliArgs(
         command=args.command,
-        agent_name=args.agent_name,
+        workload_name=args.workload_name,
         verbose=args.verbose,
     )

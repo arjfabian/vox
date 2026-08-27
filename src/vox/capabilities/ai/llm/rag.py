@@ -1,11 +1,11 @@
-"""RAG context retriever — agent-private store integration.
+"""RAG context retriever — workload-private store integration.
 
-Queries the calling agent's isolated SQLite ``memory.db`` for
+Queries the calling workload's isolated SQLite ``memory.db`` for
 relevant context snippets via FTS5 full-text search, falling
 back to keyword matching on asset index entries.
 
 Only receives a ``store_path`` string — never a direct reference
-to the agent object — preserving strict zero-coupling.
+to the workload object — preserving strict zero-coupling.
 """
 
 import json

@@ -17,9 +17,9 @@ __pycache__/
 # ------------------------------------------------------------------------------
 # SENSITIVE ASSET PROTECTION & LOCAL DATA
 # ------------------------------------------------------------------------------
-# Local Agents State & Configurations
-agents/*
-!agents/.gitkeep
+# Local Instance: State & Configurations
+instance/*
+!instance/.gitkeep
 
 # Master Identity Profiles
 identity/*

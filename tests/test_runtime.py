@@ -97,7 +97,7 @@ class TestHandleControlCommand(unittest.TestCase):
     def test_status_command(self):
         self.runtime.orchestrator.get_fleet_snapshot.return_value = {
             "system": {},
-            "agents": [],
+            "workloads": [],
             "capabilities": [],
         }
         asyncio.run(self._send_command("status"))
@@ -107,20 +107,20 @@ class TestHandleControlCommand(unittest.TestCase):
 
     def test_list_command(self):
         self.runtime.orchestrator.get_fleet_snapshot.return_value = {
-            "agents": [{"id": "a1", "name": "agent1"}],
+            "workloads": [{"id": "a1", "name": "workload1"}],
         }
         asyncio.run(self._send_command("list"))
         resp = self._decode_response()
         self.assertTrue(resp["ok"])
-        self.assertEqual(len(resp["data"]["agents"]), 1)
+        self.assertEqual(len(resp["data"]["workloads"]), 1)
 
     def test_stop_command_with_args(self):
-        self.runtime.orchestrator.resolve_agent_id.return_value = "a1"
-        self.runtime.orchestrator.stop_agent = AsyncMock(return_value=True)
-        asyncio.run(self._send_command("stop", ["agent1"]))
+        self.runtime.orchestrator.resolve_workload_id.return_value = "a1"
+        self.runtime.orchestrator.stop_workload = AsyncMock(return_value=True)
+        asyncio.run(self._send_command("stop", ["workload1"]))
         resp = self._decode_response()
         self.assertTrue(resp["ok"])
-        self.assertIn("agent1", resp["data"])
+        self.assertIn("workload1", resp["data"])
 
     def test_stop_command_without_args(self):
         asyncio.run(self._send_command("stop"))
@@ -128,23 +128,23 @@ class TestHandleControlCommand(unittest.TestCase):
         self.assertIsNone(resp.get("ok"))
 
     def test_restart_command(self):
-        self.runtime.orchestrator.restart_agent = AsyncMock(return_value=True)
-        asyncio.run(self._send_command("restart", ["agent1"]))
+        self.runtime.orchestrator.restart_workload = AsyncMock(return_value=True)
+        asyncio.run(self._send_command("restart", ["workload1"]))
         resp = self._decode_response()
         self.assertTrue(resp["ok"])
 
     def test_start_command(self):
-        self.runtime.orchestrator.start_agent_by_name = AsyncMock(return_value=True)
-        asyncio.run(self._send_command("start", ["agent1"]))
+        self.runtime.orchestrator.start_workload_by_name = AsyncMock(return_value=True)
+        asyncio.run(self._send_command("start", ["workload1"]))
         resp = self._decode_response()
         self.assertTrue(resp["ok"])
 
     def test_pause_command(self):
-        self.runtime.orchestrator.pause_agent = AsyncMock(return_value=True)
-        asyncio.run(self._send_command("pause", ["agent1"]))
+        self.runtime.orchestrator.pause_workload = AsyncMock(return_value=True)
+        asyncio.run(self._send_command("pause", ["workload1"]))
         resp = self._decode_response()
         self.assertTrue(resp["ok"])
-        self.assertIn("agent1", resp["data"])
+        self.assertIn("workload1", resp["data"])
 
     def test_pause_command_without_args(self):
         asyncio.run(self._send_command("pause"))
@@ -152,11 +152,11 @@ class TestHandleControlCommand(unittest.TestCase):
         self.assertIsNone(resp.get("ok"))
 
     def test_resume_command(self):
-        self.runtime.orchestrator.resume_agent = AsyncMock(return_value=True)
-        asyncio.run(self._send_command("resume", ["agent1"]))
+        self.runtime.orchestrator.resume_workload = AsyncMock(return_value=True)
+        asyncio.run(self._send_command("resume", ["workload1"]))
         resp = self._decode_response()
         self.assertTrue(resp["ok"])
-        self.assertIn("agent1", resp["data"])
+        self.assertIn("workload1", resp["data"])
 
     def test_resume_command_without_args(self):
         asyncio.run(self._send_command("resume"))
@@ -222,7 +222,7 @@ class TestRunVox(unittest.TestCase):
             self.runtime.api_server.start.assert_called_once()
             self.runtime.orchestrator.shutdown.assert_awaited_once()
 
-    def test_run_vox_exits_if_no_operative_agents(self):
+    def test_run_vox_exits_if_no_operative_workloads(self):
         self.runtime.orchestrator.boot.return_value = False
         with (
             patch(

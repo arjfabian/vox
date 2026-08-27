@@ -9,8 +9,8 @@ new channel needs no server changes. POST serves the inbound payload; GET
 serves a provider subscription handshake when the adapter implements one.
 
 The server is started by CommGatewayCapability.boot() and stopped by
-shutdown().  A single server instance serves all mounted agents — the
-orchestrator routes inbound messages to the correct agent(s).
+shutdown().  A single server instance serves all mounted workloads — the
+orchestrator routes inbound messages to the correct workload(s).
 """
 
 from __future__ import annotations

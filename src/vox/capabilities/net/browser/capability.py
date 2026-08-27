@@ -11,13 +11,6 @@ from .models import BrowserConfig
 class BrowserCapability(VOXCapability):
     CAPABILITY_NAME = "net.browser"
 
-    # noqa: RUF012 — mutable defaults are intentional; each agent binding may
-    # override PARAMS with different headless/timeout settings.
-    PARAMS = {
-        "BROWSER_HEADLESS": ["Run browser in headless mode", True],
-        "BROWSER_TIMEOUT": ["Page load timeout in ms", 30000],
-    }
-
     async def boot(self) -> None:
         config = BrowserConfig(
             headless=self.BROWSER_HEADLESS,

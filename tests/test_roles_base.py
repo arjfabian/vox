@@ -3,22 +3,22 @@ import gc
 import unittest
 from unittest.mock import MagicMock
 
-from vox.roles.base import AgentHostDeadError, VOXRole
+from vox.roles.base import VOXRole, WorkloadHostDeadError
 
 
 class TestVOXRole(unittest.TestCase):
     def setUp(self):
-        self.agent = MagicMock()
-        self.role = VOXRole(self.agent)
+        self.workload = MagicMock()
+        self.role = VOXRole(self.workload)
 
-    def test_agent_property_returns_host(self):
-        self.assertIs(self.role.agent, self.agent)
+    def test_workload_property_returns_host(self):
+        self.assertIs(self.role.workload, self.workload)
 
-    def test_agent_property_raises_when_host_dead(self):
-        del self.agent
+    def test_workload_property_raises_when_host_dead(self):
+        del self.workload
         gc.collect()
-        with self.assertRaises(AgentHostDeadError):
-            _ = self.role.agent
+        with self.assertRaises(WorkloadHostDeadError):
+            _ = self.role.workload
 
     def test_on_registers_handler(self):
         async def handler(**kwargs):

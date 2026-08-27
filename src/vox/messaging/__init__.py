@@ -1,4 +1,4 @@
-"""VOX inter-agent messaging.
+"""VOX inter-workload messaging.
 
 Message types, envelope contract, and delivery primitives
 for the VOX delegation protocol.

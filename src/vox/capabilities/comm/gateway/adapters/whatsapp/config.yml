@@ -1,0 +1,23 @@
+params:
+  WHATSAPP_PHONE_NUMBER_ID:
+    description: WhatsApp Business phone number ID
+    type: string
+    default: ""
+  WHATSAPP_API_VERSION:
+    description: Graph API version for outbound requests
+    type: string
+    default: v25.0
+
+secrets:
+  WHATSAPP_ACCESS_TOKEN:
+    description: WhatsApp Cloud API access token (System User, whatsapp_business_messaging scope)
+    type: string
+    required: true
+  WHATSAPP_APP_SECRET:
+    description: Meta app secret for webhook HMAC verification
+    type: string
+    required: true
+  WHATSAPP_VERIFY_TOKEN:
+    description: Webhook verification token (set in Meta App Dashboard)
+    type: string
+    required: false

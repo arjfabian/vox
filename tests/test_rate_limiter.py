@@ -5,8 +5,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from vox.agents.base import VOXAgent
 from vox.security.rate_limiter import RateLimiter, RateLimitError
+from vox.workloads.base import VOXWorkload
 
 
 class TestRateLimiter(unittest.TestCase):
@@ -74,15 +74,15 @@ class TestRateLimiter(unittest.TestCase):
         self.assertFalse(rl.allow())
 
 
-class TestAgentRateLimiterIntegration(unittest.TestCase):
-    """Integration tests — RateLimiter wired into VOXAgent.emit()."""
+class TestWorkloadRateLimiterIntegration(unittest.TestCase):
+    """Integration tests — RateLimiter wired into VOXWorkload.emit()."""
 
     def setUp(self):
-        self.tmp = Path("/tmp") / f"test_rate_agent_{id(self)}"
+        self.tmp = Path("/tmp") / f"test_rate_workload_{id(self)}"
         roles_dir = self.tmp / "roles"
         roles_dir.mkdir(parents=True, exist_ok=True)
-        (self.tmp / "agent.yml").write_text(
-            "name: RateTestAgent\nid: rate-test-uuid\n"
+        (self.tmp / "manifest.yml").write_text(
+            "name: RateTestWorkload\nid: rate-test-uuid\n"
             "rate_limit_max_calls: 3\nrate_limit_window: 60\n"
         )
         self.logger = MagicMock()
@@ -94,6 +94,8 @@ class TestAgentRateLimiterIntegration(unittest.TestCase):
         mock_bound.validate_params = MagicMock(return_value=[])
         mock_cap.mount.return_value = mock_bound
         mock_cap.CAPABILITY_NAME = "comm.gateway"
+        mock_cap.get_secret_names.return_value = []
+        mock_bound._capability = mock_cap
         type(mock_cap).EXPOSED_COMMANDS = []
         self.orchestrator.get_capability_instance.return_value = mock_cap
 
@@ -105,40 +107,40 @@ class TestAgentRateLimiterIntegration(unittest.TestCase):
     @patch("vox.security.rate_limiter.time")
     def test_emit_respected_when_under_limit(self, mock_time):
         mock_time.time.return_value = 1000.0
-        agent = VOXAgent(self.tmp, self.logger, self.orchestrator)
-        boot_ok = asyncio.run(agent.boot())
+        workload = VOXWorkload(self.tmp, self.logger, self.orchestrator)
+        boot_ok = asyncio.run(workload.boot())
         self.assertTrue(boot_ok)
 
-        agent.event_router["test_event"] = []
+        workload.event_router["test_event"] = []
 
         async def emit_two():
-            await agent.emit("test_event")
-            await agent.emit("test_event")
+            await workload.emit("test_event")
+            await workload.emit("test_event")
 
         asyncio.run(emit_two())
 
-        self.assertEqual(agent.rate_limiter_utilization, 100.0)
+        self.assertEqual(workload.rate_limiter_utilization, 100.0)
 
     @patch("vox.security.rate_limiter.time")
     def test_emit_blocked_when_over_limit(self, mock_time):
         mock_time.time.return_value = 1000.0
-        agent = VOXAgent(self.tmp, self.logger, self.orchestrator)
-        asyncio.run(agent.boot())
-        agent.event_router["test_event"] = []
+        workload = VOXWorkload(self.tmp, self.logger, self.orchestrator)
+        asyncio.run(workload.boot())
+        workload.event_router["test_event"] = []
 
         async def spam():
             for _ in range(5):
-                await agent.emit("test_event")
+                await workload.emit("test_event")
 
         asyncio.run(spam())
 
-        self.assertGreater(agent.rate_limiter_utilization, 0.0)
-        agent.logger.critical.assert_called()
+        self.assertGreater(workload.rate_limiter_utilization, 0.0)
+        workload.logger.critical.assert_called()
 
     @patch("vox.security.rate_limiter.time")
     def test_rate_limiter_utilization_property(self, mock_time):
         mock_time.time.return_value = 1000.0
-        agent = VOXAgent(self.tmp, self.logger, self.orchestrator)
-        asyncio.run(agent.boot())
+        workload = VOXWorkload(self.tmp, self.logger, self.orchestrator)
+        asyncio.run(workload.boot())
         # on_boot counts as 1 call against the 3-call limit
-        self.assertAlmostEqual(agent.rate_limiter_utilization, 100.0 / 3, places=5)
+        self.assertAlmostEqual(workload.rate_limiter_utilization, 100.0 / 3, places=5)

@@ -1,7 +1,7 @@
 """comm.email — Asynchronous email dispatch capability.
 
 Sends plain-text emails via SMTP using credentials from the
-bound agent's local .env file (SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS).
+bound workload's local .env file (SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS).
 """
 
 from vox.capabilities.base import VOXCapability
@@ -13,18 +13,7 @@ from .models import EmailConfig
 class EmailCapability(VOXCapability):
     CAPABILITY_NAME = "comm.email"
 
-    # noqa: RUF012 — mutable defaults are intentional; each agent binding may
-    # override PARAMS with its own SMTP credentials.
-    PARAMS = {
-        "SMTP_HOST": ["SMTP server hostname", None],
-        "SMTP_PORT": ["SMTP server port", 587],
-        "SMTP_USER": ["SMTP authentication username", None],
-        "SMTP_PASS": ["SMTP authentication password", None],
-    }
-
-    SENSITIVE_PARAMS = {"SMTP_USER", "SMTP_PASS"}
-
-    EXPOSED_COMMANDS = [
+    EXPOSED_COMMANDS = [  # noqa: RUF012
         {
             "name": "send_email",
             "description": "Send an automated plain-text email to a recipient.",

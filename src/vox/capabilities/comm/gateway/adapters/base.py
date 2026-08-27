@@ -26,9 +26,10 @@ class BaseAdapter(ABC):
     # HTTP path served by the shared IngressServer for this channel's inbound
     # webhook. The server registers POST (and GET, for handshakes) generically.
     WEBHOOK_PATH: str = ""
-    # Adapter-scoped configuration. Each adapter declares its own params
-    # ({param: [description, default]}); the gateway aggregates them rather
-    # than hardcoding channel-specific keys.
+    # Adapter-scoped configuration keys. Adapters no longer declare PARAMS
+    # or SENSITIVE_PARAMS — the gateway's YAML contract is the single source
+    # of truth. These stubs remain for backward compatibility with adapter
+    # code that references ``cls.PARAMS`` or ``cls.SENSITIVE_PARAMS``.
     PARAMS: dict[str, list[Any]] = {}  # noqa: RUF012
     SENSITIVE_PARAMS: set[str] = set()  # noqa: RUF012
 

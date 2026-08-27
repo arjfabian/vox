@@ -2,19 +2,19 @@ import asyncio
 
 import pytest
 
-from vox.agents.memory import VOXAgentMemory
+from vox.workloads.memory import VOXWorkloadMemory
 
 
 @pytest.fixture
 async def memory(tmp_path):
-    m = VOXAgentMemory(tmp_path)
+    m = VOXWorkloadMemory(tmp_path)
     await m.init_db()
     yield m
 
 
 @pytest.mark.asyncio
 async def test_init_creates_db(tmp_path):
-    m = VOXAgentMemory(tmp_path)
+    m = VOXWorkloadMemory(tmp_path)
     db_path = tmp_path / "memory" / "logs.db"
     assert not db_path.exists()
     await m.init_db()
@@ -33,7 +33,7 @@ async def test_record_with_all_fields(memory):
     event_id = await memory.record(
         event_type="cmd",
         action="run",
-        actor="agent1",
+        actor="workload1",
         details={"key": "value"},
         ref_id="ref-1",
         status="PENDING",

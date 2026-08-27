@@ -1,8 +1,8 @@
-"""Asynchronous agent file watcher.
+"""Asynchronous workload file watcher.
 
-Polls agent directories for SHA-256 hash changes on ``agent.yml``
+Polls persona directories for SHA-256 hash changes on ``manifest.yml``
 and ``roles/**/*.py`` and triggers a hot-restart of the
-affected agent.
+affected workload.
 """
 
 import asyncio
@@ -16,21 +16,21 @@ if TYPE_CHECKING:
     from vox.orchestration import VOXOrchestrator
 
 
-class AgentFileWatcher:
-    """Polling file watcher that hot-restarts agents on config/code changes.
+class WorkloadFileWatcher:
+    """Polling file watcher that hot-restarts workloads on config/code changes.
 
-    Only monitors ``agent.yml`` and ``roles/**/*.py`` (excluding
+    Only monitors ``manifest.yml`` and ``roles/**/*.py`` (excluding
     ``_test.py`` files and ``__pycache__`` directories).
     """
 
     def __init__(
         self,
         orchestrator: "VOXOrchestrator",
-        agents_dir: Path,
+        personas_dir: Path,
         interval: float = 2.0,
     ) -> None:
         self._orc = orchestrator
-        self._agents_dir = Path(agents_dir)
+        self._personas_dir = Path(personas_dir)
         self.logger = orchestrator.logger
         self._interval = interval
         self._task: asyncio.Task | None = None
@@ -38,7 +38,7 @@ class AgentFileWatcher:
 
     async def start(self) -> None:
         self.logger.info(
-            "AgentFileWatcher started — polling every %ss",
+            "WorkloadFileWatcher started — polling every %ss",
             self._interval,
         )
         self._task = asyncio.create_task(self._run())
@@ -54,18 +54,18 @@ class AgentFileWatcher:
             await self._poll()
 
     async def _poll(self) -> None:
-        if not self._agents_dir.is_dir():
+        if not self._personas_dir.is_dir():
             return
 
-        for agent_folder in sorted(self._agents_dir.iterdir()):
+        for persona_folder in sorted(self._personas_dir.iterdir()):
             if (
-                not agent_folder.is_dir()
-                or agent_folder.name.startswith(".")
-                or agent_folder.name == "__pycache__"
+                not persona_folder.is_dir()
+                or persona_folder.name.startswith(".")
+                or persona_folder.name == "__pycache__"
             ):
                 continue
 
-            manifest = agent_folder / "agent.yml"
+            manifest = persona_folder / "manifest.yml"
             if not manifest.exists():
                 continue
 
@@ -73,45 +73,45 @@ class AgentFileWatcher:
                 data = yaml.safe_load(manifest.read_text()) or {}
             except Exception:  # noqa: BLE001, S112 — resilient scan, skip malformed manifests
                 continue
-            agent_name = data.get("name") or agent_folder.name
+            workload_name = data.get("name") or persona_folder.name
 
-            current = self._take_snapshot(agent_folder)
-            previous = self._snapshots.get(agent_name)
+            current = self._take_snapshot(persona_folder)
+            previous = self._snapshots.get(workload_name)
 
             if previous is not None and current != previous:
                 self.logger.warning(
-                    "Change detected in agent '%s'. Triggering hot-restart...",
-                    agent_name,
+                    "Change detected in workload '%s'. Triggering hot-restart...",
+                    workload_name,
                 )
-                ok = await self._orc.restart_agent(agent_name)
+                ok = await self._orc.restart_workload(workload_name)
                 if ok:
                     self.logger.ok(
-                        "Agent '%s' booted back online",
-                        agent_name,
+                        "Workload '%s' booted back online",
+                        workload_name,
                     )
                 else:
                     self.logger.error(
-                        "Agent '%s' hot-restart failed",
-                        agent_name,
+                        "Workload '%s' hot-restart failed",
+                        workload_name,
                     )
 
-            self._snapshots[agent_name] = current
+            self._snapshots[workload_name] = current
 
-    def _take_snapshot(self, agent_dir: Path) -> dict[str, str]:
+    def _take_snapshot(self, persona_dir: Path) -> dict[str, str]:
         snapshot: dict[str, str] = {}
 
-        manifest = agent_dir / "agent.yml"
+        manifest = persona_dir / "manifest.yml"
         if manifest.exists():
-            snapshot["agent.yml"] = hashlib.sha256(manifest.read_bytes()).hexdigest()
+            snapshot["manifest.yml"] = hashlib.sha256(manifest.read_bytes()).hexdigest()
 
-        roles_dir = agent_dir / "roles"
+        roles_dir = persona_dir / "roles"
         if roles_dir.is_dir():
             for py_file in sorted(roles_dir.rglob("*.py")):
                 if py_file.name.endswith("_test.py"):
                     continue
                 if "__pycache__" in py_file.parts:
                     continue
-                rel = py_file.relative_to(agent_dir)
+                rel = py_file.relative_to(persona_dir)
                 snapshot[str(rel)] = hashlib.sha256(py_file.read_bytes()).hexdigest()
 
         return snapshot

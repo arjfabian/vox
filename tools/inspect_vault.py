@@ -1,7 +1,7 @@
 """
 tools/inspect_vault.py
 
-Diagnose and inspect an agent's vault status.
+Diagnose and inspect a workload's vault status.
 """
 
 import argparse
@@ -10,12 +10,12 @@ import sys
 from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
-AGENTS_DIR = ROOT_DIR / "agents"
+PERSONAS_DIR = ROOT_DIR / "instance" / "personas"
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Debug and inspect agent vault")
-    parser.add_argument("--agent", required=True, help="Agent folder name")
+    parser = argparse.ArgumentParser(description="Debug and inspect workload vault")
+    parser.add_argument("--workload", required=True, help="Workload folder name")
     parser.add_argument(
         "--purge",
         action="store_true",
@@ -23,8 +23,8 @@ def main():
     )
     args = parser.parse_args()
 
-    agent_dir = AGENTS_DIR / args.agent.lower()
-    db_path = agent_dir / "secrets.vault"
+    persona_dir = PERSONAS_DIR / args.workload.lower()
+    db_path = persona_dir / "secrets.vault"
 
     if not db_path.exists():
         print(f"[-] No vault file found at {db_path}")
@@ -36,7 +36,7 @@ def main():
 
     if args.purge:
         confirm = input(
-            "[!] WARNING: This will delete ALL encrypted secrets for this agent. Proceed? [y/N]: "
+            "[!] WARNING: This will delete ALL encrypted secrets for this workload. Proceed? [y/N]: "
         )
         if confirm.lower() == "y":
             cursor.execute("DELETE FROM secrets;")

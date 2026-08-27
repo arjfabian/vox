@@ -22,7 +22,7 @@ class TestCapabilityProviderProtocol(unittest.TestCase):
             def get_capability_instance(self, cap_id: str) -> object | None:
                 return None
 
-            def get_children(self, agent_id: str) -> list:
+            def get_children(self, workload_id: str) -> list:
                 return []
 
             async def dispatch_inbound_message(

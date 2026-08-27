@@ -1,6 +1,6 @@
-"""Private persistent workspace for VOX agents.
+"""Private persistent workspace for VOX workloads.
 
-Each agent owns its own isolated SQLite workspace and asset sandbox.
+Each workload owns its own isolated SQLite workspace and asset sandbox.
 """
 
 import hashlib
@@ -18,11 +18,11 @@ logger = logging.getLogger(__name__)
 _DEFAULT_SEARCH_LIMIT = 50
 
 
-class VOXAgentStore:
-    def __init__(self, agent_dir: Path) -> None:
-        self._agent_dir = agent_dir
-        self._assets_dir = agent_dir / "assets"
-        self._db_path = agent_dir / "memory" / "memory.db"
+class VOXWorkloadStore:
+    def __init__(self, persona_dir: Path) -> None:
+        self._persona_dir = persona_dir
+        self._assets_dir = persona_dir / "assets"
+        self._db_path = persona_dir / "memory" / "memory.db"
         self._assets_dir.mkdir(parents=True, exist_ok=True)
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
 

@@ -6,12 +6,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import aiosqlite
 import pytest
 
-from vox.agents.store import VOXAgentStore
+from vox.workloads.store import VOXWorkloadStore
 
 
 @pytest.fixture
 async def store(tmp_path):
-    s = VOXAgentStore(tmp_path)
+    s = VOXWorkloadStore(tmp_path)
     await s.init_db()
     yield s
 
@@ -23,7 +23,7 @@ async def store(tmp_path):
 
 @pytest.mark.asyncio
 async def test_init_creates_dirs_and_db(tmp_path):
-    s = VOXAgentStore(tmp_path)
+    s = VOXWorkloadStore(tmp_path)
     assert (tmp_path / "assets").exists()
     assert not (tmp_path / "memory" / "memory.db").exists()
     await s.init_db()
@@ -159,7 +159,7 @@ def _mock_cursor(fetchone_return=None):
 
 @pytest.mark.asyncio
 async def test_store_file_returns_none_on_error(tmp_path):
-    store = VOXAgentStore(tmp_path)
+    store = VOXWorkloadStore(tmp_path)
     await store.init_db()
 
     mock_cursor = _mock_cursor(fetchone_return=None)
@@ -174,7 +174,7 @@ async def test_store_file_returns_none_on_error(tmp_path):
     ]
 
     with patch(
-        "vox.agents.store.aiosqlite.connect", new_callable=MagicMock
+        "vox.workloads.store.aiosqlite.connect", new_callable=MagicMock
     ) as mock_connect:
         mock_connect.return_value.__aenter__.return_value = mock_conn
         result = await store.store_file(b"data", "f.txt", "test", "text")
@@ -184,7 +184,7 @@ async def test_store_file_returns_none_on_error(tmp_path):
 @pytest.mark.asyncio
 async def test_store_file_insert_failure_cleans_up_file(tmp_path):
     """When the INSERT after write_bytes fails, the file is removed and None returned."""
-    store = VOXAgentStore(tmp_path)
+    store = VOXWorkloadStore(tmp_path)
     await store.init_db()
 
     assets_dir = tmp_path / "assets"
@@ -202,7 +202,7 @@ async def test_store_file_insert_failure_cleans_up_file(tmp_path):
     ]
 
     with patch(
-        "vox.agents.store.aiosqlite.connect", new_callable=MagicMock
+        "vox.workloads.store.aiosqlite.connect", new_callable=MagicMock
     ) as mock_connect:
         mock_connect.return_value.__aenter__.return_value = mock_conn
         result = await store.store_file(b"orphan-check", "orphan.txt", "test", "text")
@@ -217,7 +217,7 @@ async def test_store_file_insert_failure_cleans_up_file(tmp_path):
 @pytest.mark.asyncio
 async def test_delete_file_failure_leaves_file_and_row(tmp_path):
     """When the DELETE fails, the file stays on disk and the row remains."""
-    store = VOXAgentStore(tmp_path)
+    store = VOXWorkloadStore(tmp_path)
     await store.init_db()
 
     # First store a file normally
@@ -239,7 +239,7 @@ async def test_delete_file_failure_leaves_file_and_row(tmp_path):
     ]
 
     with patch(
-        "vox.agents.store.aiosqlite.connect", new_callable=MagicMock
+        "vox.workloads.store.aiosqlite.connect", new_callable=MagicMock
     ) as mock_connect:
         mock_connect.return_value.__aenter__.return_value = mock_conn
         ok = await store.delete_file(asset_id)
@@ -366,14 +366,14 @@ def _populate_duplicates(db_path, assets_dir, checksum, now):
 
 @pytest.mark.asyncio
 async def test_dedup_removes_duplicate_rows_and_files(dedup_env):
-    """Constructing VOXAgentStore over a DB with duplicate checksums succeeds
+    """Constructing VOXWorkloadStore over a DB with duplicate checksums succeeds
     and cleans up: exactly one row per checksum, orphaned files removed."""
     tmp_path, db_path, assets_dir = dedup_env
     checksum = "dedup-test-" + "a" * 55
     now = 1234567890.0
     _populate_duplicates(db_path, assets_dir, checksum, now)
 
-    store = VOXAgentStore(tmp_path)
+    store = VOXWorkloadStore(tmp_path)
     await store.init_db()
 
     rows = await store.query(
@@ -414,14 +414,14 @@ async def test_dedup_removes_duplicate_rows_and_files(dedup_env):
 
 @pytest.mark.asyncio
 async def test_dedup_idempotent(dedup_env):
-    """Re-running init_db (via second VOXAgentStore construction) after
+    """Re-running init_db (via second VOXWorkloadStore construction) after
     cleanup must not error and must not change state."""
     tmp_path, db_path, assets_dir = dedup_env
     checksum = "idempotent-" + "b" * 53
     now = 1234567890.0
     _populate_duplicates(db_path, assets_dir, checksum, now)
 
-    store1 = VOXAgentStore(tmp_path)
+    store1 = VOXWorkloadStore(tmp_path)
     await store1.init_db()
 
     rows1 = await store1.query(
@@ -432,7 +432,7 @@ async def test_dedup_idempotent(dedup_env):
     assert survivor_path_1.exists()
 
     # Second construction — must be a no-op
-    store2 = VOXAgentStore(tmp_path)
+    store2 = VOXWorkloadStore(tmp_path)
     await store2.init_db()
 
     rows2 = await store2.query(
@@ -451,7 +451,7 @@ async def test_init_no_duplicates(dedup_env):
     """A store without duplicate checksums initialises normally —
     no extra rows/files touched, index created."""
     tmp_path, _db_path, _assets_dir = dedup_env
-    store = VOXAgentStore(tmp_path)
+    store = VOXWorkloadStore(tmp_path)
     await store.init_db()
 
     data = b"clean-init-data"
@@ -530,9 +530,9 @@ async def test_dedup_ordering_delete_failure_does_not_orphan_files(dedup_env):
 
     proxy = _FailingConnectProxy(db_path, "remove-uuid")
 
-    with patch("vox.agents.store.aiosqlite.connect", return_value=proxy), \
+    with patch("vox.workloads.store.aiosqlite.connect", return_value=proxy), \
          pytest.raises(Exception):  # noqa: B017 — proxy raises arbitrary errors by design
-        store = VOXAgentStore(tmp_path)
+        store = VOXWorkloadStore(tmp_path)
         await store.init_db()
 
     # Verify state with a fresh (real) connection
@@ -557,7 +557,7 @@ async def test_dedup_two_groups_atomic_rollback(dedup_env):
     """With two duplicate-checksum groups, if the second group's DELETE
     raises, the SQL transaction rolls back atomically (first group's
     DELETE undone) but file unlink is NOT transactional.  A second
-    VOXAgentStore construction self-heals: re-processes the stale group
+    VOXWorkloadStore construction self-heals: re-processes the stale group
     and converges to 1 row per checksum."""
     tmp_path, db_path, assets_dir = dedup_env
     checksum1 = "two-group-a-" + "x" * 52
@@ -658,9 +658,9 @@ async def test_dedup_two_groups_atomic_rollback(dedup_env):
 
     proxy = _FailingConnectProxy(db_path, "remove-uuid-2")
 
-    with patch("vox.agents.store.aiosqlite.connect", return_value=proxy), \
+    with patch("vox.workloads.store.aiosqlite.connect", return_value=proxy), \
          pytest.raises(Exception):  # noqa: B017 — proxy raises arbitrary errors by design
-        store = VOXAgentStore(tmp_path)
+        store = VOXWorkloadStore(tmp_path)
         await store.init_db()
 
     # Verify with a fresh connection
@@ -692,8 +692,8 @@ async def test_dedup_two_groups_atomic_rollback(dedup_env):
     assert (assets_dir / "g2_o.txt").exists(), "Group 2 survivor file exists"
     assert (assets_dir / "g2_d.txt").exists(), "Group 2 removed-row file exists"
 
-    # --- Self-healing: re-init over the same agent_dir ---
-    store = VOXAgentStore(tmp_path)
+    # --- Self-healing: re-init over the same persona_dir ---
+    store = VOXWorkloadStore(tmp_path)
     await store.init_db()
 
     rows1 = await store.query(

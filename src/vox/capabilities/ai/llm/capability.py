@@ -4,10 +4,9 @@ Routes every inbound payload through the sequential pipeline:
 
   1. Sanitize      — strip control chars, boilerplate, collapse JSON
   2. Cache Check   — SHA-256 exact match lookup with TTL
-  3. RAG Retrieval — FTS5 search against agent private memory.db
-  4. Router        — complexity classification (local vs. cloud model)
-  5. Generation    — dispatch to selected LLM backend
-  6. Cache Commit  — store response for future cache hits
+  3. RAG Retrieval — FTS5 search against workload private memory.db
+  4. Generation    — dispatch to selected LLM backend
+  5. Cache Commit  — store response for future cache hits
 
 Vision inference bypasses the pipeline and always routes to
 the local vision model.
@@ -26,39 +25,15 @@ from .cache import SemanticCache
 from .client import LLMClient
 from .models import LLMChatMessage, LLMChatRequest, LLMGenerationOptions
 from .rag import RAGRetriever
-from .router import Router
 from .sanitizer import sanitize
 
 
 class LLMCapability(VOXCapability):
     CAPABILITY_NAME = "ai.llm"
 
-    # noqa: RUF012 — mutable defaults are intentional; each agent binding may
-    # override PARAMS with different model/config selections.
-    PARAMS = {
-        "LLM_API_BASE_URL": ["API base URL", "http://localhost:11434"],
-        "LLM_MODEL_NAME": ["Primary model", "llama3.2:3b"],
-        "LLM_VISION_MODEL_NAME": ["Vision model", "llava"],
-        "LLM_TEMPERATURE": ["Temperature (0.0-1.0)", 0.7],
-        "LLM_MAX_TOKENS": ["Max generated tokens", 2048],
-        "LLM_TIMEOUT": ["Request timeout (s)", 60.0],
-        "LLM_CACHE_ENABLED": ["Enable semantic cache", True],
-        "LLM_CACHE_TTL": ["Cache TTL (s)", 3600],
-        "LLM_RAG_ENABLED": ["Enable RAG injection", True],
-        "LLM_RAG_MAX_SNIPPETS": ["Max RAG snippets", 5],
-        "LLM_MAX_INPUT_TOKENS": ["Max prompt chars", 16384],
-        "LLM_FORCE_LOCAL": ["Force local backend", False],
-        "LLM_CACHE_DB_PATH": [
-            "Absolute or project-root path to shared cache DB",
-            "var/cache/ai.llm/llm_cache.db",
-        ],
-        "LLM_FORCE_CLOUD": ["Force cloud backend", False],
-    }
-
     _client: LLMClient
     _cache: SemanticCache
     _rag: RAGRetriever
-    _router: Router
 
     # ------------------------------------------------------------------
     # Health
@@ -66,8 +41,10 @@ class LLMCapability(VOXCapability):
 
     @classmethod
     async def health_check(cls) -> bool:
+        meta = cls.get_param_meta("LLM_API_BASE_URL")
+        base_url = meta.default if meta else "http://localhost:11434"
         client = LLMClient(
-            base_url=cls.PARAMS["LLM_API_BASE_URL"][1],
+            base_url=base_url,
             timeout=5.0,
         )
         result = await client.is_healthy()
@@ -110,20 +87,10 @@ class LLMCapability(VOXCapability):
             snippets = await self._rag.retrieve(context_token, sanitized.text)
             if snippets:
                 context_block = "\n".join(f"- {s}" for s in snippets)
-                augmented_system = (
-                    f"{system}\n\nRelevant context from agent memory:\n{context_block}"
-                )
+                augmented_system = f"{system}\n\nRelevant context from workload memory:\n{context_block}"
                 self.log(f"Injected {len(snippets)} RAG snippet(s)")
 
-        # 4. Router
-        if model is None:
-            decision = self._router.decide(sanitized, system=augmented_system)
-            effective_model = decision.model
-            self.log(
-                f"Router: {decision.reason} → {decision.backend} [{effective_model}]"
-            )
-
-        # 5. Generation
+        # 4. Generation
         result = await self._client.generate(
             model=effective_model,
             prompt=sanitized.text,
@@ -133,7 +100,7 @@ class LLMCapability(VOXCapability):
             json_mode=json_mode,
         )
 
-        # 6. Cache commit
+        # 5. Cache commit
         if cache_enabled:
             await self._cache.store(
                 system, sanitized.text, effective_model, result.content
@@ -205,9 +172,11 @@ class LLMCapability(VOXCapability):
             ``{"command": str, "confidence": float, "entities": dict}``
         """
         lines = [
-            "You are a command classifier for a multi-agent system.",
-            ("Match the user message to one command, or 'general_chat' "
-             "if it is conversational."),
+            "You are a command classifier for a multi-workload system.",
+            (
+                "Match the user message to one command, or 'general_chat' "
+                "if it is conversational."
+            ),
             "",
             "Available commands:",
         ]
@@ -218,13 +187,19 @@ class LLMCapability(VOXCapability):
             "",
             "Rules:",
             "- You MUST return ONLY valid JSON. No prose, no explanations, no greetings.",
-            ("- If the user message does not clearly match a specific command, "
-             "use 'general_chat' with confidence 1.0."),
-            ("- 'entities' contains extracted values. For general_chat, include "
-             'the original user text as "user_message".'),
+            (
+                "- If the user message does not clearly match a specific command, "
+                "use 'general_chat' with confidence 1.0."
+            ),
+            (
+                "- 'entities' contains extracted values. For general_chat, include "
+                'the original user text as "user_message".'
+            ),
             "",
-            ('Schema: {"command": "string", "confidence": float, '
-             '"entities": {"key": "value"}}'),
+            (
+                'Schema: {"command": "string", "confidence": float, '
+                '"entities": {"key": "value"}}'
+            ),
         ]
         system = "\n".join(lines)
 
@@ -311,12 +286,6 @@ class LLMCapability(VOXCapability):
         await self._cache.init_db()
         self._rag = RAGRetriever(
             max_snippets=int(self.LLM_RAG_MAX_SNIPPETS),
-        )
-        self._router = Router(
-            local_model=self.LLM_MODEL_NAME,
-            cloud_model=self.LLM_MODEL_NAME,
-            force_local=bool(self.LLM_FORCE_LOCAL),
-            force_cloud=bool(self.LLM_FORCE_CLOUD),
         )
 
     async def shutdown(self) -> None:

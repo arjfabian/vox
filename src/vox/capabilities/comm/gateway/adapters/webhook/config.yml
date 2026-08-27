@@ -1,0 +1,15 @@
+params:
+  GATEWAY_PORT:
+    description: HTTP listen port for webhooks
+    type: integer
+    default: 8001
+  GATEWAY_HOST:
+    description: HTTP bind address
+    type: string
+    default: "0.0.0.0"
+
+secrets:
+  GATEWAY_WEBHOOK_SECRET:
+    description: Shared secret for generic webhook validation
+    type: string
+    required: false

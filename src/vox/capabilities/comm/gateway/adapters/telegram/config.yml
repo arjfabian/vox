@@ -1,0 +1,15 @@
+params:
+  TELEGRAM_LONG_TIMEOUT:
+    description: Telegram getUpdates long-poll timeout (seconds)
+    type: integer
+    default: 25
+
+secrets:
+  TELEGRAM_BOT_TOKEN:
+    description: Telegram Bot API token
+    type: string
+    required: true
+  TELEGRAM_WEBHOOK_SECRET:
+    description: Telegram webhook secret token
+    type: string
+    required: false

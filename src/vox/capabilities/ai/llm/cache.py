@@ -2,7 +2,7 @@
 
 SQLite-backed store with exact SHA-256 keyed lookup and TTL eviction.
 Write transactions are serialized via ``asyncio.Lock`` to guarantee
-safe concurrent access when shared across parallel agent invocations.
+safe concurrent access when shared across parallel workload invocations.
 """
 
 import asyncio

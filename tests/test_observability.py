@@ -17,12 +17,14 @@ class TestSourceTag(unittest.TestCase):
         self.assertEqual(_source_tag(record), "vox")
 
     def test_dotted_name(self):
-        record = logging.LogRecord("vox.agent1", logging.INFO, "", 0, "msg", (), None)
-        self.assertEqual(_source_tag(record), "agent1")
+        record = logging.LogRecord(
+            "vox.workload1", logging.INFO, "", 0, "msg", (), None
+        )
+        self.assertEqual(_source_tag(record), "workload1")
 
     def test_deeply_dotted_name(self):
         record = logging.LogRecord(
-            "vox.agents.agent1.roles.chat", logging.INFO, "", 0, "msg", (), None
+            "vox.workloads.workload1.roles.chat", logging.INFO, "", 0, "msg", (), None
         )
         self.assertEqual(_source_tag(record), "chat")
 
@@ -30,12 +32,12 @@ class TestSourceTag(unittest.TestCase):
 class TestVOXLogSource(unittest.TestCase):
     def test_display_name_with_all_fields(self):
         src = VOXLogSource(
-            source_type="agent",
-            source_name="agent1",
+            source_type="workload",
+            source_name="workload1",
             source_uuid="12345678-1234-1234-1234-123456789abc",
         )
-        self.assertIn("agent", src.display_name)
-        self.assertIn("agent1", src.display_name)
+        self.assertIn("workload", src.display_name)
+        self.assertIn("workload1", src.display_name)
 
     def test_display_name_without_uuid(self):
         src = VOXLogSource(source_type="capability", source_name="ollama")
@@ -95,14 +97,14 @@ class TestVOXForensicLogger(unittest.TestCase):
         self.assertIn("should appear", self.stream.getvalue())
 
     def test_get_child_returns_new_logger(self):
-        child = self.logger.get_child("agent1")
+        child = self.logger.get_child("workload1")
         self.assertIsNot(child, self.logger)
         self.assertIsInstance(child, VOXForensicLogger)
 
     def test_get_child_name_is_dotted(self):
-        child = self.logger.get_child("agent1")
+        child = self.logger.get_child("workload1")
         child.info("from child")
-        # The record name should be vox.test.agent1
+        # The record name should be vox.test.workload1
         self.assertIn("from child", self.stream.getvalue())
 
 
@@ -167,7 +169,7 @@ class TestVOXPlainFormatter(unittest.TestCase):
 
     def test_format_dotted_source(self):
         record = logging.LogRecord(
-            "vox.agent1", logging.WARNING, "", 0, "warn", (), None
+            "vox.workload1", logging.WARNING, "", 0, "warn", (), None
         )
         result = self.fmt.format(record)
-        self.assertIn("[agent1]", result)
+        self.assertIn("[workload1]", result)

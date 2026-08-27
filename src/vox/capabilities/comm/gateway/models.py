@@ -1,7 +1,7 @@
 """Unified inbound/outbound messaging contracts for comm.gateway.
 
 All inbound messages — regardless of originating channel — are normalised
-into VOXInboundMessage before reaching agent roles. Outbound messages use
+into VOXInboundMessage before reaching workload roles. Outbound messages use
 VOXOutboundMessage and are channel-adapted by the appropriate adapter.
 """
 

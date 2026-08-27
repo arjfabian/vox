@@ -1,7 +1,7 @@
 """Operator voice identity — loads a pre-enrolled voice embedding and
 verifies incoming audio against it using cosine similarity.
 
-System-level infrastructure, not an agent capability.
+System-level infrastructure, not a workload capability.
 VOXOrchestrator owns one instance and exposes it to capabilities that
 need speaker verification (e.g. comm.gateway).
 """

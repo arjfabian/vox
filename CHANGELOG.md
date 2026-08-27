@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > **Note**: No API stability guarantees are implied — VOX remains pre-1.0.
 
+## [0.5.5] - 2026.08.27
+
+### Added
+- **`SecretMeta.required` + `CapabilityContract.required_secret_names`** — secret entries in YAML contracts now carry a `required` flag (bool, default `True`) marking Vault secrets that must be present; `CapabilityContract.required_secret_names` queries them. Optional secrets (e.g. webhook/verify tokens) declare `required: false`.
+- **`REQUIRED_SECRETS` role declarations** — role files may declare `REQUIRED_SECRETS = {"cap_id": ["SECRET", ...]}` alongside `REQUIRES`. `ASTWorkloadAnalyzer.scan_required_secrets()` statically extracts them (AST parse, no role execution, tolerant of syntax errors and missing files); `CapabilityBinder._collect_required_secrets()` intersects them with the YAML contract's `required: true` secrets to compute the per-capability required set.
+- **`tests/test_ast_analyzer.py`** — unit suite for `scan_required_secrets()` (multi-cap, malformed declarations, syntax errors, missing files) and `scan_role_capabilities()`.
+- **`tests/test_provision_vault.py`** — unit suite for YAML-based secret discovery: gateway adapter `config.yml` aggregation, required-flag preservation, and contract-secrets (not params) categorisation.
+
+### Changed
+- **Agent → Workload refactor** — complete rename across the entire codebase: classes (`VOXAgent` → `VOXWorkload`, `AgentVault` → `WorkloadVault`, `AgentGraph` → `FleetGraph`, `AgentFileWatcher` → `WorkloadFileWatcher`, `VOXAgentMemory` → `VOXWorkloadMemory`, `VOXAgentStore` → `VOXWorkloadStore`, `AgentHostDeadError` → `WorkloadHostDeadError`), modules (`src/vox/agents/` → `src/vox/workloads/`), runtime directories (`agents/` → `instance/personas/`), manifest files (`agent.yml` → `manifest.yml`), CLI args (`--agent` → `--workload`), API routes (`/agents/{id}` → `/workloads/{id}`), config keys (`agent_name` → `workload_name`), environment constants (`GLOBAL_AGENT_KEYS` → `GLOBAL_WORKLOAD_KEYS`), role attributes (`self.agent` → `self.workload`), and all docstrings/comments. No backwards-compatibility aliases.
+- **Locked ontology** — established five distinct concepts: Workload (technical execution unit), Persona (virtual identity/presentation; runtime directory container under `instance/personas/`), Fleet (collection/topology of workloads), Identity (security/authentication identity), User (human principal, not in code).
+- **Manifest schema** — `"name"` = Display name, `"id"` = Workload UUID, `"master_id"` = Parent workload UUID.
+- **YAML-authoritative capability contracts** — `capability.yml` is now the single source of truth for parameter and secret metadata (`name`, `version`, `description`, `provides`, `params`, `secrets`). Python capability classes implement behavior only and never redeclare config metadata via `PARAMS` / `SENSITIVE_PARAMS`. `CapabilityContract` (loaded from YAML) holds `params: dict[str, ParamMeta]` and `secrets: dict[str, SecretMeta]`; `_ensure_contract()` is a classmethod requiring the YAML contract (no legacy Python fallback). `mount()` validates the `overrides` kwarg against the contract — unknown parameter keys raise `ValueError`; `explain_config()` tags entries `[REQUIRED]`/`[OPTIONAL]`; `get_sensitive_params()` remains as a backward-compatible alias for `get_secret_names()`.
+- **comm.gateway per-adapter `config.yml`** — adapter configuration moved out of Python class attributes into per-adapter `config.yml` files under `adapters/<channel>/config.yml`. `CommGatewayCapability.load_contract()` aggregates adapter configs (with duplicate-name collision detection) into a single `CapabilityContract`; `boot()` builds each adapter's config from the merged bound params+secrets. `BaseAdapter.PARAMS`/`SENSITIVE_PARAMS` class attributes cleared from all adapters. Gateway capability.yml now holds metadata only.
+- **Required-secret enforcement in vault injection** — `CapabilityBinder.inject_vault_secrets()` distinguishes required from optional secrets: vault-unavailable fails fast (workload → `FAILED`) only when the intersection of AST `REQUIRED_SECRETS` + YAML `required: true` is non-empty; optional-only missing secrets log a warning and boot continues. Vault present but a required secret unresolved disables the affected roles; optional-only misses log info and leave roles active.
+- **provision_vault.py YAML discovery** — `tools/provision_vault.py` now categorises secrets from `contract.secrets` (previously the broken `meta.sensitive` path) and descriptions from secret metadata; a new `_load_gateway_contract_secrets()` aggregates adapter `config.yml` secrets for the fleet-mandatory gateway provisioning path.
+- **AGENTS.md** — architecture invariants updated to the YAML-authoritative capability pattern: `CapabilityContract` semantics, per-adapter `config.yml` as the gateway config source of truth, `REQUIRED_SECRETS` intersection with YAML `required: true`, and AST-based static scanning.
+
+### Removed
+- **Adapter `PARAMS` / `SENSITIVE_PARAMS` class attributes** — cleared from `TelegramAdapter`/`WebhookAdapter`/`WhatsAppAdapter` and the gateway core; configuration now lives solely in per-adapter `config.yml` files aggregated by `load_contract()`. Adapters no longer redeclare config metadata in Python.
+
+### Fixed
+- `ASTWorkloadAnalyzer.scan_required_secrets()` tolerant of unreadable role files — catches `FileNotFoundError`/`OSError` in addition to `SyntaxError`, returning `{}` for missing roles.
+- **`comm.gateway` capability boot failure** — `self._agent` reference in `CommGatewayCapability.boot()` missed in the initial rename, preventing gateway server startup during hot-reload restarts.
+
+### Updated
+- **README.md** — architecture diagram, class table, project structure, and all prose updated for Workload terminology.
+- **Wiki (17 files)** — all wiki pages updated; `VOXAgent.md` → `VOXWorkload.md`, `Agent-Lifecycle.md` → `Workload-Lifecycle.md`, `Creating-an-Agent.md` → `Creating-a-Workload.md`, `AGENTS.md` → `WORKLOADS.md`.
+- **Test file renames** — `test_agents_base.py` → `test_workloads_base.py`, `test_agents_store.py` → `test_workloads_store.py`, `test_agents_memory.py` → `test_workloads_memory.py`.
+- **Tool renames** — `tools/inspect_agent.py` → `tools/inspect_workload.py`.
+
 ## [0.5.4] - 2026.08.12
 
 ### Added

@@ -1,6 +1,6 @@
-"""VOXAgent — declarative execution unit.
+"""VOXWorkload — declarative execution unit.
 
-Agent = configuration + mounted capabilities + explicit roles.
+Workload = configuration + mounted capabilities + explicit roles.
 No auto-discovery, no implicit filesystem magic.
 """
 
@@ -10,30 +10,33 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from vox.agents.ast_analyzer import ASTAgentAnalyzer
-from vox.agents.capability_binder import CapabilityBinder
-from vox.agents.lifecycle import AgentState, EventQueue
-from vox.agents.loader import AgentLoader, AgentProvisionError  # noqa: F401 — re-exported for public API
-from vox.agents.memory import VOXAgentMemory
-from vox.agents.store import VOXAgentStore
 from vox.observability import VOXForensicLogger, VOXLogSource
 from vox.provider import CapabilityProviderProtocol
 from vox.roles import CommandInfo, VOXRole
 from vox.security import RateLimiter, RateLimitError
 from vox.security.vault import VaultAccessError
+from vox.workloads.ast_analyzer import ASTWorkloadAnalyzer
+from vox.workloads.capability_binder import CapabilityBinder
+from vox.workloads.lifecycle import EventQueue, WorkloadState
+from vox.workloads.loader import (  # noqa: F401 — re-exported for public API
+    WorkloadLoader,
+    WorkloadProvisionError,
+)
+from vox.workloads.memory import VOXWorkloadMemory
+from vox.workloads.store import VOXWorkloadStore
 
 
-class VOXAgent:
-    GLOBAL_AGENT_KEYS: tuple[str, ...] = ("TELEGRAM_USER_ID",)
+class VOXWorkload:
+    GLOBAL_WORKLOAD_KEYS: tuple[str, ...] = ("TELEGRAM_USER_ID",)
 
     def __init__(
         self,
-        agent_dir: Path,
+        persona_dir: Path,
         logger: VOXForensicLogger,
         orchestrator: CapabilityProviderProtocol | None = None,
         global_env: dict[str, Any] | None = None,
     ) -> None:
-        self.dir = agent_dir
+        self.dir = persona_dir
         self._capability_provider = orchestrator
         self.logger = logger
 
@@ -48,17 +51,17 @@ class VOXAgent:
         self._capability_commands: dict[str, Callable] = {}
         self._system_capabilities: set[str] = {"comm.gateway"}
 
-        self._state = AgentState.BOOTING
+        self._state = WorkloadState.BOOTING
         self._tasks: list[asyncio.Task] = []
         self._event_queue = EventQueue()
 
-        self.memory = VOXAgentMemory(self.dir)
-        self.store = VOXAgentStore(self.dir)
+        self.memory = VOXWorkloadMemory(self.dir)
+        self.store = VOXWorkloadStore(self.dir)
         self._vault = None
         self._degraded = False
 
-        self._loader = AgentLoader(self.dir, self.logger, self._global_env)
-        self._ast_analyzer = ASTAgentAnalyzer()
+        self._loader = WorkloadLoader(self.dir, self.logger, self._global_env)
+        self._ast_analyzer = ASTWorkloadAnalyzer()
         self._capability_binder = CapabilityBinder(self, self.logger)
 
         self._bootstrap()
@@ -68,7 +71,7 @@ class VOXAgent:
             window_seconds=self.config.get("rate_limit_window", 60),
         )
 
-        self._state = AgentState.IDLE
+        self._state = WorkloadState.IDLE
 
     @property
     def orchestrator(self) -> CapabilityProviderProtocol | None:
@@ -76,7 +79,7 @@ class VOXAgent:
 
     @property
     def name(self) -> str:
-        return self.config.get("name") or "UnknownAgent"
+        return self.config.get("name") or "UnknownWorkload"
 
     @property
     def id(self) -> str:
@@ -95,11 +98,11 @@ class VOXAgent:
         return self.config.get("conversational", False)
 
     @property
-    def state(self) -> AgentState:
+    def state(self) -> WorkloadState:
         return self._state
 
     @state.setter
-    def state(self, value: AgentState) -> None:
+    def state(self, value: WorkloadState) -> None:
         if self._state.can_transition_to(value):
             self._state = value
         else:
@@ -110,12 +113,12 @@ class VOXAgent:
     @property
     def log_source(self) -> VOXLogSource:
         return VOXLogSource(
-            source_type="agent",
+            source_type="workload",
             source_name=self.name.lower(),
             source_uuid=self.id,
         )
 
-    def log_agent_info(self, message: str, *args, **kwargs):
+    def log_workload_info(self, message: str, *args, **kwargs):
         """Safe wrapper to preserve compatibility with existing role extensions."""
         if hasattr(self, "logger") and self.logger:
             self.logger.info(f"[{self.id}] {message}", *args, **kwargs)
@@ -180,11 +183,11 @@ class VOXAgent:
         )
         if not self.roles:
             self.logger.warning(
-                f"[{self.name}] Agent DEGRADED \u2014 No active roles available."
+                f"[{self.name}] Workload DEGRADED \u2014 No active roles available."
             )
             self._degraded = True
             return
-        self.logger.ok("Agent ready")
+        self.logger.ok("Workload ready")
 
     def _load_roles(self) -> None:
         import importlib.util
@@ -202,7 +205,9 @@ class VOXAgent:
         for role_file in role_files:
             role_name = role_file.stem
             try:
-                spec_name = f"vox_runtime.agents.{self.name.lower()}.roles.{role_name}"
+                spec_name = (
+                    f"vox_runtime.personas.{self.name.lower()}.roles.{role_name}"
+                )
                 spec = importlib.util.spec_from_file_location(spec_name, role_file)
                 if spec is None or spec.loader is None:
                     raise ImportError(f"Cannot create spec for {role_file}")
@@ -249,20 +254,20 @@ class VOXAgent:
     # ------------------------------------------------------------------
 
     async def boot(self) -> bool:
-        if self._state == AgentState.ACTIVE:
+        if self._state == WorkloadState.ACTIVE:
             return True
-        if not self._state.can_transition_to(AgentState.BOOTING):
+        if not self._state.can_transition_to(WorkloadState.BOOTING):
             self.logger.error(f"Cannot boot from state {self._state}")
             return False
-        self._state = AgentState.BOOTING
-        self.logger.info("Booting agent...")
+        self._state = WorkloadState.BOOTING
+        self.logger.info("Booting workload...")
 
         await self._capability_binder.init_vault()
         try:
             await self._capability_binder.inject_vault_secrets()
         except VaultAccessError as e:
             self.logger.error(str(e))
-            self._state = AgentState.FAILED
+            self._state = WorkloadState.FAILED
             return False
 
         await self.store.init_db()
@@ -277,51 +282,51 @@ class VOXAgent:
                 self.logger.error(f"Capability boot failed [{cap}]: {e}")
                 ok = False
         if not ok:
-            self._state = AgentState.FAILED
+            self._state = WorkloadState.FAILED
             self.logger.error(
-                "Agent boot FAILED \u2014 one or more capabilities failed"
+                "Workload boot FAILED \u2014 one or more capabilities failed"
             )
             return False
-        self._state = AgentState.ACTIVE
+        self._state = WorkloadState.ACTIVE
         await self.emit("on_boot")
-        self.logger.ok("Agent ACTIVE")
+        self.logger.ok("Workload ACTIVE")
         return True
 
     async def pause(self) -> None:
-        if not self._state.can_transition_to(AgentState.PAUSING):
+        if not self._state.can_transition_to(WorkloadState.PAUSING):
             self.logger.warning(f"Cannot pause from state {self._state}")
             return
-        self._state = AgentState.PAUSING
-        self.logger.warning("Agent pausing...")
-        self._state = AgentState.PAUSED
-        self.logger.warning("Agent paused")
+        self._state = WorkloadState.PAUSING
+        self.logger.warning("Workload pausing...")
+        self._state = WorkloadState.PAUSED
+        self.logger.warning("Workload paused")
 
     async def resume(self) -> None:
-        if not self._state.can_transition_to(AgentState.RESUMING):
+        if not self._state.can_transition_to(WorkloadState.RESUMING):
             self.logger.warning(f"Cannot resume from state {self._state}")
             return
-        self._state = AgentState.RESUMING
-        self.logger.info("Agent resuming...")
+        self._state = WorkloadState.RESUMING
+        self.logger.info("Workload resuming...")
         pending = self._event_queue.drain()
-        self._state = AgentState.ACTIVE
+        self._state = WorkloadState.ACTIVE
         self.logger.ok(f"Resumed with {len(pending)} queued events")
         for evt in pending:
             await self.emit(evt.event_name, **evt.kwargs)
 
     async def stop(self) -> None:
-        if not self._state.can_transition_to(AgentState.STOPPING):
+        if not self._state.can_transition_to(WorkloadState.STOPPING):
             self.logger.warning(f"Cannot stop from state {self._state}")
             return
-        self._state = AgentState.STOPPING
-        self.logger.warning("Agent stopping...")
+        self._state = WorkloadState.STOPPING
+        self.logger.warning("Workload stopping...")
         for task in self._tasks:
             task.cancel()
         self._tasks.clear()
-        self._state = AgentState.STOPPED
-        self.logger.warning("Agent stopped")
+        self._state = WorkloadState.STOPPED
+        self.logger.warning("Workload stopped")
 
     async def shutdown(self) -> None:
-        self._state = AgentState.STOPPING
+        self._state = WorkloadState.STOPPING
         for task in self._tasks:
             task.cancel()
         self._tasks.clear()
@@ -332,25 +337,25 @@ class VOXAgent:
                 self.logger.error(f"Capability shutdown failed [{cap}]: {e}")
         self.roles.clear()
         self.capabilities.clear()
-        self._state = AgentState.STOPPED
-        self.logger.warning("Agent shutdown complete")
+        self._state = WorkloadState.STOPPED
+        self.logger.warning("Workload shutdown complete")
 
     # ------------------------------------------------------------------
     # Event emission
     # ------------------------------------------------------------------
 
     async def emit(self, event_name: str, **kwargs) -> None:
-        if self._state in (AgentState.PAUSED, AgentState.PAUSING):
+        if self._state in (WorkloadState.PAUSED, WorkloadState.PAUSING):
             self._event_queue.enqueue(event_name, kwargs)
             return
-        if self._state != AgentState.ACTIVE:
+        if self._state != WorkloadState.ACTIVE:
             return
 
         try:
             self._rate_limiter.check_limit()
         except RateLimitError:
             self.logger.critical(
-                "Rate limit exceeded for Agent %s \u2014 dropping event '%s'",
+                "Rate limit exceeded for Workload %s \u2014 dropping event '%s'",
                 self.name,
                 event_name,
             )

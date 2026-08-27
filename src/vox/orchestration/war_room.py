@@ -1,7 +1,7 @@
 """VOXWarRoom — async Pub/Sub incident notification system.
 
 Provides an asynchronous in-memory alert queue (VOXWarRoom) and a reactive
-dispatcher (VOXWarRoomMaster) that fans out alerts to active agents and
+dispatcher (VOXWarRoomMaster) that fans out alerts to active workloads and
 mirrors them to an external messenger channel.
 """
 
@@ -73,21 +73,21 @@ class VOXWarRoom:
             self._history.append(message)
         await self._queue.put(message)
 
-    async def acknowledge(self, message_id: str, agent_name: str) -> bool:
-        """Mark an alert as read by a given agent.
+    async def acknowledge(self, message_id: str, workload_name: str) -> bool:
+        """Mark an alert as read by a given workload.
 
         Returns True if the message was found and acknowledged.
         """
         async with self._lock:
             for msg in self._history:
                 if msg.message_id == message_id:
-                    msg.read_by[agent_name] = datetime.now(timezone.utc).isoformat()
+                    msg.read_by[workload_name] = datetime.now(timezone.utc).isoformat()
                     return True
             return False
 
-    def get_unread(self, agent_name: str) -> list[WarRoomMessage]:
-        """Return alerts not yet acknowledged by the agent."""
-        return [msg for msg in self._history if agent_name not in msg.read_by]
+    def get_unread(self, workload_name: str) -> list[WarRoomMessage]:
+        """Return alerts not yet acknowledged by the workload."""
+        return [msg for msg in self._history if workload_name not in msg.read_by]
 
     def get_history(self, since: str | None = None) -> list[WarRoomMessage]:
         """Return full alert history, optionally filtered by timestamp."""
@@ -119,7 +119,7 @@ class VOXWarRoomMaster:
     """Reactive dispatcher for war room alerts.
 
     Runs a background task that drains the war room queue, fans out
-    alerts to all active agents, and mirrors them to an external
+    alerts to all active workloads, and mirrors them to an external
     channel via a plain-text broadcast callback.
     """
 
@@ -164,7 +164,7 @@ class VOXWarRoomMaster:
                 break
 
             try:
-                await self._fanout_to_agents(msg)
+                await self._fanout_to_workloads(msg)
             except Exception:  # noqa: BLE001, S110 — fanout failure must not block queue
                 pass
 
@@ -177,16 +177,16 @@ class VOXWarRoomMaster:
     @staticmethod
     def _format_alert(msg: WarRoomMessage) -> str:
         return (
-            f"🔔 Alert: {msg.payload.get('event', 'alert')} "
+            f"\U0001f514 Alert: {msg.payload.get('event', 'alert')} "
             f"from {msg.source}\n\n"
             f"{json.dumps(msg.payload, indent=2, default=str)}"
         )
 
-    async def _fanout_to_agents(self, msg: WarRoomMessage) -> None:
-        """Deliver alert to all active agents concurrently."""
-        agents = list(self._orc.active_agents.values())
-        for agent in agents:
+    async def _fanout_to_workloads(self, msg: WarRoomMessage) -> None:
+        """Deliver alert to all active workloads concurrently."""
+        workloads = list(self._orc.active_workloads.values())
+        for workload in workloads:
             try:
-                asyncio.create_task(agent.emit("on_war_room_alert", message=msg))
-            except Exception:  # noqa: BLE001, S112 — resilient fanout, skip failed agents
+                asyncio.create_task(workload.emit("on_war_room_alert", message=msg))
+            except Exception:  # noqa: BLE001, S112 — resilient fanout, skip failed workloads
                 continue

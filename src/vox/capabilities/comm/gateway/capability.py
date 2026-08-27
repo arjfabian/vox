@@ -6,27 +6,35 @@ Normalises all inbound traffic into VOXInboundMessage before dispatching
 to the orchestrator.
 
 This capability is domain-agnostic: no business logic, no ticketing, no
-CRM.  Pure channel abstraction.  Channel-specific parameters (bot tokens,
-secrets, timeouts) are declared by each adapter in ``adapters/`` and
-aggregated here — the gateway never hardcodes a channel's keys.
+CRM.  Pure channel abstraction.  The complete public parameter contract
+(ports, host, adapter tokens, secrets) is declared across per-adapter
+``config.yml`` files and merged into a single CapabilityContract at load
+time.  Adapters keep their own internal PARAMS for self-documentation
+and ``is_configured()`` checks, but the YAML config files are authoritative.
 
-Architecture note: The IngressServer is shared across all agents that mount
-this capability.  The first agent to boot creates the server; subsequent
-agents attach to the existing instance and log an attachment message.
+Architecture note: The IngressServer is shared across all workloads that mount
+this capability.  The first workload to boot creates the server; subsequent
+workloads attach to the existing instance and log an attachment message.
 Adapters are also shared since the server routes all inbound traffic to the
-orchestrator, which fans out to every agent with comm.gateway mounted.
+orchestrator, which fans out to every workload with comm.gateway mounted.
 
-Shutdown: A reference count (_mounted_agents_count) tracks how many agents
-have the capability booted.  The server is only stopped when the last agent
-shuts down, preventing one agent's stop from killing inbound for the rest.
+Shutdown: A reference count (_mounted_workloads_count) tracks how many workloads
+have the capability booted.  The server is only stopped when the last workload
+shuts down, preventing one workload's stop from killing inbound for the rest.
 """
 
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any
 
-from vox.capabilities.base import VOXCapability
+from vox.capabilities.base import (
+    CapabilityContract,
+    VOXCapability,
+    load_capability_yaml,
+    load_config_yml,
+)
 
 from .adapters import ADAPTER_REGISTRY
 from .models import VOXInboundMessage, VOXOutboundMessage
@@ -34,30 +42,80 @@ from .server import IngressServer
 
 logger = logging.getLogger(__name__)
 
-# Shared across all agents — the server is a singleton resource.
+# Shared across all workloads — the server is a singleton resource.
 _shared_server: IngressServer | None = None
 _shared_adapters: dict[str, Any] = {}
-_mounted_agents_count: int = 0
+_mounted_workloads_count: int = 0
 
 
 class CommGatewayCapability(VOXCapability):
     CAPABILITY_NAME = "comm.gateway"
-    # Mutable defaults are intentional; subclasses and the adapter aggregation
-    # below override PARAMS per channel.
-    PARAMS: dict[str, list[Any]] = {  # noqa: RUF012
-        "GATEWAY_PORT": ["HTTP listen port for webhooks", 8001],
-        "GATEWAY_HOST": ["HTTP bind address", "0.0.0.0"],
-        **{
-            param: spec
-            for adapter in ADAPTER_REGISTRY.values()
-            for param, spec in adapter.PARAMS.items()
-        },
-    }
-    SENSITIVE_PARAMS: set[str] = {  # noqa: RUF012
-        param
-        for adapter in ADAPTER_REGISTRY.values()
-        for param in adapter.SENSITIVE_PARAMS
-    }
+
+    # ------------------------------------------------------------------
+    # Contract loading — aggregate adapter config.yml files
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def load_contract(
+        cls,
+        capability_file: Path,
+    ) -> CapabilityContract | None:
+        """Load the gateway contract by merging per-adapter config.yml files.
+
+        The gateway's own ``capability.yml`` provides metadata only (name,
+        version, description, provides).  Each adapter directory contains a
+        ``config.yml`` with ``params`` and ``secrets`` sections that are
+        merged into a single CapabilityContract.
+        """
+        contract = load_capability_yaml(capability_file)
+
+        if contract is None:
+            return None
+
+        adapter_dir = capability_file.parent / "adapters"
+
+        if adapter_dir.is_dir():
+            for adapter_entry in sorted(adapter_dir.iterdir()):
+                config_yml = adapter_entry / "config.yml"
+
+                if not config_yml.is_file():
+                    continue
+
+                params, secrets = load_config_yml(config_yml)
+
+                overlap = set(params) & set(contract.secrets)
+                if overlap:
+                    raise ValueError(
+                        f"Adapter '{adapter_entry.name}' config.yml redeclares "
+                        f"secret(s) already in contract: {sorted(overlap)}"
+                    )
+
+                overlap = set(secrets) & set(contract.params)
+                if overlap:
+                    raise ValueError(
+                        f"Adapter '{adapter_entry.name}' config.yml redeclares "
+                        f"param(s) already in contract: {sorted(overlap)}"
+                    )
+
+                conflict = set(params) & set(contract.params)
+                if conflict:
+                    raise ValueError(
+                        f"Adapter '{adapter_entry.name}' config.yml redeclares "
+                        f"param(s): {sorted(conflict)}"
+                    )
+
+                conflict = set(secrets) & set(contract.secrets)
+                if conflict:
+                    raise ValueError(
+                        f"Adapter '{adapter_entry.name}' config.yml redeclares "
+                        f"secret(s): {sorted(conflict)}"
+                    )
+
+                contract.params.update(params)
+                contract.secrets.update(secrets)
+
+        cls._contract = contract
+        return contract
 
     # ------------------------------------------------------------------
     # Adapter parameter introspection
@@ -65,8 +123,20 @@ class CommGatewayCapability(VOXCapability):
 
     @classmethod
     def adapter_param_specs(cls) -> dict[str, dict[str, list[Any]]]:
-        """Nested per-channel param specs: {channel: {param: [desc, default]}}."""
-        return {channel: dict(adapter.PARAMS) for channel, adapter in ADAPTER_REGISTRY.items()}
+        """Nested per-channel param+secret specs from adapter config.yml files."""
+        adapter_dir = Path(__file__).resolve().parent / "adapters"
+        specs: dict[str, dict[str, list[Any]]] = {}
+        for channel in ADAPTER_REGISTRY:
+            config_yml = adapter_dir / channel / "config.yml"
+            if not config_yml.is_file():
+                specs[channel] = {}
+                continue
+            params, secrets = load_config_yml(config_yml)
+            specs[channel] = {
+                **{name: [meta.description, meta.default] for name, meta in params.items()},
+                **{name: [meta.description, ""] for name, meta in secrets.items()},
+            }
+        return specs
 
     # ------------------------------------------------------------------
     # Capability lifecycle
@@ -77,10 +147,10 @@ class CommGatewayCapability(VOXCapability):
         return True
 
     async def boot(self) -> None:
-        global _shared_server, _shared_adapters, _mounted_agents_count
+        global _shared_server, _shared_adapters, _mounted_workloads_count
 
         if _shared_server is not None:
-            _mounted_agents_count += 1
+            _mounted_workloads_count += 1
             self.ok(
                 f"Attached to existing gateway server on "
                 f"{self.GATEWAY_HOST}:{self.GATEWAY_PORT}"
@@ -89,7 +159,7 @@ class CommGatewayCapability(VOXCapability):
 
         port = int(self.GATEWAY_PORT) if self.GATEWAY_PORT else 8001
         host = self.GATEWAY_HOST or "0.0.0.0"
-        orchestrator = self._agent.orchestrator
+        orchestrator = self._workload.orchestrator
 
         async def dispatch(message: VOXInboundMessage) -> None:
             if orchestrator is None:
@@ -108,8 +178,9 @@ class CommGatewayCapability(VOXCapability):
         # out of the bound config. A channel is skipped when it is not
         # configured (e.g. no bot token for Telegram).
         adapters: dict[str, Any] = {}
+        all_config = {**self._params, **self._secrets}
         for channel, adapter_cls in ADAPTER_REGISTRY.items():
-            adapter_config = {key: getattr(self, key) for key in adapter_cls.PARAMS}
+            adapter_config = {key: value for key, value in all_config.items() if value != ""}
             if not adapter_cls.is_configured(adapter_config):
                 continue
             adapters[channel] = adapter_cls(adapter_config, dispatch=dispatch)
@@ -129,15 +200,15 @@ class CommGatewayCapability(VOXCapability):
         for adapter in adapters.values():
             if hasattr(adapter, "start"):
                 await adapter.start()
-        _mounted_agents_count += 1
+        _mounted_workloads_count += 1
         self.ok(f"Gateway server listening on {host}:{port}")
 
     async def shutdown(self) -> None:
-        global _shared_server, _mounted_agents_count
+        global _shared_server, _mounted_workloads_count
 
-        _mounted_agents_count -= 1
+        _mounted_workloads_count -= 1
 
-        if _mounted_agents_count <= 0 and _shared_server is not None:
+        if _mounted_workloads_count <= 0 and _shared_server is not None:
             await _shared_server.stop()
             _shared_server = None
 
@@ -145,7 +216,7 @@ class CommGatewayCapability(VOXCapability):
                 if hasattr(adapter, "shutdown"):
                     await adapter.shutdown()
             _shared_adapters.clear()
-            _mounted_agents_count = 0
+            _mounted_workloads_count = 0
 
     # ------------------------------------------------------------------
     # Outbound

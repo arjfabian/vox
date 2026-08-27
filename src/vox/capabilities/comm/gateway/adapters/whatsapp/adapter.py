@@ -11,7 +11,7 @@ Webhook verification uses Meta's ``hub.mode`` / ``hub.verify_token`` /
 ``hub.challenge`` handshake, and every inbound POST is HMAC-SHA256 signed
 via ``X-Hub-Signature-256``.
 
-All keys are drawn from the agent's ``secrets.vault`` via the gateway's
+All keys are drawn from the workload's ``secrets.vault`` via the gateway's
 ``SENSITIVE_PARAMS`` injection (``WHATSAPP_ACCESS_TOKEN``,
 ``WHATSAPP_APP_SECRET``, ``WHATSAPP_VERIFY_TOKEN``).
 """
@@ -26,8 +26,8 @@ from typing import Any
 
 import httpx
 
-from ..models import VOXInboundMessage, VOXOutboundMessage
-from .base import BaseAdapter
+from ...models import VOXInboundMessage, VOXOutboundMessage
+from ..base import BaseAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -37,34 +37,6 @@ _GRAPH_BASE = "https://graph.facebook.com"
 class WhatsAppAdapter(BaseAdapter):
     CHANNEL = "whatsapp"
     WEBHOOK_PATH = "/webhook/whatsapp"
-
-    PARAMS: dict[str, list[Any]] = {  # noqa: RUF012
-        "WHATSAPP_ACCESS_TOKEN": [
-            "WhatsApp Cloud API access token (System User, whatsapp_business_messaging scope)",
-            "",
-        ],
-        "WHATSAPP_PHONE_NUMBER_ID": [
-            "WhatsApp Business phone number ID",
-            "",
-        ],
-        "WHATSAPP_APP_SECRET": [
-            "Meta app secret for webhook HMAC verification",
-            "",
-        ],
-        "WHATSAPP_VERIFY_TOKEN": [
-            "Webhook verification token (set in Meta App Dashboard)",
-            "",
-        ],
-        "WHATSAPP_API_VERSION": [
-            "Graph API version for outbound requests",
-            "v25.0",
-        ],
-    }
-    SENSITIVE_PARAMS: set[str] = {  # noqa: RUF012
-        "WHATSAPP_ACCESS_TOKEN",
-        "WHATSAPP_APP_SECRET",
-        "WHATSAPP_VERIFY_TOKEN",
-    }
 
     def __init__(
         self,

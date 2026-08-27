@@ -1,8 +1,7 @@
-"""FleetController — lock-guarded agent lifecycle transitions.
+"""FleetController — lock-guarded workload lifecycle transitions.
 
-Part of the v0.5.0 service-oriented orchestrator decomposition.
 Coordinates safe, transactional state transitions for individual
-agents (stop, start, restart, pause, resume) using per-agent
+workloads (stop, start, restart, pause, resume) using per-workload
 ``asyncio.Lock`` to prevent race conditions during concurrent
 control-plane requests.
 """
@@ -15,138 +14,140 @@ from typing import TYPE_CHECKING, Any
 from vox.observability import VOXForensicLogger
 
 if TYPE_CHECKING:
-    from vox.orchestration.graph import AgentGraph
+    from vox.orchestration.graph import FleetGraph
     from vox.orchestration.registry import VOXRegistry
 
 
 class FleetController:
-    """Lock-guarded lifecycle controller for the agent fleet.
+    """Lock-guarded lifecycle controller for the workload fleet.
 
-    Each agent ID has a dedicated ``asyncio.Lock`` so that concurrent
+    Each workload ID has a dedicated ``asyncio.Lock`` so that concurrent
     control-plane operations (e.g. simultaneous HTTP requests) are
-    serialised per agent without blocking unrelated agents.
+    serialised per workload without blocking unrelated workloads.
     """
 
     def __init__(
         self,
         registry: VOXRegistry,
-        graph: AgentGraph,
+        graph: FleetGraph,
         logger: VOXForensicLogger,
-        agent_locks: dict[str, asyncio.Lock],
-        active_agents: dict[str, Any],
-        inactive_agents: dict[str, Any],
-        degraded_agents: dict[str, Any],
+        workload_locks: dict[str, asyncio.Lock],
+        active_workloads: dict[str, Any],
+        inactive_workloads: dict[str, Any],
+        degraded_workloads: dict[str, Any],
     ) -> None:
         self._registry = registry
         self._graph = graph
         self._logger = logger
-        self._agent_locks = agent_locks
-        self._active_agents = active_agents
-        self._inactive_agents = inactive_agents
-        self._degraded_agents = degraded_agents
+        self._workload_locks = workload_locks
+        self._active_workloads = active_workloads
+        self._inactive_workloads = inactive_workloads
+        self._degraded_workloads = degraded_workloads
 
-    def _get_agent_lock(self, agent_id: str) -> asyncio.Lock:
-        if agent_id not in self._agent_locks:
-            self._agent_locks[agent_id] = asyncio.Lock()
-        return self._agent_locks[agent_id]
+    def _get_workload_lock(self, workload_id: str) -> asyncio.Lock:
+        if workload_id not in self._workload_locks:
+            self._workload_locks[workload_id] = asyncio.Lock()
+        return self._workload_locks[workload_id]
 
-    async def stop_agent(self, agent_id: str) -> bool:
-        async with self._get_agent_lock(agent_id):
-            agent = self._active_agents.get(agent_id)
-            if not agent:
-                self._logger.error(f"Agent '{agent_id}' not found in active agents")
+    async def stop_workload(self, workload_id: str) -> bool:
+        async with self._get_workload_lock(workload_id):
+            workload = self._active_workloads.get(workload_id)
+            if not workload:
+                self._logger.error(
+                    f"Workload '{workload_id}' not found in active workloads"
+                )
                 return False
-            await agent.stop()
-            self._active_agents.pop(agent_id)
-            self._inactive_agents[agent_id] = agent
-            self._logger.ok(f"Agent '{agent.name}' stopped and moved to inactive")
+            await workload.stop()
+            self._active_workloads.pop(workload_id)
+            self._inactive_workloads[workload_id] = workload
+            self._logger.ok(f"Workload '{workload.name}' stopped and moved to inactive")
             return True
 
-    async def restart_agent(self, agent_name: str) -> bool:
-        agent_id = self._graph.resolve_agent_id(agent_name)
-        if not agent_id:
-            self._logger.error(f"Agent '{agent_name}' not found")
+    async def restart_workload(self, workload_name: str) -> bool:
+        workload_id = self._graph.resolve_workload_id(workload_name)
+        if not workload_id:
+            self._logger.error(f"Workload '{workload_name}' not found")
             return False
-        async with self._get_agent_lock(agent_id):
-            agent = (
-                self._active_agents.get(agent_id)
-                or self._inactive_agents.get(agent_id)
-                or self._degraded_agents.get(agent_id)
+        async with self._get_workload_lock(workload_id):
+            workload = (
+                self._active_workloads.get(workload_id)
+                or self._inactive_workloads.get(workload_id)
+                or self._degraded_workloads.get(workload_id)
             )
-            if not agent:
-                self._logger.error(f"Agent '{agent_name}' not found in fleet")
+            if not workload:
+                self._logger.error(f"Workload '{workload_name}' not found in fleet")
                 return False
 
-            folder = agent.dir
+            folder = workload.dir
 
-            await agent.shutdown()
-            self._active_agents.pop(agent_id, None)
-            self._inactive_agents.pop(agent_id, None)
-            self._degraded_agents.pop(agent_id, None)
-            self._agent_locks.pop(agent_id, None)
+            await workload.shutdown()
+            self._active_workloads.pop(workload_id, None)
+            self._inactive_workloads.pop(workload_id, None)
+            self._degraded_workloads.pop(workload_id, None)
+            self._workload_locks.pop(workload_id, None)
 
-            new_agent = self._registry.hire_agent(folder)
-            if not new_agent:
-                self._logger.error(f"Failed to re-hire agent '{agent_name}'")
+            new_workload = self._registry.hire_workload(folder)
+            if not new_workload:
+                self._logger.error(f"Failed to re-hire workload '{workload_name}'")
                 return False
 
-            if new_agent._degraded or not new_agent.health_check():
-                self._degraded_agents[new_agent.id] = new_agent
+            if new_workload._degraded or not new_workload.health_check():
+                self._degraded_workloads[new_workload.id] = new_workload
                 self._logger.warning(
-                    f"Agent '{agent_name}' restarted in DEGRADED state"
+                    f"Workload '{workload_name}' restarted in DEGRADED state"
                 )
                 return True
 
-            ok = await new_agent.boot()
+            ok = await new_workload.boot()
             if ok:
-                self._active_agents[new_agent.id] = new_agent
-                self._logger.ok(f"Agent '{agent_name}' restarted and active")
+                self._active_workloads[new_workload.id] = new_workload
+                self._logger.ok(f"Workload '{workload_name}' restarted and active")
             else:
-                self._degraded_agents[new_agent.id] = new_agent
+                self._degraded_workloads[new_workload.id] = new_workload
                 self._logger.warning(
-                    f"Agent '{agent_name}' restarted in DEGRADED state (boot failed)"
+                    f"Workload '{workload_name}' restarted in DEGRADED state (boot failed)"
                 )
             return ok
 
-    async def start_agent_by_name(self, agent_name: str) -> bool:
-        agent_id = self._graph.resolve_agent_id(agent_name)
-        if not agent_id:
-            self._logger.error(f"Agent '{agent_name}' not found")
+    async def start_workload_by_name(self, workload_name: str) -> bool:
+        workload_id = self._graph.resolve_workload_id(workload_name)
+        if not workload_id:
+            self._logger.error(f"Workload '{workload_name}' not found")
             return False
-        async with self._get_agent_lock(agent_id):
-            agent = self._inactive_agents.get(agent_id)
-            if not agent:
+        async with self._get_workload_lock(workload_id):
+            workload = self._inactive_workloads.get(workload_id)
+            if not workload:
                 self._logger.error(
-                    f"Agent '{agent_name}' is already active or not found"
+                    f"Workload '{workload_name}' is already active or not found"
                 )
                 return False
-            ok = await agent.boot()
+            ok = await workload.boot()
             if ok:
-                self._inactive_agents.pop(agent_id)
-                self._active_agents[agent_id] = agent
-                self._logger.ok(f"Agent '{agent.name}' started")
+                self._inactive_workloads.pop(workload_id)
+                self._active_workloads[workload_id] = workload
+                self._logger.ok(f"Workload '{workload.name}' started")
             return ok
 
-    async def pause_agent(self, agent_name: str) -> bool:
-        agent_id = self._graph.resolve_agent_id(agent_name)
-        if not agent_id:
-            self._logger.error(f"Agent '{agent_name}' not found")
+    async def pause_workload(self, workload_name: str) -> bool:
+        workload_id = self._graph.resolve_workload_id(workload_name)
+        if not workload_id:
+            self._logger.error(f"Workload '{workload_name}' not found")
             return False
-        agent = self._active_agents.get(agent_id)
-        if not agent:
-            self._logger.error(f"Agent '{agent_name}' is not active")
+        workload = self._active_workloads.get(workload_id)
+        if not workload:
+            self._logger.error(f"Workload '{workload_name}' is not active")
             return False
-        await agent.pause()
+        await workload.pause()
         return True
 
-    async def resume_agent(self, agent_name: str) -> bool:
-        agent_id = self._graph.resolve_agent_id(agent_name)
-        if not agent_id:
-            self._logger.error(f"Agent '{agent_name}' not found")
+    async def resume_workload(self, workload_name: str) -> bool:
+        workload_id = self._graph.resolve_workload_id(workload_name)
+        if not workload_id:
+            self._logger.error(f"Workload '{workload_name}' not found")
             return False
-        agent = self._active_agents.get(agent_id)
-        if not agent:
-            self._logger.error(f"Agent '{agent_name}' is not active")
+        workload = self._active_workloads.get(workload_id)
+        if not workload:
+            self._logger.error(f"Workload '{workload_name}' is not active")
             return False
-        await agent.resume()
+        await workload.resume()
         return True

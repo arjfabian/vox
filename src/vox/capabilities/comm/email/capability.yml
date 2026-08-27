@@ -2,9 +2,9 @@ name: comm.email
 version: 1.0.0
 
 description: |
-  Asynchronous email dispatch capability for VOX agents.
+  Asynchronous email dispatch capability for VOX workloads.
   Sends plain-text emails via SMTP using credentials from the
-  bound agent's local .env file.
+  bound workload's local .env file.
 
 capability_class: EmailCapability
 

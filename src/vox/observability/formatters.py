@@ -9,7 +9,7 @@ from vox.observability.constants import LOG_LEVEL_OK
 def _source_tag(record: logging.LogRecord) -> str:
     """Extract the last segment of a dotted logger name.
 
-    ``vox.agent1`` -> ``agent1``
+    ``vox.workload1`` -> ``workload1``
     ``vox``      -> ``vox``
     """
     name = record.name
@@ -28,8 +28,7 @@ class VOXColorFormatter(logging.Formatter):
     _BOLD_RED = "\x1b[31;1m"
     _BOLD_PINK = "\x1b[35;1m"
 
-    # noqa: RUF012 — immutable color mapping; intentionally shared, never mutated.
-    _LEVEL_COLORS = {
+    _LEVEL_COLORS = {  # noqa: RUF012
         logging.DEBUG: _GREY,
         logging.INFO: _WHITE,
         LOG_LEVEL_OK: _GREEN,

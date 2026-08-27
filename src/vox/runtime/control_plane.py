@@ -14,58 +14,58 @@ async def _handle_status(orchestrator, args):
 
 async def _handle_list(orchestrator, args):
     snapshot = orchestrator.get_fleet_snapshot()
-    return {"data": {"agents": snapshot["agents"]}, "ok": True}
+    return {"data": {"workloads": snapshot["workloads"]}, "ok": True}
 
 
 async def _handle_stop(orchestrator, args):
     if not args:
-        return {"error": "Agent name required."}
-    agent_name = args[0]
-    agent_id = orchestrator.resolve_agent_id(agent_name)
-    success = await orchestrator.stop_agent(agent_id) if agent_id else False
+        return {"error": "Workload name required."}
+    workload_name = args[0]
+    workload_id = orchestrator.resolve_workload_id(workload_name)
+    success = await orchestrator.stop_workload(workload_id) if workload_id else False
     if success:
-        return {"data": f"Agent '{agent_name}' stopped successfully.", "ok": True}
-    return {"error": f"Command 'stop' failed for '{agent_name}'."}
+        return {"data": f"Workload '{workload_name}' stopped successfully.", "ok": True}
+    return {"error": f"Command 'stop' failed for '{workload_name}'."}
 
 
 async def _handle_restart(orchestrator, args):
     if not args:
-        return {"error": "Agent name required."}
-    agent_name = args[0]
-    success = await orchestrator.restart_agent(agent_name)
+        return {"error": "Workload name required."}
+    workload_name = args[0]
+    success = await orchestrator.restart_workload(workload_name)
     if success:
-        return {"data": f"Agent '{agent_name}' restarted successfully.", "ok": True}
-    return {"error": f"Command 'restart' failed for '{agent_name}'."}
+        return {"data": f"Workload '{workload_name}' restarted successfully.", "ok": True}
+    return {"error": f"Command 'restart' failed for '{workload_name}'."}
 
 
 async def _handle_start(orchestrator, args):
     if not args:
-        return {"error": "Agent name required."}
-    agent_name = args[0]
-    success = await orchestrator.start_agent_by_name(agent_name)
+        return {"error": "Workload name required."}
+    workload_name = args[0]
+    success = await orchestrator.start_workload_by_name(workload_name)
     if success:
-        return {"data": f"Agent '{agent_name}' started successfully.", "ok": True}
-    return {"error": f"Command 'start' failed for '{agent_name}'."}
+        return {"data": f"Workload '{workload_name}' started successfully.", "ok": True}
+    return {"error": f"Command 'start' failed for '{workload_name}'."}
 
 
 async def _handle_pause(orchestrator, args):
     if not args:
-        return {"error": "Agent name required."}
-    agent_name = args[0]
-    success = await orchestrator.pause_agent(agent_name)
+        return {"error": "Workload name required."}
+    workload_name = args[0]
+    success = await orchestrator.pause_workload(workload_name)
     if success:
-        return {"data": f"Agent '{agent_name}' paused.", "ok": True}
-    return {"error": f"Command 'pause' failed for '{agent_name}'."}
+        return {"data": f"Workload '{workload_name}' paused.", "ok": True}
+    return {"error": f"Command 'pause' failed for '{workload_name}'."}
 
 
 async def _handle_resume(orchestrator, args):
     if not args:
-        return {"error": "Agent name required."}
-    agent_name = args[0]
-    success = await orchestrator.resume_agent(agent_name)
+        return {"error": "Workload name required."}
+    workload_name = args[0]
+    success = await orchestrator.resume_workload(workload_name)
     if success:
-        return {"data": f"Agent '{agent_name}' resumed.", "ok": True}
-    return {"error": f"Command 'resume' failed for '{agent_name}'."}
+        return {"data": f"Workload '{workload_name}' resumed.", "ok": True}
+    return {"error": f"Command 'resume' failed for '{workload_name}'."}
 
 
 _COMMAND_HANDLERS = {

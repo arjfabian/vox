@@ -175,33 +175,48 @@ class TestTelegramAdapterClientTimeout(unittest.TestCase):
     def test_clashing_timeouts_rejected(self):
         """Guard against the client timeout no longer exceeding the poll
         timeout (e.g. if the derivation buffer is ever changed or removed)."""
-        import vox.capabilities.comm.gateway.adapters.telegram as tg
+        import vox.capabilities.comm.gateway.adapters.telegram.adapter as tg_mod
 
         with (
-            patch.object(tg, "_POLL_TIMEOUT_BUFFER", 0),
+            patch.object(tg_mod, "_POLL_TIMEOUT_BUFFER", 0),
             self.assertRaises(ValueError),
         ):
             TelegramAdapter({"TELEGRAM_BOT_TOKEN": "x", "TELEGRAM_LONG_TIMEOUT": 25})
 
 
 class TestCommGatewayAdapterParams(unittest.TestCase):
-    """Telegram params live in the adapter, and the gateway aggregates them."""
+    """Gateway YAML is the single source of truth for all gateway + adapter params."""
 
-    def test_gateway_aggregates_adapter_params(self):
+    @classmethod
+    def setUpClass(cls):
+        from vox.capabilities.comm.gateway.capability import CommGatewayCapability
+
+        cap_file = pathlib.Path(
+            "src/vox/capabilities/comm/gateway/capability.py"
+        )
+        CommGatewayCapability.load_contract(cap_file)
+
+    def test_gateway_yaml_contains_adapter_params(self):
         from vox.capabilities.comm.gateway import CommGatewayCapability
         from vox.capabilities.comm.gateway.adapters import ADAPTER_REGISTRY
 
+        gateway_params = set(CommGatewayCapability.get_params())
+        gateway_secrets = set(CommGatewayCapability.get_secret_names())
+        gateway_all = gateway_params | gateway_secrets
         for adapter in ADAPTER_REGISTRY.values():
-            for param, (desc, default) in adapter.PARAMS.items():
-                self.assertIn(param, CommGatewayCapability.PARAMS)
-                self.assertEqual(CommGatewayCapability.PARAMS[param], [desc, default])
-            self.assertLessEqual(
-                adapter.SENSITIVE_PARAMS, CommGatewayCapability.SENSITIVE_PARAMS
-            )
+            for key in adapter.PARAMS:
+                self.assertIn(
+                    key,
+                    gateway_all,
+                    f"Adapter key {key} missing from gateway contract",
+                )
 
-        self.assertIn("TELEGRAM_BOT_TOKEN", CommGatewayCapability.PARAMS)
-        self.assertIn("TELEGRAM_BOT_TOKEN", CommGatewayCapability.SENSITIVE_PARAMS)
-        self.assertIn("GATEWAY_WEBHOOK_SECRET", CommGatewayCapability.PARAMS)
+    def test_gateway_sensitive_from_yaml(self):
+        from vox.capabilities.comm.gateway import CommGatewayCapability
+
+        secrets = CommGatewayCapability.get_secret_names()
+        self.assertIn("TELEGRAM_BOT_TOKEN", secrets)
+        self.assertIn("GATEWAY_WEBHOOK_SECRET", secrets)
 
     def test_adapter_param_specs_are_nested_per_channel(self):
         from vox.capabilities.comm.gateway import CommGatewayCapability
@@ -210,7 +225,6 @@ class TestCommGatewayAdapterParams(unittest.TestCase):
         self.assertEqual(
             set(specs), {"telegram", "webhook", "whatsapp"}
         )
-        self.assertIn("TELEGRAM_BOT_TOKEN", specs["telegram"])
         self.assertIn("GATEWAY_WEBHOOK_SECRET", specs["webhook"])
         self.assertIn("WHATSAPP_ACCESS_TOKEN", specs["whatsapp"])
         self.assertIn("WHATSAPP_PHONE_NUMBER_ID", specs["whatsapp"])
@@ -827,12 +841,15 @@ class TestIngressServerAbstraction(unittest.TestCase):
         asyncio.run(run())
 
     def test_gateway_configured_for_adapter(self):
-        """CommGatewayCapability PARAMS includes params from registered adapters."""
+        """CommGatewayCapability YAML contract includes adapter params and secrets."""
         from vox.capabilities.comm.gateway import CommGatewayCapability
 
-        self.assertIn("TELEGRAM_BOT_TOKEN", CommGatewayCapability.PARAMS)
-        self.assertIn("WHATSAPP_ACCESS_TOKEN", CommGatewayCapability.PARAMS)
-        self.assertIn("GATEWAY_WEBHOOK_SECRET", CommGatewayCapability.PARAMS)
+        params = CommGatewayCapability.get_params()
+        secrets = CommGatewayCapability.get_secret_names()
+        self.assertIn("TELEGRAM_BOT_TOKEN", secrets)
+        self.assertIn("WHATSAPP_ACCESS_TOKEN", secrets)
+        self.assertIn("GATEWAY_WEBHOOK_SECRET", secrets)
+        self.assertIn("GATEWAY_PORT", params)
 
     def test_adapter_base_params_union(self):
         """BaseAdapter.PARAMS is empty; specific adapters override."""

@@ -1,6 +1,6 @@
 """Inbound payload sanitization — dangerous pattern detection (WAF layer).
 
-Runs before any payload touches agent roles or capabilities.
+Runs before any payload touches workload roles or capabilities.
 ``InputSanitizer`` recursively walks dicts/lists and checks all string
 values against known malicious patterns. On match it raises
 ``SecurityError`` and the caller logs a CRITICAL alert and drops the
@@ -23,8 +23,7 @@ class InputSanitizer:
     entire message ingress pipeline.
     """
 
-    # noqa: RUF012 — immutable pattern list; intentionally shared, never mutated.
-    DANGEROUS_PATTERNS: list[str] = [
+    DANGEROUS_PATTERNS: list[str] = [  # noqa: RUF012
         r"<script",  # Script tag injection
         r"javascript:",  # Protocol-based URI injection
         r"eval\(",  # Dynamic execution sinks

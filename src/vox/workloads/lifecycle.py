@@ -1,6 +1,6 @@
-"""Agent execution state machine and event buffering.
+"""Workload execution state machine and event buffering.
 
-This module defines the runtime execution semantics of a VOX agent:
+This module defines the runtime execution semantics of a VOX workload:
 - Its lifecycle states (BOOTING, ACTIVE, PAUSED, STOPPED, FAILED)
 - A bounded event buffer used during PAUSED state
 """
@@ -14,7 +14,7 @@ from typing import Any, NamedTuple
 _DEFAULT_EVENT_QUEUE_CAPACITY = 256
 
 
-class AgentState(Enum):
+class WorkloadState(Enum):
     BOOTING = auto()
     IDLE = auto()
     ACTIVE = auto()
@@ -28,25 +28,25 @@ class AgentState(Enum):
     def __str__(self) -> str:
         return self.name
 
-    def can_transition_to(self, target: AgentState) -> bool:
+    def can_transition_to(self, target: WorkloadState) -> bool:
         return _TRANSITIONS.get(self, set()).__contains__(target)
 
 
-_TRANSITIONS: dict[AgentState, set[AgentState]] = {
-    AgentState.BOOTING: {
-        AgentState.IDLE,
-        AgentState.ACTIVE,
-        AgentState.FAILED,
-        AgentState.STOPPING,
+_TRANSITIONS: dict[WorkloadState, set[WorkloadState]] = {
+    WorkloadState.BOOTING: {
+        WorkloadState.IDLE,
+        WorkloadState.ACTIVE,
+        WorkloadState.FAILED,
+        WorkloadState.STOPPING,
     },
-    AgentState.IDLE: {AgentState.BOOTING, AgentState.STOPPING},
-    AgentState.ACTIVE: {AgentState.PAUSING, AgentState.STOPPING},
-    AgentState.PAUSING: {AgentState.PAUSED, AgentState.STOPPING},
-    AgentState.PAUSED: {AgentState.RESUMING, AgentState.STOPPING},
-    AgentState.RESUMING: {AgentState.ACTIVE, AgentState.STOPPING},
-    AgentState.STOPPING: {AgentState.STOPPED},
-    AgentState.STOPPED: {AgentState.BOOTING},
-    AgentState.FAILED: {AgentState.BOOTING},
+    WorkloadState.IDLE: {WorkloadState.BOOTING, WorkloadState.STOPPING},
+    WorkloadState.ACTIVE: {WorkloadState.PAUSING, WorkloadState.STOPPING},
+    WorkloadState.PAUSING: {WorkloadState.PAUSED, WorkloadState.STOPPING},
+    WorkloadState.PAUSED: {WorkloadState.RESUMING, WorkloadState.STOPPING},
+    WorkloadState.RESUMING: {WorkloadState.ACTIVE, WorkloadState.STOPPING},
+    WorkloadState.STOPPING: {WorkloadState.STOPPED},
+    WorkloadState.STOPPED: {WorkloadState.BOOTING},
+    WorkloadState.FAILED: {WorkloadState.BOOTING},
 }
 
 

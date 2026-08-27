@@ -58,7 +58,7 @@ async def _main() -> None:
     if cli_args.command:
         try:
             resp = await _send_uds_command(
-                cli_args.command, [cli_args.agent_name] if cli_args.agent_name else []
+                cli_args.command, [cli_args.workload_name] if cli_args.workload_name else []
             )
             if resp.get("ok"):
                 print(resp["data"])

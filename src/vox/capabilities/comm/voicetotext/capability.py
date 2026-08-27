@@ -17,14 +17,6 @@ LOG_PREVIEW_LENGTH = 60
 class VoiceToTextCapability(VOXCapability):
     CAPABILITY_NAME = "comm.voicetotext"
 
-    # noqa: RUF012 — mutable defaults are intentional; each agent binding may
-    # override PARAMS with different whisper model/device settings.
-    PARAMS = {
-        "WHISPER_MODEL_SIZE": ["faster-whisper model size", "base"],
-        "WHISPER_DEVICE": ["Compute device", "cpu"],
-        "WHISPER_COMPUTE_TYPE": ["Compute precision", "int8"],
-    }
-
     _client: WhisperClient
 
     @classmethod

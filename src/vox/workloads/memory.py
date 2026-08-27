@@ -1,4 +1,4 @@
-"""Append-only forensic audit log for VOX agents.
+"""Append-only forensic audit log for VOX workloads.
 
 This is NOT semantic memory.
 This is an immutable operational ledger used for observability, causality tracing,
@@ -19,9 +19,9 @@ logger = logging.getLogger(__name__)
 _DEFAULT_LOG_LIMIT = 100
 
 
-class VOXAgentMemory:
-    def __init__(self, agent_dir: Path) -> None:
-        self._db_path = agent_dir / "memory" / "logs.db"
+class VOXWorkloadMemory:
+    def __init__(self, persona_dir: Path) -> None:
+        self._db_path = persona_dir / "memory" / "logs.db"
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
 
     async def init_db(self) -> None:
