@@ -3,35 +3,28 @@ version: 1.0.0
 
 description: |
   Asynchronous email dispatch capability for VOX workloads.
-  Sends plain-text emails via SMTP using credentials from the bound workload's
-  local .env file.
-
-capability_class: EmailCapability
-
-provides:
-  - email
+  Sends plain-text emails via SMTP using credentials managed by the workload
+  Vault.
 
 params:
   SMTP_HOST:
     description: SMTP server hostname
     type: string
     default: null
-    sensitive: false
   SMTP_PORT:
     description: SMTP server port
     type: int
     default: 587
-    sensitive: false
+
+secrets:
   SMTP_USER:
     description: SMTP authentication username
     type: string
-    default: null
-    sensitive: true
+    required: false
   SMTP_PASS:
     description: SMTP authentication password
-    type: secret
-    default: null
-    sensitive: true
+    type: string
+    required: false
 
 exposed_commands:
   - name: send_email

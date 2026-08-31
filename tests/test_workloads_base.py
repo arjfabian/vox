@@ -138,7 +138,7 @@ class _MessengerMockMixin:
         mock_cap.CAPABILITY_NAME = "comm.gateway"
         mock_cap.get_secret_names.return_value = []
         mock_bound._capability = mock_cap
-        type(mock_cap).EXPOSED_COMMANDS = []
+        mock_bound.get_exposed_commands.return_value = []
         return mock_cap, mock_bound
 
 
@@ -231,7 +231,7 @@ class TestVOXWorkloadBootCapabilities(unittest.TestCase):
         self.mock_cap.CAPABILITY_NAME = ""
         self.mock_cap.get_secret_names.return_value = []
         self.mock_bound._capability = self.mock_cap
-        type(self.mock_cap).EXPOSED_COMMANDS = []
+        self.mock_bound.get_exposed_commands.return_value = []
         self.orchestrator.get_capability_instance.return_value = self.mock_cap
 
     def tearDown(self):

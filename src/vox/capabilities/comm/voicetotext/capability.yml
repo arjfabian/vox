@@ -5,8 +5,6 @@ description: |
   Local offline speech-to-text using faster-whisper.
   Provides file-based audio transcription with language detection.
 
-capability_class: VoiceToTextCapability
-
 provides:
   - transcription
   - speech_to_text

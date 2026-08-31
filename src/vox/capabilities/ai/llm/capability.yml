@@ -7,8 +7,6 @@ description: |
   through a provider-agnostic interface with built-in semantic
   caching, prompt sanitization, and RAG context injection.
 
-capability_class: LLMCapability
-
 provides:
   - text_generation
   - chat_completion

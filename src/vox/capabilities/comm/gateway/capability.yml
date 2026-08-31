@@ -6,8 +6,6 @@ description: |
   Provides inbound webhook ingestion and outbound message delivery with a
   unified adapter abstraction.
 
-capability_class: CommGatewayCapability
-
 provides:
   - messaging
   - ingress

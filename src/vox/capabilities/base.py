@@ -70,11 +70,19 @@ class SecretMeta:
 
 @dataclass
 class CapabilityContract:
-    """Declarative contract loaded from capability.yml."""
+    """Declarative contract loaded from capability.yml.
+
+    The contract owns capability identity (``name``, ``version``,
+    ``description``, ``provides``), the authoritative ``params``/``secrets``
+    namespaces, and the capability's exposed command declarations. Runtime
+    implementation is deliberately absent from this metadata.
+    """
 
     name: str
     version: str = ""
     description: str = ""
+    provides: list[str] = field(default_factory=list)
+    exposed_commands: list[dict] = field(default_factory=list)
     params: dict[str, ParamMeta] = field(default_factory=dict)
     secrets: dict[str, SecretMeta] = field(default_factory=dict)
 
@@ -145,6 +153,57 @@ def _parse_secrets(raw_secrets: dict, source: str) -> dict[str, SecretMeta]:
     return secrets
 
 
+def _parse_string_list(raw: Any, field_name: str, source: Any) -> list[str]:
+    """Parse a top-level YAML list-of-strings metadata field."""
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise TypeError(
+            f"Invalid '{field_name}' section in: {source} — expected a list"
+        )
+    values: list[str] = []
+    for item in raw:
+        if not isinstance(item, str):
+            raise TypeError(
+                f"Invalid '{field_name}' item in {source}: {item!r}"
+            )
+        values.append(item)
+    return values
+
+
+def _parse_exposed_commands(raw: Any, source: Any) -> list[dict]:
+    """Parse the ``exposed_commands`` metadata section.
+
+    Each entry is ``{name, description, method}``. ``method`` defaults to the
+    command ``name``.
+    """
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise TypeError(
+            f"Invalid 'exposed_commands' section in: {source} — expected a list"
+        )
+    commands: list[dict] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            raise TypeError(
+                f"Invalid 'exposed_commands' entry in {source}: {entry!r}"
+            )
+        name = entry.get("name")
+        if not isinstance(name, str) or not name:
+            raise ValueError(
+                f"exposed command in {source} must declare a string 'name'"
+            )
+        commands.append(
+            {
+                "name": name,
+                "description": str(entry.get("description", "")),
+                "method": str(entry.get("method", name)),
+            }
+        )
+    return commands
+
+
 def load_capability_yaml(
     capability_file: Path,
 ) -> CapabilityContract | None:
@@ -189,6 +248,10 @@ def load_capability_yaml(
         name=str(raw.get("name", "")),
         version=str(raw.get("version", "")),
         description=str(raw.get("description", "")),
+        provides=_parse_string_list(raw.get("provides"), "provides", yml_path),
+        exposed_commands=_parse_exposed_commands(
+            raw.get("exposed_commands"), yml_path
+        ),
         params=params,
         secrets=secrets,
     )
@@ -298,6 +361,16 @@ class VOXCapability:
     @classmethod
     def get_secret_names(cls) -> set[str]:
         return cls._ensure_contract().secret_names
+
+    @classmethod
+    def get_required_secret_names(cls) -> set[str]:
+        """Names of secrets declared ``required: true`` in the contract."""
+        return cls._ensure_contract().required_secret_names
+
+    @classmethod
+    def get_exposed_commands(cls) -> list[dict]:
+        """Declared exposed-command metadata from the contract."""
+        return list(cls._ensure_contract().exposed_commands)
 
     @classmethod
     def get_param_meta(
@@ -422,6 +495,20 @@ class VOXBoundCapability:
 
     def log(self, message: str) -> None:
         self.logger.info(f"[{self.name}] {message}")
+
+    # -- contract access (public) --------------------------------------------
+
+    def get_secret_names(self) -> set[str]:
+        """Names of all secrets declared by the bound capability's contract."""
+        return self._capability.get_secret_names()
+
+    def get_required_secret_names(self) -> set[str]:
+        """Names of secrets declared ``required: true`` by the contract."""
+        return self._capability.get_required_secret_names()
+
+    def get_exposed_commands(self) -> list[dict]:
+        """Declared exposed-command metadata of the bound capability."""
+        return self._capability.get_exposed_commands()
 
     def warning(self, message: str) -> None:
         self.logger.warning(f"[{self.name}] {message}")

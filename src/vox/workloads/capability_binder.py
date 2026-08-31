@@ -183,7 +183,7 @@ class CapabilityBinder:
         cap: Any,
         bound: VOXBoundCapability,
     ) -> None:
-        exposed = getattr(type(cap), "EXPOSED_COMMANDS", [])
+        exposed = bound.get_exposed_commands()
 
         for cmd_def in exposed:
             cmd_name = cmd_def["name"]
@@ -234,9 +234,7 @@ class CapabilityBinder:
         # Intersect with YAML contract's required secrets
         result: dict[str, set[str]] = {}
         for cap_id, bound in workload.capabilities.items():
-            contract_required = (
-                bound._capability._ensure_contract().required_secret_names
-            )
+            contract_required = bound.get_required_secret_names()
             if not contract_required:
                 continue
             role_names = role_required.get(cap_id, set())
@@ -267,7 +265,7 @@ class CapabilityBinder:
         all_secret_caps = {
             cap_id
             for cap_id, bound in workload.capabilities.items()
-            if bound._capability.get_secret_names()
+            if bound.get_secret_names()
         }
 
         if not all_secret_caps:
@@ -289,7 +287,7 @@ class CapabilityBinder:
             return
 
         for cap_id, bound in workload.capabilities.items():
-            secret_names = bound._capability.get_secret_names()
+            secret_names = bound.get_secret_names()
 
             if not secret_names:
                 continue
