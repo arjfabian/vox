@@ -14,7 +14,8 @@ from aiohttp import web
 from vox.security import SecurityError
 
 if TYPE_CHECKING:
-    from vox.orchestration import (  # noqa: TC004 — kept under TYPE_CHECKING to avoid circular import
+    # TC004: kept under TYPE_CHECKING to avoid circular import
+    from vox.orchestration import (  # noqa: TC004
         VOXOrchestrator,
     )
 
@@ -33,7 +34,7 @@ class VOXAPIServer:
 
     @web.middleware
     async def _auth_middleware(self, request: web.Request, handler) -> web.Response:
-        """Requires a Bearer token if the VOX_API_TOKEN variable is set up."""
+        """Requires Bearer token when VOX_API_TOKEN is set."""
         token = os.environ.get("VOX_API_TOKEN")
         if token:
             auth_header = request.headers.get("Authorization")
@@ -140,20 +141,28 @@ class VOXAPIServer:
         identifier = request.match_info["id"]
         workload = self._orc._resolve_workload(identifier)
         if not workload:
-            return self._json({"error": f"Workload '{identifier}' not found"}, status=404)
+            return self._json(
+                {"error": f"Workload '{identifier}' not found"}, status=404
+            )
         return self._json(workload.describe())
 
     async def _handle_workload_commands(self, request: web.Request) -> web.Response:
         identifier = request.match_info["id"]
         workload = self._orc._resolve_workload(identifier)
         if not workload:
-            return self._json({"error": f"Workload '{identifier}' not found"}, status=404)
+            return self._json(
+                {"error": f"Workload '{identifier}' not found"}, status=404
+            )
         cmd_map = workload.get_command_map()
         commands = {
             name: {"description": info.description} for name, info in cmd_map.items()
         }
         return self._json(
-            {"workload_id": workload.id, "workload_name": workload.name, "commands": commands}
+            {
+                "workload_id": workload.id,
+                "workload_name": workload.name,
+                "commands": commands,
+            }
         )
 
     async def _handle_capabilities(self, request: web.Request) -> web.Response:
@@ -179,7 +188,9 @@ class VOXAPIServer:
         identifier = request.match_info["id"]
         workload_id = self._orc.resolve_workload_id(identifier)
         if not workload_id:
-            return self._json({"error": f"Workload '{identifier}' not found"}, status=404)
+            return self._json(
+                {"error": f"Workload '{identifier}' not found"}, status=404
+            )
         ok = await self._orc.stop_workload(workload_id)
         if ok:
             return self._json({"ok": True, "data": "Workload stopped"})

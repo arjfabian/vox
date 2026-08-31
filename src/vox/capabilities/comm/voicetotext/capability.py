@@ -1,9 +1,8 @@
 """comm.voicetotext — Local offline speech-to-text capability.
 
 Orchestration layer for faster-whisper transcription.
-WhisperClient is allocated once during boot() and reused across
-all transcribe() calls, with CPU-bound inference offloaded
-to a thread pool executor.
+WhisperClient is allocated once during boot() and reused across all transcribe()
+calls, with CPU-bound inference offloaded to a thread pool executor.
 """
 
 from vox.capabilities.base import VOXCapability
@@ -36,13 +35,14 @@ class VoiceToTextCapability(VOXCapability):
         )
         return WhisperClient(config)
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Public operations
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     async def transcribe(self, file_path: str) -> TranscriptionResult:
         self.log("Transcribing audio...")
-        with open(file_path, "rb") as f:  # noqa: ASYNC230 — small file read, blocking negligible
+        # ASYNC230: blocking read for a small audio file is negligible
+        with open(file_path, "rb") as f:  # noqa: ASYNC230
             audio_bytes = f.read()
         result = await self._client.transcribe(audio_bytes)
         preview = result.text[:LOG_PREVIEW_LENGTH]
@@ -53,9 +53,9 @@ class VoiceToTextCapability(VOXCapability):
         )
         return result
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Lifecycle
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     async def boot(self) -> None:
         self._client = self._build_client()

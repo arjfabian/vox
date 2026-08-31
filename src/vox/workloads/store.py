@@ -27,7 +27,7 @@ class VOXWorkloadStore:
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
 
     async def init_db(self) -> None:
-        """Asynchronously initialize database, indexes and perform dedup migrations."""
+        """Create tables/indexes and run the duplicate-checksum migration."""
         async with aiosqlite.connect(self._db_path) as conn:
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS asset_index (
@@ -44,16 +44,19 @@ class VOXWorkloadStore:
                 )
             """)
             await conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_asset_type ON asset_index(asset_type)"
+                "CREATE INDEX IF NOT EXISTS idx_asset_type "
+                "ON asset_index(asset_type)"
             )
             await conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_checksum ON asset_index(checksum)"
+                "CREATE INDEX IF NOT EXISTS idx_checksum "
+                "ON asset_index(checksum)"
             )
             await conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_name ON asset_index(name)"
             )
 
-            # Check for unique index migration requirements
+            # Legacy rows may share a checksum; deduplicate before enforcing
+            # the UNIQUE constraint.
             async with conn.execute("PRAGMA index_list(asset_index)") as cursor:
                 existing_indexes = {row[2] for row in await cursor.fetchall()}
 
@@ -65,12 +68,13 @@ class VOXWorkloadStore:
                         "ON asset_index(checksum)"
                     )
                 except aiosqlite.OperationalError as e:
-                    logger.error("Failed to create unique index on checksum: %s", e)
+                    logger.error(
+                        "Failed to create unique index on checksum: %s", e
+                    )
                     raise
             await conn.commit()
 
     async def _dedup_checksums(self, conn: aiosqlite.Connection) -> None:
-        """Remove duplicate-checksum rows asynchronously."""
         async with conn.execute("""
             SELECT checksum, COUNT(*) AS cnt
             FROM asset_index
@@ -105,7 +109,9 @@ class VOXWorkloadStore:
                 to_remove = await cursor.fetchall()
 
             for row_id, file_path in to_remove:
-                await conn.execute("DELETE FROM asset_index WHERE id = ?", (row_id,))
+                await conn.execute(
+                    "DELETE FROM asset_index WHERE id = ?", (row_id,)
+                )
                 fp = self._assets_dir / file_path
                 try:
                     if fp.exists():
@@ -113,7 +119,8 @@ class VOXWorkloadStore:
                 except OSError:
                     logger.warning("Could not remove orphaned file %s", fp)
                 logger.info(
-                    "Deduplicated asset %s (checksum=%s): removed in favour of %s",
+                    "Deduplicated asset %s (checksum=%s): "
+                    "removed in favour of %s",
                     row_id,
                     checksum,
                     keep_id,
@@ -180,7 +187,9 @@ class VOXWorkloadStore:
 
                 try:
                     await conn.execute(
-                        "INSERT INTO asset_index (id, archived_at, name, asset_type, origin, file_path, file_size, checksum, last_accessed, tags) "
+                        "INSERT INTO asset_index "
+                        "(id, archived_at, name, asset_type, origin, "
+                        "file_path, file_size, checksum, last_accessed, tags) "
                         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                         (
                             asset_id,
@@ -199,7 +208,8 @@ class VOXWorkloadStore:
                     if path.exists():
                         path.unlink()
                     async with conn.execute(
-                        "SELECT * FROM asset_index WHERE checksum = ?", (checksum,)
+                        "SELECT * FROM asset_index WHERE checksum = ?",
+                        (checksum,),
                     ) as cursor:
                         existing = await cursor.fetchone()
                     if existing:
@@ -222,7 +232,7 @@ class VOXWorkloadStore:
             if path is not None and path.exists():
                 try:
                     path.unlink()
-                except Exception:  # noqa: BLE001, S110 — best-effort cleanup during error path
+                except Exception:  # noqa: BLE001, S110 — best-effort cleanup
                     pass
             return None
 
@@ -263,7 +273,8 @@ class VOXWorkloadStore:
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         params.append(limit)
         rows = await self.query(
-            f"SELECT * FROM asset_index {where} ORDER BY archived_at DESC LIMIT ?",
+            f"SELECT * FROM asset_index {where} "
+            "ORDER BY archived_at DESC LIMIT ?",
             tuple(params),
         )
         for row in rows:
@@ -278,7 +289,9 @@ class VOXWorkloadStore:
         if not rows or "error" in rows[0]:
             return False
         path = self._assets_dir / rows[0]["file_path"]
-        ok = await self.execute("DELETE FROM asset_index WHERE id = ?", (asset_id,))
+        ok = await self.execute(
+            "DELETE FROM asset_index WHERE id = ?", (asset_id,)
+        )
         if ok and path.exists():
             path.unlink()
         return ok

@@ -2,24 +2,24 @@
 
 Provides inbound webhook ingestion and outbound message delivery across
 configured channels (Telegram, WhatsApp, generic HTTP webhook).
-Normalises all inbound traffic into VOXInboundMessage before dispatching
-to the orchestrator.
+Normalises all inbound traffic into VOXInboundMessage before dispatching to the
+orchestrator.
 
-This capability is domain-agnostic: no business logic, no ticketing, no
-CRM.  Pure channel abstraction.  The complete public parameter contract
-(ports, host, adapter tokens, secrets) is declared across per-adapter
-``config.yml`` files and merged into a single CapabilityContract at load
-time.  Adapters keep their own internal PARAMS for self-documentation
-and ``is_configured()`` checks, but the YAML config files are authoritative.
+This capability is domain-agnostic: no business logic, no ticketing, no CRM.
+Pure channel abstraction. The complete public parameter contract (ports, host,
+adapter tokens, secrets) is declared across per-adapter ``config.yml`` files and
+merged into a single CapabilityContract at load time. Adapters keep their own
+internal PARAMS for self-documentation and ``is_configured()`` checks, but the
+YAML config files are authoritative.
 
 Architecture note: The IngressServer is shared across all workloads that mount
-this capability.  The first workload to boot creates the server; subsequent
+this capability. The first workload to boot creates the server; subsequent
 workloads attach to the existing instance and log an attachment message.
 Adapters are also shared since the server routes all inbound traffic to the
 orchestrator, which fans out to every workload with comm.gateway mounted.
 
 Shutdown: A reference count (_mounted_workloads_count) tracks how many workloads
-have the capability booted.  The server is only stopped when the last workload
+have the capability booted. The server is only stopped when the last workload
 shuts down, preventing one workload's stop from killing inbound for the rest.
 """
 
@@ -51,9 +51,9 @@ _mounted_workloads_count: int = 0
 class CommGatewayCapability(VOXCapability):
     CAPABILITY_NAME = "comm.gateway"
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Contract loading — aggregate adapter config.yml files
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     @classmethod
     def load_contract(
@@ -63,9 +63,9 @@ class CommGatewayCapability(VOXCapability):
         """Load the gateway contract by merging per-adapter config.yml files.
 
         The gateway's own ``capability.yml`` provides metadata only (name,
-        version, description, provides).  Each adapter directory contains a
-        ``config.yml`` with ``params`` and ``secrets`` sections that are
-        merged into a single CapabilityContract.
+        version, description, provides). Each adapter directory contains a
+        ``config.yml`` with ``params`` and ``secrets`` sections that are merged
+        into a single CapabilityContract.
         """
         contract = load_capability_yaml(capability_file)
 
@@ -117,13 +117,13 @@ class CommGatewayCapability(VOXCapability):
         cls._contract = contract
         return contract
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Adapter parameter introspection
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     @classmethod
     def adapter_param_specs(cls) -> dict[str, dict[str, list[Any]]]:
-        """Nested per-channel param+secret specs from adapter config.yml files."""
+        """Per-channel param+secret specs from adapter config.yml files."""
         adapter_dir = Path(__file__).resolve().parent / "adapters"
         specs: dict[str, dict[str, list[Any]]] = {}
         for channel in ADAPTER_REGISTRY:
@@ -141,9 +141,9 @@ class CommGatewayCapability(VOXCapability):
             }
         return specs
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Capability lifecycle
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     @classmethod
     async def health_check(cls) -> bool:
@@ -177,9 +177,9 @@ class CommGatewayCapability(VOXCapability):
             except SecurityError as exc:
                 logger.warning("Inbound dispatch blocked by guardrail: %s", exc)
 
-        # Instantiate every registered adapter, slicing its declared params
-        # out of the bound config. A channel is skipped when it is not
-        # configured (e.g. no bot token for Telegram).
+        # Instantiate every registered adapter, slicing its declared params out
+        # of the bound config. A channel is skipped when it is not configured
+        # (e.g. no bot token for Telegram).
         adapters: dict[str, Any] = {}
 
         for channel, adapter_cls in ADAPTER_REGISTRY.items():
@@ -244,9 +244,9 @@ class CommGatewayCapability(VOXCapability):
             _shared_adapters.clear()
             _mounted_workloads_count = 0
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Outbound
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     async def send_message(self, message: VOXOutboundMessage) -> bool:
         """Send an outbound message through the appropriate channel adapter."""

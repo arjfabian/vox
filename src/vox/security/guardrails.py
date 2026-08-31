@@ -1,10 +1,9 @@
 """Inbound payload sanitization — dangerous pattern detection (WAF layer).
 
 Runs before any payload touches workload roles or capabilities.
-``InputSanitizer`` recursively walks dicts/lists and checks all string
-values against known malicious patterns. On match it raises
-``SecurityError`` and the caller logs a CRITICAL alert and drops the
-event.
+``InputSanitizer`` recursively walks dicts/lists and checks all string values
+against known malicious patterns. On match it raises
+``SecurityError`` and the caller logs a CRITICAL alert and drops the event.
 """
 
 import html
@@ -15,12 +14,11 @@ class SecurityError(Exception):
     """Raised when a payload violates the security policy."""
 
 
-
 class InputSanitizer:
     """Fail-fast inbound payload scanner.
 
-    Designed as a singleton per orchestrator; one instance guards the
-    entire message ingress pipeline.
+    Designed as a singleton per orchestrator; one instance guards the entire
+    message ingress pipeline.
     """
 
     DANGEROUS_PATTERNS: list[str] = [  # noqa: RUF012

@@ -1,8 +1,7 @@
 """Append-only forensic audit log for VOX workloads.
 
-This is NOT semantic memory.
-This is an immutable operational ledger used for observability, causality tracing,
-debugging, auditability, and event reconstruction.
+This is NOT semantic memory: it is an immutable operational ledger for
+observability, causality tracing, debugging, and event reconstruction.
 """
 
 import json
@@ -25,7 +24,6 @@ class VOXWorkloadMemory:
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
 
     async def init_db(self) -> None:
-        """Asynchronously initialize database schema and indexes."""
         async with aiosqlite.connect(self._db_path) as conn:
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS activity_log (
@@ -40,13 +38,16 @@ class VOXWorkloadMemory:
                 )
             """)
             await conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_timestamp ON activity_log(timestamp)"
+                "CREATE INDEX IF NOT EXISTS idx_timestamp "
+                "ON activity_log(timestamp)"
             )
             await conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_event_type ON activity_log(event_type)"
+                "CREATE INDEX IF NOT EXISTS idx_event_type "
+                "ON activity_log(event_type)"
             )
             await conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_ref_id ON activity_log(ref_id)"
+                "CREATE INDEX IF NOT EXISTS idx_ref_id "
+                "ON activity_log(ref_id)"
             )
             await conn.commit()
 
@@ -63,7 +64,9 @@ class VOXWorkloadMemory:
         try:
             async with aiosqlite.connect(self._db_path) as conn:
                 await conn.execute(
-                    "INSERT INTO activity_log (id, timestamp, event_type, actor, action, details, ref_id, status) "
+                    "INSERT INTO activity_log "
+                    "(id, timestamp, event_type, actor, action, details, "
+                    "ref_id, status) "
                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         event_id,
@@ -81,12 +84,16 @@ class VOXWorkloadMemory:
             logger.exception("Forensic record failed [%s]", event_type)
         return event_id
 
-    async def get_recent(self, limit: int = _DEFAULT_LOG_LIMIT) -> list[dict[str, Any]]:
+    async def get_recent(
+        self,
+        limit: int = _DEFAULT_LOG_LIMIT,
+    ) -> list[dict[str, Any]]:
         try:
             async with aiosqlite.connect(self._db_path) as conn:
                 conn.row_factory = aiosqlite.Row
                 async with conn.execute(
-                    "SELECT * FROM activity_log ORDER BY timestamp DESC LIMIT ?",
+                    "SELECT * FROM activity_log "
+                    "ORDER BY timestamp DESC LIMIT ?",
                     (limit,),
                 ) as cursor:
                     rows = await cursor.fetchall()
@@ -105,7 +112,8 @@ class VOXWorkloadMemory:
             async with aiosqlite.connect(self._db_path) as conn:
                 conn.row_factory = aiosqlite.Row
                 async with conn.execute(
-                    "SELECT * FROM activity_log WHERE ref_id = ? ORDER BY timestamp ASC",
+                    "SELECT * FROM activity_log "
+                    "WHERE ref_id = ? ORDER BY timestamp ASC",
                     (ref_id,),
                 ) as cursor:
                     rows = await cursor.fetchall()
@@ -124,7 +132,9 @@ class VOXWorkloadMemory:
             async with aiosqlite.connect(self._db_path) as conn:
                 conn.row_factory = aiosqlite.Row
                 async with conn.execute(
-                    "SELECT * FROM activity_log WHERE status IN ('PENDING', 'RUNNING') ORDER BY timestamp ASC",
+                    "SELECT * FROM activity_log "
+                    "WHERE status IN ('PENDING', 'RUNNING') "
+                    "ORDER BY timestamp ASC",
                 ) as cursor:
                     rows = await cursor.fetchall()
             result = []

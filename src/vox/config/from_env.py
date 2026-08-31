@@ -1,8 +1,8 @@
 """
 Environment variable parsing.
 
-Reads config from .env and process environment, exposing them as a
-typed dataclass for downstream runtime resolution.
+Reads config from .env and process environment, exposing them as a typed
+dataclass for downstream runtime resolution.
 """
 
 import os

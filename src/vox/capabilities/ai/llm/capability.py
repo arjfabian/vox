@@ -8,8 +8,8 @@ Routes every inbound payload through the sequential pipeline:
   4. Generation    — dispatch to selected LLM backend
   5. Cache Commit  — store response for future cache hits
 
-Vision inference bypasses the pipeline and always routes to
-the local vision model.
+Vision inference bypasses the pipeline and always routes to the local vision
+model.
 NLU intent parsing is also provided here as ``parse_intent()``.
 """
 
@@ -35,9 +35,9 @@ class LLMCapability(VOXCapability):
     _cache: SemanticCache
     _rag: RAGRetriever
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Health
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     @classmethod
     async def health_check(cls) -> bool:
@@ -51,9 +51,9 @@ class LLMCapability(VOXCapability):
         await client.aclose()
         return result
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Public operations
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     async def generate(
         self,
@@ -87,7 +87,11 @@ class LLMCapability(VOXCapability):
             snippets = await self._rag.retrieve(context_token, sanitized.text)
             if snippets:
                 context_block = "\n".join(f"- {s}" for s in snippets)
-                augmented_system = f"{system}\n\nRelevant context from workload memory:\n{context_block}"
+                augmented_system = (
+                    f"{system}\n\n"
+                    "Relevant context from workload memory:"
+                    f"\n{context_block}"
+                )
                 self.log(f"Injected {len(snippets)} RAG snippet(s)")
 
         # 4. Generation
@@ -134,7 +138,8 @@ class LLMCapability(VOXCapability):
         image_path: str,
     ) -> str:
         self.log(f"Generating vision response using [{self.LLM_VISION_MODEL_NAME}]")
-        with open(image_path, "rb") as f:  # noqa: ASYNC230 — small file read, blocking negligible
+        # ASYNC230: blocking file read for a small image is negligible
+        with open(image_path, "rb") as f:  # noqa: ASYNC230
             image_b64 = base64.b64encode(f.read()).decode()
         request = LLMChatRequest(
             model=self.LLM_VISION_MODEL_NAME,
@@ -151,9 +156,9 @@ class LLMCapability(VOXCapability):
         result = await self._client.chat(request)
         return result.content
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # NLU intent parsing
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     async def parse_intent(
         self,
@@ -186,14 +191,19 @@ class LLMCapability(VOXCapability):
             "- general_chat: casual conversation, no specific command.",
             "",
             "Rules:",
-            "- You MUST return ONLY valid JSON. No prose, no explanations, no greetings.",
             (
-                "- If the user message does not clearly match a specific command, "
-                "use 'general_chat' with confidence 1.0."
+                "- You MUST return ONLY valid JSON. "
+                "No prose, no explanations, no greetings."
             ),
             (
-                "- 'entities' contains extracted values. For general_chat, include "
-                'the original user text as "user_message".'
+                "- If the user message does not clearly match "
+                "a specific command, use 'general_chat' "
+                "with confidence 1.0."
+            ),
+            (
+                "- 'entities' contains extracted values. "
+                "For general_chat, include the original "
+                'user text as "user_message".'
             ),
             "",
             (
@@ -214,7 +224,11 @@ class LLMCapability(VOXCapability):
 
     @staticmethod
     def _parse_intent_response(raw: str, valid_commands: list[str]) -> dict:
-        result: dict = {"command": "general_chat", "confidence": 0.0, "entities": {}}
+        result: dict = {
+            "command": "general_chat",
+            "confidence": 0.0,
+            "entities": {},
+        }
         if not raw:
             return result
 
@@ -261,9 +275,9 @@ class LLMCapability(VOXCapability):
         result["entities"] = entities
         return result
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Lifecycle
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     async def boot(self) -> None:
         self._client = LLMClient(

@@ -2,14 +2,14 @@
 
 Bridges the Telegram Bot API in both directions:
 
-  * Inbound via ``getUpdates`` long-polling (or the standard Telegram
-    webhook payload) parsed into VOXInboundMessage and forwarded to the
-    caller-supplied dispatch callback.
+  * Inbound via ``getUpdates`` long-polling (or the standard Telegram webhook
+    payload) parsed into VOXInboundMessage and forwarded to the caller-supplied
+    dispatch callback.
   * Outbound via the Bot API ``sendMessage`` endpoint.
 
 Configuration is supplied by the bound ``comm.gateway`` capability.
-Non-secret parameters come from ``capability.yml``; secrets are injected
-by the workload Vault.
+Non-secret parameters come from ``capability.yml``; secrets are injected by the
+workload Vault.
 """
 
 from __future__ import annotations
@@ -94,9 +94,9 @@ class TelegramAdapter(BaseAdapter):
                 "poll dies with a ReadTimeout and retries forever."
             )
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Request verification
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     def verify_request(
         self,
@@ -123,9 +123,9 @@ class TelegramAdapter(BaseAdapter):
             self._webhook_secret,
         )
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Inbound
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     def parse_inbound(
         self,
@@ -253,9 +253,9 @@ class TelegramAdapter(BaseAdapter):
 
         return "text", fallback_text, None
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Outbound
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     async def send_outbound(
         self,
@@ -297,15 +297,15 @@ class TelegramAdapter(BaseAdapter):
             )
             return False
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Inbound — getUpdates long-polling
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     async def start(self) -> None:
         """Start long-polling when Telegram is configured.
 
-        Long-polling only requires TELEGRAM_BOT_TOKEN. The webhook secret
-        is unrelated to getUpdates and therefore remains optional.
+        Long-polling only requires TELEGRAM_BOT_TOKEN. The webhook secret is
+        unrelated to getUpdates and therefore remains optional.
         """
         if self._bot_token and self._dispatch is not None and self._poll_task is None:
             self._poll_task = asyncio.create_task(self._poll_loop())
@@ -385,9 +385,9 @@ class TelegramAdapter(BaseAdapter):
                     exc,
                 )
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Internals
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     async def _ensure_client(self) -> httpx.AsyncClient:
         if self._client is None:

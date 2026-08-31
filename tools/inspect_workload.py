@@ -1,4 +1,6 @@
-"""Statically inspect a VOX persona directory for manifest, roles, and capability dependencies."""
+"""Statically inspect a VOX persona directory for manifest, roles,
+and capability dependencies.
+"""
 
 import ast
 import sys
@@ -120,7 +122,9 @@ def _extract_set_literals(node: ast.AST) -> list[str]:
                 return [
                     elt.value
                     for elt in arg.elts
-                    if isinstance(elt, ast.Constant) and isinstance(elt.value, str)
+                    if isinstance(elt, ast.Constant) and isinstance(
+                        elt.value, str
+                    )
                 ]
         return []
     return []
@@ -183,7 +187,9 @@ def extract_command_decorators(tree: ast.AST) -> list[dict]:
                 ):
                     meta = {"name": None, "description": "", "requires": set()}
                     for kw in deco.keywords:
-                        if kw.arg == "name" and isinstance(kw.value, ast.Constant):
+                        if kw.arg == "name" and isinstance(
+                            kw.value, ast.Constant
+                        ):
                             meta["name"] = kw.value.value
                         elif kw.arg == "description" and isinstance(
                             kw.value, ast.Constant
@@ -274,14 +280,20 @@ def print_delta_report(delta: dict) -> None:
     print(_heading("Capability Coverage"))
     if delta["used_but_not_required"]:
         for cap in delta["used_but_not_required"]:
-            print(_warn(f"Runtime usage of '{cap}' but no REQUIRES declaration"))
+            print(_warn(
+                f"Runtime usage of '{cap}' "
+                "but no REQUIRES declaration"
+            ))
     if delta["required_but_not_used"]:
         for cap in delta["required_but_not_used"]:
             print(_warn(f"REQUIRES '{cap}' but no runtime usage found"))
-    if not delta["used_but_not_required"] and not delta["required_but_not_used"]:
-        print(
-            _ok("All capability references are consistent (REQUIRES ↔ runtime usage)")
-        )
+    has_used = delta["used_but_not_required"]
+    has_required = delta["required_but_not_used"]
+    if not has_used and not has_required:
+        print(_ok(
+            "All capability references are consistent "
+            "(REQUIRES <-> runtime usage)"
+        ))
 
 
 # ---------------------------------------------------------------------------

@@ -24,7 +24,10 @@ async def _handle_stop(orchestrator, args):
     workload_id = orchestrator.resolve_workload_id(workload_name)
     success = await orchestrator.stop_workload(workload_id) if workload_id else False
     if success:
-        return {"data": f"Workload '{workload_name}' stopped successfully.", "ok": True}
+        return {
+            "data": f"Workload '{workload_name}' stopped successfully.",
+            "ok": True,
+        }
     return {"error": f"Command 'stop' failed for '{workload_name}'."}
 
 
@@ -34,7 +37,10 @@ async def _handle_restart(orchestrator, args):
     workload_name = args[0]
     success = await orchestrator.restart_workload(workload_name)
     if success:
-        return {"data": f"Workload '{workload_name}' restarted successfully.", "ok": True}
+        return {
+            "data": f"Workload '{workload_name}' restarted successfully.",
+            "ok": True,
+        }
     return {"error": f"Command 'restart' failed for '{workload_name}'."}
 
 
@@ -44,7 +50,10 @@ async def _handle_start(orchestrator, args):
     workload_name = args[0]
     success = await orchestrator.start_workload_by_name(workload_name)
     if success:
-        return {"data": f"Workload '{workload_name}' started successfully.", "ok": True}
+        return {
+            "data": f"Workload '{workload_name}' started successfully.",
+            "ok": True,
+        }
     return {"error": f"Command 'start' failed for '{workload_name}'."}
 
 

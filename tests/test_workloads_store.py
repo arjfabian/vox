@@ -530,8 +530,10 @@ async def test_dedup_ordering_delete_failure_does_not_orphan_files(dedup_env):
 
     proxy = _FailingConnectProxy(db_path, "remove-uuid")
 
-    with patch("vox.workloads.store.aiosqlite.connect", return_value=proxy), \
-         pytest.raises(Exception):  # noqa: B017 — proxy raises arbitrary errors by design
+    with (
+        patch("vox.workloads.store.aiosqlite.connect", return_value=proxy),
+        pytest.raises(Exception),  # noqa: B017 — proxy raises arbitrary errors by design
+    ):
         store = VOXWorkloadStore(tmp_path)
         await store.init_db()
 
@@ -555,8 +557,8 @@ async def test_dedup_ordering_delete_failure_does_not_orphan_files(dedup_env):
 @pytest.mark.asyncio
 async def test_dedup_two_groups_atomic_rollback(dedup_env):
     """With two duplicate-checksum groups, if the second group's DELETE
-    raises, the SQL transaction rolls back atomically (first group's
-    DELETE undone) but file unlink is NOT transactional.  A second
+    raises, the SQL transaction rolls back atomically (first group's DELETE
+    DELETE undone) but file unlink is NOT transactional.
     VOXWorkloadStore construction self-heals: re-processes the stale group
     and converges to 1 row per checksum."""
     tmp_path, db_path, assets_dir = dedup_env
@@ -658,8 +660,10 @@ async def test_dedup_two_groups_atomic_rollback(dedup_env):
 
     proxy = _FailingConnectProxy(db_path, "remove-uuid-2")
 
-    with patch("vox.workloads.store.aiosqlite.connect", return_value=proxy), \
-         pytest.raises(Exception):  # noqa: B017 — proxy raises arbitrary errors by design
+    with (
+        patch("vox.workloads.store.aiosqlite.connect", return_value=proxy),
+        pytest.raises(Exception),  # noqa: B017 — proxy raises arbitrary errors by design
+    ):
         store = VOXWorkloadStore(tmp_path)
         await store.init_db()
 

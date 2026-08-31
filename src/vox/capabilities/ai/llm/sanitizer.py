@@ -1,8 +1,8 @@
 """Prompt sanitizer and token trimmer.
 
-Strips control characters, removes known boilerplate prefixes,
-collapses verbose JSON, and enforces a configurable character
-ceiling before any prompt leaves the VOX process.
+Strips control characters, removes known boilerplate prefixes, collapses verbose
+JSON, and enforces a configurable character ceiling before any prompt leaves the
+VOX process.
 """
 
 import json

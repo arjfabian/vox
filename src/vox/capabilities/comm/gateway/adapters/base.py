@@ -1,18 +1,23 @@
-"""BaseAdapter — abstract interface for channel-specific inbound/outbound translation.
+"""BaseAdapter — abstract interface for inbound/outbound translation.
 
 Every adapter implements the inbound/outbound contract:
-  parse_inbound(raw)          — normalise a channel-native payload into VOXInboundMessage
-  send_outbound(msg)          — translate a VOXOutboundMessage into a channel-native API call
-  verify_request(request, body) — validate an inbound HTTP request's authenticity (HMAC,
-                                  signature headers, etc.). ``body`` is the raw request
-                                  body read before JSON parsing — required by channels
-                                  that sign the payload bytes (e.g. WhatsApp/Meta).
-  handle_verification(query)  — optional GET webhook subscription handshake (e.g. Meta's
-                                ``hub.challenge`` echo). Returns the challenge to echo, or
-                                ``None`` to reject the request with 403.
 
-Adapters also declare their own HTTP route (``WEBHOOK_PATH``) so the shared IngressServer
-registers channels generically — no server changes when a new channel is plugged in.
+  parse_inbound(raw)
+      Normalize a channel-native payload into VOXInboundMessage.
+  send_outbound(msg)
+      Translate a VOXOutboundMessage into a channel-native API call.
+  verify_request(request, body)
+      Validate an inbound HTTP request's authenticity (HMAC, signature headers,
+      etc.). ``body`` is the raw request body read before JSON parsing —
+      required by channels that sign the payload bytes (e.g. WhatsApp/Meta).
+  handle_verification(query)
+      Optional GET webhook subscription handshake (e.g. Meta's ``hub.challenge``
+      echo). Returns the challenge to echo, or ``None`` to reject the request
+      with 403.
+
+Adapters also declare their own HTTP route (``WEBHOOK_PATH``) so the shared
+IngressServer registers channels generically — no server changes when a new
+channel is plugged in.
 """
 
 from abc import ABC, abstractmethod
@@ -26,10 +31,10 @@ class BaseAdapter(ABC):
     # HTTP path served by the shared IngressServer for this channel's inbound
     # webhook. The server registers POST (and GET, for handshakes) generically.
     WEBHOOK_PATH: str = ""
-    # Adapter-scoped configuration keys. Adapters no longer declare PARAMS
-    # or SENSITIVE_PARAMS — the gateway's YAML contract is the single source
-    # of truth. These stubs remain for backward compatibility with adapter
-    # code that references ``cls.PARAMS`` or ``cls.SENSITIVE_PARAMS``.
+    # Adapter-scoped configuration keys. Adapters no longer declare PARAMS or
+    # SENSITIVE_PARAMS — the gateway's YAML contract is the single source of
+    # truth. These stubs remain for backward compatibility with adapter code
+    # that references ``cls.PARAMS`` or ``cls.SENSITIVE_PARAMS``.
     PARAMS: dict[str, list[Any]] = {}  # noqa: RUF012
     SENSITIVE_PARAMS: set[str] = set()  # noqa: RUF012
 

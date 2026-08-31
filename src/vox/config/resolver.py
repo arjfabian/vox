@@ -1,8 +1,7 @@
 """
 Configuration resolution.
 
-Merges CLI args, environment variables, and defaults
-into a final VOXConfig.
+Merges CLI args, environment variables, and defaults into a final VOXConfig.
 """
 
 from .from_cli import VOXCliArgs

@@ -1,8 +1,8 @@
 """ai.llm — async HTTP client for LLM backends.
 
-Provider-agnostic client wrapping the Ollama /chat API
-(OpenAI-compatible endpoints). Connection pool is allocated
-at boot time and reused across all requests.
+Provider-agnostic client wrapping the Ollama /chat API (OpenAI-compatible
+endpoints). Connection pool is allocated at boot time and reused across all
+requests.
 """
 
 import logging

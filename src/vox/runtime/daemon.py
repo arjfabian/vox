@@ -8,7 +8,7 @@ from vox.runtime.models import VOXRuntime
 
 
 def _silence_playwright_futures(loop, context):
-    """Suppress 'Future exception was never retrieved' for Playwright's TargetClosedError."""
+    """Suppress Playwright's unretrieved TargetClosedError futures."""
     msg = context.get("message", "")
     exc = context.get("exception", None)
     if "TargetClosedError" in msg or (

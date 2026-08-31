@@ -1,15 +1,14 @@
 """WhatsApp Business Cloud API adapter for comm.gateway.
 
 Bridges the Meta WhatsApp Cloud API in both directions:
-  * Inbound via webhook (``entry[].changes[].value.messages[]``) normalised
-    into VOXInboundMessage and forwarded to the caller-supplied dispatch
-    callback.
-  * Outbound via the Graph API ``POST /{version}/{phone_id}/messages``
-    endpoint with ``Authorization: Bearer <ACCESS_TOKEN>``.
+  * Inbound via webhook (``entry[].changes[].value.messages[]``) normalised into
+    VOXInboundMessage and forwarded to the caller-supplied dispatch callback.
+  * Outbound via the Graph API ``POST /{version}/{phone_id}/messages`` endpoint
+    with ``Authorization: Bearer <ACCESS_TOKEN>``.
 
 Webhook verification uses Meta's ``hub.mode`` / ``hub.verify_token`` /
-``hub.challenge`` handshake, and every inbound POST is HMAC-SHA256 signed
-via ``X-Hub-Signature-256``.
+``hub.challenge`` handshake, and every inbound POST is HMAC-SHA256 signed via
+``X-Hub-Signature-256``.
 
 All keys are drawn from the workload's ``secrets.vault`` via the gateway's
 ``SENSITIVE_PARAMS`` injection (``WHATSAPP_ACCESS_TOKEN``,
@@ -57,9 +56,9 @@ class WhatsAppAdapter(BaseAdapter):
             config.get("WHATSAPP_PHONE_NUMBER_ID")
         )
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Request verification — X-Hub-Signature-256 HMAC
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     def verify_request(self, request: Any, body: bytes | None = None) -> bool:
         if not self._app_secret:
@@ -76,9 +75,9 @@ class WhatsAppAdapter(BaseAdapter):
         ).hexdigest()
         return _hmac.compare_digest(sig, f"sha256={expected}")
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Webhook verification handshake — hub.challenge echo
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     def handle_verification(self, query: dict) -> str | None:
         if query.get("hub.mode") == "subscribe" and _hmac.compare_digest(
@@ -87,9 +86,9 @@ class WhatsAppAdapter(BaseAdapter):
             return query.get("hub.challenge")
         return None
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Inbound
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     def parse_inbound(self, raw_data: dict) -> VOXInboundMessage:
         """Parse a WhatsApp Cloud API webhook payload into VOXInboundMessage.
@@ -184,9 +183,9 @@ class WhatsAppAdapter(BaseAdapter):
             raw_payload=status,
         )
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Outbound
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     async def send_outbound(self, message: VOXOutboundMessage) -> bool:
         if not self._access_token or not self._phone_number_id:
@@ -212,13 +211,13 @@ class WhatsAppAdapter(BaseAdapter):
             )
             resp.raise_for_status()
             return True
-        except Exception as exc:  # noqa: BLE001 — HTTP send failure returns False
+        except Exception as exc:  # noqa: BLE001 — HTTP send failure
             logger.error("WhatsApp send failed: %s", exc)
             return False
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Lifecycle
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     async def _ensure_client(self) -> httpx.AsyncClient:
         if self._client is None:

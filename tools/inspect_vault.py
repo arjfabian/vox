@@ -14,8 +14,14 @@ PERSONAS_DIR = ROOT_DIR / "instance" / "personas"
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Debug and inspect workload vault")
-    parser.add_argument("--workload", required=True, help="Workload folder name")
+    parser = argparse.ArgumentParser(
+        description="Debug and inspect workload vault"
+    )
+    parser.add_argument(
+        "--workload",
+        required=True,
+        help="Workload folder name",
+    )
     parser.add_argument(
         "--purge",
         action="store_true",
@@ -36,13 +42,15 @@ def main():
 
     if args.purge:
         confirm = input(
-            "[!] WARNING: This will delete ALL encrypted secrets for this workload. Proceed? [y/N]: "
+            "[!] WARNING: This will delete ALL encrypted "
+            "secrets for this workload. Proceed? [y/N]: "
         )
         if confirm.lower() == "y":
             cursor.execute("DELETE FROM secrets;")
             conn.commit()
             print(
-                "[+] Vault secrets database purged. Ready for fresh provision_vault run."
+                "[+] Vault secrets database purged. "
+                "Ready for fresh provision_vault run."
             )
             conn.close()
             sys.exit(0)
@@ -64,7 +72,9 @@ def main():
             print("\n--- Vault Metadata ---")
             for row in meta:
                 print(
-                    f"  Key: {row[0]} | Value Size: {len(row[1]) if row[1] else 0} bytes"
+                    f"  Key: {row[0]} | "
+                    f"Value Size: "
+                    f"{len(row[1]) if row[1] else 0} bytes"
                 )
 
         # Check secrets (using dynamic column discovery)
@@ -75,7 +85,8 @@ def main():
             print(f"\n[+] 'secrets' table columns: {', '.join(columns)}")
 
             # Build a safe query depending on what columns actually exist
-            # Most likely columns: capability/cap_id, parameter/key_name, status, ciphertext/value
+            # Likely columns: capability/cap_id, parameter/key_name,
+            # status, ciphertext/value
             col_cap = (
                 "capability"
                 if "capability" in columns
@@ -98,7 +109,8 @@ def main():
             )
 
             cursor.execute(
-                f"SELECT {col_cap}, {col_param}, {col_status}, length({col_cipher}) FROM secrets;"
+                f"SELECT {col_cap}, {col_param}, {col_status}, "
+                f"length({col_cipher}) FROM secrets;"
             )
             secrets = cursor.fetchall()
             print("\n--- Encrypted Records Exist ---")
@@ -106,7 +118,10 @@ def main():
                 print("  (No secrets stored)")
             for cap, param, status, cipher_len in secrets:
                 print(
-                    f"  Capability: {cap:<20} | Param: {param:<20} | Status: {status:<10} | Size: {cipher_len} bytes"
+                    f"  Capability: {cap:<20} | "
+                    f"Param: {param:<20} | "
+                    f"Status: {status:<10} | "
+                    f"Size: {cipher_len} bytes"
                 )
 
     except sqlite3.Error as e:

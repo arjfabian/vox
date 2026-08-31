@@ -1,8 +1,8 @@
 """Semantic cache for LLM responses.
 
 SQLite-backed store with exact SHA-256 keyed lookup and TTL eviction.
-Write transactions are serialized via ``asyncio.Lock`` to guarantee
-safe concurrent access when shared across parallel workload invocations.
+Write transactions are serialized via ``asyncio.Lock`` to guarantee safe
+concurrent access when shared across parallel workload invocations.
 """
 
 import asyncio
@@ -37,9 +37,9 @@ class SemanticCache:
         self._lock = asyncio.Lock()
         self._initialized = False
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Lifecycle
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     async def init_db(self) -> None:
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -62,9 +62,9 @@ class SemanticCache:
         if hasattr(self, "_lock"):
             await asyncio.sleep(0)
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Public API
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     async def lookup(
         self,
@@ -110,7 +110,8 @@ class SemanticCache:
 
         async with self._lock:
             await self._execute(
-                "INSERT OR REPLACE INTO exact_cache (key, response, model, cached_at) "
+                "INSERT OR REPLACE INTO exact_cache "
+                "(key, response, model, cached_at) "
                 "VALUES (?, ?, ?, ?)",
                 (key, payload, model, time.time()),
             )
@@ -137,9 +138,9 @@ class SemanticCache:
             row = await self._query_one("SELECT changes() AS cnt")
         return row["cnt"] if row else 0
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Internal
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     async def _query_one(self, sql: str, params: tuple = ()) -> dict | None:
         async with aiosqlite.connect(self._db_path) as conn:

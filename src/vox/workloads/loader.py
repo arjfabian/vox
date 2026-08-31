@@ -3,8 +3,8 @@
 Isolates filesystem and YAML parsing for workload manifests and optional
 environment files away from the workload runtime.
 
-The loader validates only workload-level configuration. Capability contracts
-and capability-specific configuration are intentionally outside its scope.
+The loader validates only workload-level configuration. Capability contracts and
+capability-specific configuration are intentionally outside its scope.
 """
 
 from pathlib import Path
@@ -74,8 +74,8 @@ class WorkloadLoader:
     def load_and_validate(self) -> dict[str, Any]:
         """Load manifest and environment, validate identity, return config.
 
-        Raises ``WorkloadProvisionError`` if the manifest is missing,
-        malformed, or contains invalid required workload configuration.
+        Raises ``WorkloadProvisionError`` if the manifest is missing, malformed,
+        or contains invalid required workload configuration.
         """
         config: dict[str, Any] = {}
 
@@ -91,7 +91,6 @@ class WorkloadLoader:
         return config
 
     def _load_manifest(self, config: dict[str, Any]) -> bool:
-        """Load and validate manifest.yml into the workload config."""
         manifest_path = self._dir / "manifest.yml"
 
         if not manifest_path.exists():
@@ -135,7 +134,6 @@ class WorkloadLoader:
             return False
 
     def _validate_manifest(self, data: dict[str, Any]) -> None:
-        """Validate workload-level manifest structure."""
         if not isinstance(data, dict):
             raise WorkloadProvisionError(
                 f"Manifest must contain a mapping: {self._dir / 'manifest.yml'}"
@@ -177,7 +175,6 @@ class WorkloadLoader:
             self._logger.warning(f"[manifest] {warning}")
 
     def _load_env(self, config: dict[str, Any]) -> bool:
-        """Load optional workload .env values into the config."""
         dotenv_path = self._dir / ".env"
 
         if not dotenv_path.exists():
@@ -197,7 +194,6 @@ class WorkloadLoader:
         config: dict[str, Any],
         required: list[str],
     ) -> bool:
-        """Return whether all required workload identity fields are present."""
         missing = [key for key in required if not config.get(key)]
 
         return not missing

@@ -29,7 +29,7 @@ class WorkloadState(Enum):
         return self.name
 
     def can_transition_to(self, target: WorkloadState) -> bool:
-        return _TRANSITIONS.get(self, set()).__contains__(target)
+        return target in _TRANSITIONS.get(self, set())
 
 
 _TRANSITIONS: dict[WorkloadState, set[WorkloadState]] = {

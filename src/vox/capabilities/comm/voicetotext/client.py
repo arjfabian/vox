@@ -1,7 +1,7 @@
 """faster-whisper runtime client.
 
-Isolates the synchronous faster-whisper inference pipeline behind
-an async facade using asyncio.to_thread for CPU-bound operations.
+Isolates the synchronous faster-whisper inference pipeline behind an async
+facade using asyncio.to_thread for CPU-bound operations.
 No top-level synchronization locks.
 """
 
@@ -31,7 +31,11 @@ class WhisperClient:
             )
         return self._model
 
-    def _preprocess(self, audio_data: np.ndarray, sample_rate: int) -> np.ndarray:
+    def _preprocess(
+        self,
+        audio_data: np.ndarray,
+        sample_rate: int,
+    ) -> np.ndarray:
         import librosa
 
         if audio_data.ndim > 1:

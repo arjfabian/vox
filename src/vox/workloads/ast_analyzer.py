@@ -1,9 +1,9 @@
 """ASTWorkloadAnalyzer — static AST dependency scanner for role files.
 
-Scans role source files at bootstrap to discover required capability
-IDs and their required secrets without executing any code.  This keeps
-filesystem parsing isolated from the runtime workload lifecycle, which
-is critical for safe hot-reload of individual roles.
+Scans role source files at bootstrap to discover required capability IDs and
+their required secrets without executing any code. This keeps filesystem parsing
+isolated from the runtime workload lifecycle, which is critical for safe
+hot-reload of individual roles.
 """
 
 import ast
@@ -13,20 +13,19 @@ from pathlib import Path
 class ASTWorkloadAnalyzer:
     """Utility class for static analysis of role files.
 
-    Uses Python's ``ast`` module to extract capability requirements and
-    required secrets from role source code without importing or executing
-    the module.  Detected declarations:
+    Uses Python's ``ast`` module to extract capability requirements and required
+    secrets from role source code without importing or executing the module.
+    Detected declarations:
 
     * ``REQUIRES = {"cap_id", ...}`` — required capability IDs.
-    * ``REQUIRED_SECRETS = {"cap_id": ["SECRET_1", ...]}`` — secrets that
-      the role needs from each capability.
+    * ``REQUIRED_SECRETS = {"cap_id": ["SECRET_1", ...]}`` — secrets that the
+      role needs from each capability.
     * ``self.workload.capabilities["cap_id"]`` subscript access.
     * ``self.workload.capabilities.get("cap_id")`` method calls.
     """
 
     @staticmethod
     def _is_capabilities_chain(node: ast.AST) -> bool:
-        """Check whether an AST node represents a capabilities attribute chain."""
         if isinstance(node, ast.Attribute) and node.attr == "capabilities":
             inner = node.value
             return isinstance(inner, (ast.Attribute, ast.Name))
@@ -105,7 +104,7 @@ class ASTWorkloadAnalyzer:
             target = node.targets[0]
             if not (isinstance(target, ast.Name) and target.id == "REQUIRED_SECRETS"):
                 continue
-            if not isinstance(node.value, (ast.Dict,)):
+            if not isinstance(node.value, ast.Dict):
                 continue
             for key, value in zip(node.value.keys, node.value.values):
                 if not (isinstance(key, ast.Constant) and isinstance(key.value, str)):

@@ -111,9 +111,10 @@ def _load_gateway_contract_secrets() -> dict[str, dict]:
 
 
 def _discover_sensitive_params(persona_dir: Path) -> dict[str, dict]:
-    """Scan workload roles and return ``{cap_id: {sensitive: [keys], all: {key: desc}}}``.
+    """Scan workload roles and discover vault-managed secrets.
 
     Uses the YAML capability contract as the single source of truth.
+    Returns ``{cap_id: {"sensitive": [(key, required)], "all": ...}}``.
     ``sensitive`` contains ``(key, required)`` tuples where *required* is
     ``True`` when the secret is marked ``required: true`` in the YAML.
     """
@@ -128,7 +129,10 @@ def _discover_sensitive_params(persona_dir: Path) -> dict[str, dict]:
 
     def _all_descriptions(contract) -> dict[str, str]:
         """Return ``{secret: description}`` from contract secrets."""
-        return {name: meta.description for name, meta in contract.secrets.items()}
+        return {
+            name: meta.description
+            for name, meta in contract.secrets.items()
+        }
 
     # Fleet-mandatory capabilities — always provisioned regardless of roles.
     # The gateway has aggregated secrets from adapter config.yml files.
@@ -192,7 +196,10 @@ def _discover_sensitive_params(persona_dir: Path) -> dict[str, dict]:
                 continue
             contract, err = _load_capability_contract(cap_id)
             if contract is None:
-                print(f"  [!] Skipping capability '{cap_id}' (load error: {err})")
+                print(
+                    f"  [!] Skipping capability '{cap_id}' "
+                    f"(load error: {err})"
+                )
                 continue
             result[cap_id] = {
                 "sensitive": _categorise_secrets(contract),
@@ -227,7 +234,7 @@ async def _sync_vault(vault: WorkloadVault, desired: dict[str, dict]) -> None:
 
     try:
         existing_inactive = await vault.list_inactive()
-    except Exception:  # noqa: BLE001, S110 — list_inactive may not exist in old vaults
+    except Exception:  # noqa: BLE001, S110 — old vault compat
         pass
 
     # 1. Missing → prompt (loop until non-empty or Ctrl+C)
@@ -269,7 +276,11 @@ async def main() -> None:
     parser = argparse.ArgumentParser(
         description="Provision secrets into workload vault"
     )
-    parser.add_argument("--workload", required=True, help="Workload folder name")
+    parser.add_argument(
+        "--workload",
+        required=True,
+        help="Workload folder name",
+    )
     args = parser.parse_args()
 
     persona_dir = PERSONAS_DIR / args.workload.lower()
@@ -290,8 +301,10 @@ async def main() -> None:
         print(f"Error: workload '{args.workload}' has no 'id' in manifest")
         sys.exit(2)
 
+    fleet_mandatory = [c for c, _ in FLEET_MANDATORY]
     print(
-        f"Scanning workload '{args.workload}' (fleet-mandatory: {[c for c, _ in FLEET_MANDATORY]})..."
+        f"Scanning workload '{args.workload}' "
+        f"(fleet-mandatory: {fleet_mandatory})..."
     )
     desired = _discover_sensitive_params(persona_dir)
 

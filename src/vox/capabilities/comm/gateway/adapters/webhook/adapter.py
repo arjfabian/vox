@@ -1,8 +1,7 @@
 """Generic HTTP Webhook adapter for comm.gateway.
 
-Accepts arbitrary JSON POST payloads and normalises them into
-VOXInboundMessage. Outbound messages are logged only (the generic
-adapter has no target API).
+Accepts arbitrary JSON POST payloads and normalises them into VOXInboundMessage.
+Outbound messages are logged only (the generic adapter has no target API).
 
 Customise parse_inbound() for your webhook vendor's payload shape.
 """
@@ -25,9 +24,9 @@ class WebhookAdapter(BaseAdapter):
     def __init__(self, config: dict, dispatch: Any | None = None) -> None:
         self._webhook_secret: str = config.get("GATEWAY_WEBHOOK_SECRET", "")
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Request verification
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     def verify_request(self, request: Any, body: bytes | None = None) -> bool:
         if not self._webhook_secret:
@@ -40,10 +39,10 @@ class WebhookAdapter(BaseAdapter):
     def parse_inbound(self, raw_data: dict) -> VOXInboundMessage:
         """Parse a generic JSON webhook payload.
 
-        Default strategy: treat ``sender_id`` as ``sender.id`` or
-        ``from.id`` or ``"anonymous"``, and ``text`` as ``text`` or
-        ``message`` or ``body``. Override this method or provide a
-        custom adapter subclass for vendor-specific payloads.
+        Default strategy: ``sender_id`` from ``sender.id``,
+        ``from.id``, ``user_id``, ``sender_id``, else ``"anonymous"``;
+        ``text`` from ``text``/``message``/``body``/``content``.
+        Override for vendor-specific payloads.
         """
         sender_id = (
             raw_data.get("sender", {}).get("id")
@@ -75,7 +74,7 @@ class WebhookAdapter(BaseAdapter):
         )
 
     async def send_outbound(self, message: VOXOutboundMessage) -> bool:
-        """Generic outbound: log only. Override in a vendor-specific subclass."""
+        """Generic outbound: log only (no target API to call)."""
         logger.info(
             "WebhookAdapter outbound to %s: %s",
             message.recipient_id,
@@ -83,13 +82,16 @@ class WebhookAdapter(BaseAdapter):
         )
         return True
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Internals
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     @staticmethod
     def _detect_content_type(data: dict) -> str:
-        if data.get("media_url") or data.get("image_url") or data.get("file_url"):
+        has_media = (
+            data.get("media_url") or data.get("image_url") or data.get("file_url")
+        )
+        if has_media:
             return "image"
         if data.get("event_type") or data.get("type"):
             return "event"

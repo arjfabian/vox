@@ -5,9 +5,9 @@ from .telegram import TelegramAdapter
 from .webhook import WebhookAdapter
 from .whatsapp import WhatsAppAdapter
 
-# Channel registry. The gateway capability instantiates every adapter here and
-# aggregates their PARAMS/SENSITIVE_PARAMS — channel-specific configuration
-# lives in the adapter module, not in the gateway.
+# Channel registry. The gateway capability instantiates every adapter
+# here and aggregates their PARAMS/SENSITIVE_PARAMS — channel-specific
+# configuration lives in the adapter module, not in the gateway.
 ADAPTER_REGISTRY: dict[str, type[BaseAdapter]] = {
     cls.CHANNEL: cls for cls in (TelegramAdapter, WebhookAdapter, WhatsAppAdapter)
 }

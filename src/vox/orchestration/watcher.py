@@ -1,8 +1,7 @@
 """Asynchronous workload file watcher.
 
-Polls persona directories for SHA-256 hash changes on ``manifest.yml``
-and ``roles/**/*.py`` and triggers a hot-restart of the
-affected workload.
+Polls persona directories for SHA-256 hash changes on ``manifest.yml`` and
+``roles/**/*.py`` and triggers a hot-restart of the affected workload.
 """
 
 import asyncio
@@ -19,8 +18,8 @@ if TYPE_CHECKING:
 class WorkloadFileWatcher:
     """Polling file watcher that hot-restarts workloads on config/code changes.
 
-    Only monitors ``manifest.yml`` and ``roles/**/*.py`` (excluding
-    ``_test.py`` files and ``__pycache__`` directories).
+    Only monitors ``manifest.yml`` and ``roles/**/*.py`` (excluding ``_test.py``
+    files and ``__pycache__`` directories).
     """
 
     def __init__(
@@ -71,7 +70,7 @@ class WorkloadFileWatcher:
 
             try:
                 data = yaml.safe_load(manifest.read_text()) or {}
-            except Exception:  # noqa: BLE001, S112 — resilient scan, skip malformed manifests
+            except Exception:  # noqa: BLE001, S112 — malformed manifest skipped
                 continue
             workload_name = data.get("name") or persona_folder.name
 

@@ -1,7 +1,10 @@
 """VOXWorkload — declarative execution unit.
 
-Workload = configuration + mounted capabilities + explicit roles.
-No auto-discovery, no implicit filesystem magic.
+A workload is the technical runtime for one persona: configuration from
+``manifest.yml``, a per-workload Vault, mounted capabilities, and explicit
+roles. This module belongs to the workloads runtime layer; the fleet controller
+drives lifecycle, and every required capability must be declared via
+``REQUIRES`` in a role — nothing is auto-discovered.
 """
 
 import asyncio
@@ -18,9 +21,9 @@ from vox.security.vault import VaultAccessError
 from vox.workloads.ast_analyzer import ASTWorkloadAnalyzer
 from vox.workloads.capability_binder import CapabilityBinder
 from vox.workloads.lifecycle import EventQueue, WorkloadState
-from vox.workloads.loader import (  # noqa: F401 — re-exported for public API
+from vox.workloads.loader import (
     WorkloadLoader,
-    WorkloadProvisionError,
+    WorkloadProvisionError,  # noqa: F401 — re-exported for public API
 )
 from vox.workloads.memory import VOXWorkloadMemory
 from vox.workloads.store import VOXWorkloadStore
@@ -119,7 +122,8 @@ class VOXWorkload:
         )
 
     def log_workload_info(self, message: str, *args, **kwargs):
-        """Safe wrapper to preserve compatibility with existing role extensions."""
+        """Compatibility shim for role extensions that predate the
+        workload-prefixed logger contract."""
         if hasattr(self, "logger") and self.logger:
             self.logger.info(f"[{self.id}] {message}", *args, **kwargs)
         else:
@@ -167,9 +171,9 @@ class VOXWorkload:
             raise PermissionError("Sandbox escape attempt")
         return final_path
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Bootstrap — orchestrates loader, roles, and capability binder
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     def _bootstrap(self) -> None:
         config = self._loader.load_and_validate()
@@ -231,7 +235,7 @@ class VOXWorkload:
                 setattr(self, role_name, role)
                 self._register_role_routes(role)
                 self.logger.ok(f"Loaded role: {role_name}")
-            except Exception as exc:  # noqa: BLE001 — defensive catch at role boundary
+            except Exception as exc:  # noqa: BLE001 — role boundary
                 self.logger.error(f"Role load failed [{role_name}]: {exc}")
 
     def _register_role_routes(self, role: Any) -> None:
@@ -249,9 +253,9 @@ class VOXWorkload:
                 self.event_router[route_name].append(role)
                 self.logger.info(f"Route registered: {route_name}")
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Lifecycle — state transitions
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     async def boot(self) -> bool:
         if self._state == WorkloadState.ACTIVE:
@@ -278,7 +282,7 @@ class VOXWorkload:
             try:
                 await cap.initialize()
                 await cap.boot()
-            except Exception as e:  # noqa: BLE001 — defensive catch at capability boundary
+            except Exception as e:  # noqa: BLE001 — capability boundary
                 self.logger.error(f"Capability boot failed [{cap}]: {e}")
                 ok = False
         if not ok:
@@ -333,16 +337,16 @@ class VOXWorkload:
         for cap in self.capabilities.values():
             try:
                 await cap.shutdown()
-            except Exception as e:  # noqa: BLE001 — defensive catch at shutdown boundary
+            except Exception as e:  # noqa: BLE001 — shutdown boundary
                 self.logger.error(f"Capability shutdown failed [{cap}]: {e}")
         self.roles.clear()
         self.capabilities.clear()
         self._state = WorkloadState.STOPPED
         self.logger.warning("Workload shutdown complete")
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Event emission
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     async def emit(self, event_name: str, **kwargs) -> None:
         if self._state in (WorkloadState.PAUSED, WorkloadState.PAUSING):
@@ -365,13 +369,13 @@ class VOXWorkload:
         for role in targets:
             try:
                 await role.handle_event(event_name, **kwargs)
-            except Exception as exc:  # noqa: BLE001 — defensive catch at event dispatch
+            except Exception as exc:  # noqa: BLE001 — dispatch boundary
                 self.logger.error(f"Role dispatch failure [{event_name}]: {exc}")
         handler = self._capability_commands.get(event_name)
         if handler:
             try:
                 await handler(**kwargs)
-            except Exception as exc:  # noqa: BLE001 — defensive catch at event dispatch
+            except Exception as exc:  # noqa: BLE001 — dispatch boundary
                 self.logger.error(
                     f"Capability command dispatch failure [{event_name}]: {exc}"
                 )

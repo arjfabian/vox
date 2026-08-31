@@ -1,9 +1,8 @@
 """FleetController — lock-guarded workload lifecycle transitions.
 
-Coordinates safe, transactional state transitions for individual
-workloads (stop, start, restart, pause, resume) using per-workload
-``asyncio.Lock`` to prevent race conditions during concurrent
-control-plane requests.
+Coordinates safe, transactional state transitions for individual workloads
+(stop, start, restart, pause, resume) using per-workload ``asyncio.Lock`` to
+prevent race conditions during concurrent control-plane requests.
 """
 
 from __future__ import annotations
@@ -22,8 +21,8 @@ class FleetController:
     """Lock-guarded lifecycle controller for the workload fleet.
 
     Each workload ID has a dedicated ``asyncio.Lock`` so that concurrent
-    control-plane operations (e.g. simultaneous HTTP requests) are
-    serialised per workload without blocking unrelated workloads.
+    control-plane operations (e.g. simultaneous HTTP requests) are serialised
+    per workload without blocking unrelated workloads.
     """
 
     def __init__(
@@ -105,7 +104,8 @@ class FleetController:
             else:
                 self._degraded_workloads[new_workload.id] = new_workload
                 self._logger.warning(
-                    f"Workload '{workload_name}' restarted in DEGRADED state (boot failed)"
+                    f"Workload '{workload_name}' restarted in DEGRADED "
+                    "state (boot failed)"
                 )
             return ok
 

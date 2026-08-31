@@ -1,18 +1,17 @@
 """
 tools/enroll_speaker.py
 
-One-time setup: records voice samples from the operator and generates
-a speaker embedding saved to identity/master_voice.npy.
+One-time setup: records voice samples from the operator and generates a speaker
+embedding saved to identity/master_voice.npy.
 
-Run this before starting VOX if you want voice command recognition:
+Run this before starting VOX to support voice command recognition:
 
     python tools/enroll_speaker.py
 
 Requirements:
     pip install resemblyzer sounddevice soundfile numpy
 
-The identity/ directory is gitignored. Your voice data never leaves
-your machine.
+The identity/ directory is gitignored. Voice data never leaves the machine.
 """
 
 import sys
@@ -21,9 +20,9 @@ from pathlib import Path
 
 import numpy as np
 
-# ---------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 # Config
-# ---------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 
 IDENTITY_DIR = Path("identity")
 OUTPUT_PATH = IDENTITY_DIR / "master_voice.npy"
@@ -49,12 +48,13 @@ def _check_dependencies():
 def _record_sample(index: int, total: int) -> np.ndarray:
     import sounddevice as sd
 
-    print(f"\n  Sample {index}/{total} — speak naturally for {RECORD_SECS} seconds.")
+    print(f"\n- Sample {index}/{total}.")
+    print(f"  Speak naturally for {RECORD_SECS} seconds.")
     print("  Recording in 3...", end="", flush=True)
     time.sleep(1)
-    print(" 2...", end="", flush=True)
+    print("  Recording in 2...", end="", flush=True)
     time.sleep(1)
-    print(" 1...", end="", flush=True)
+    print("  Recording in 1...", end="", flush=True)
     time.sleep(1)
     print(" GO!")
 
@@ -97,8 +97,8 @@ def main():
     print("  VOX — Speaker Enrollment")
     print("=" * 60)
     print("""
-  This script records your voice and generates a speaker profile
-  used by VOX to authenticate voice commands.
+  This script records your voice and generates a speaker profile used by VOX to
+  authenticate voice commands.
 
   Guidelines for best results:
     - Use the same microphone you'll use day-to-day
@@ -136,7 +136,8 @@ def main():
     np.save(str(OUTPUT_PATH), embedding)
     print(f"\n  Profile saved to '{OUTPUT_PATH}'.")
     print(f"  Embedding shape: {embedding.shape}, dtype: {embedding.dtype}")
-    print("\n  Enrollment complete. VOX will recognize your voice on next boot.")
+    print("\n  Enrollment complete.")
+    print("  VOX will recognize your voice on next boot.")
     print("=" * 60)
 
 

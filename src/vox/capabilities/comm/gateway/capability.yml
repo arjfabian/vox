@@ -3,8 +3,8 @@ version: 0.2.0
 
 description: |
   Multi-channel communication gateway for VOX workloads.
-  Provides inbound webhook ingestion and outbound message delivery
-  with a unified adapter abstraction.
+  Provides inbound webhook ingestion and outbound message delivery with a
+  unified adapter abstraction.
 
 capability_class: CommGatewayCapability
 

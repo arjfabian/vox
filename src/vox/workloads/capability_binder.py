@@ -1,7 +1,7 @@
 """CapabilityBinder — capability mounting and Vault secret binding.
 
-The binder is the runtime boundary between workload configuration,
-capability contracts, and the workload Vault.
+The binder is the runtime boundary between workload configuration, capability
+contracts, and the workload Vault.
 
 Configuration flow:
 
@@ -53,12 +53,11 @@ class CapabilityBinder:
         self._workload = workload
         self.logger = logger
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Vault initialisation
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     def init_vault_sync(self) -> None:
-        """Create or attach the workload-local Vault."""
         try:
             self._workload._vault = WorkloadVault(
                 self._workload.dir,
@@ -70,27 +69,22 @@ class CapabilityBinder:
             self._workload._vault = None
 
     async def init_vault(self) -> None:
-        """Initialize the workload Vault."""
         self.init_vault_sync()
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Capability discovery and mounting
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     def discover_and_mount(
         self,
         roles_dir: Path,
         system_capabilities: set[str],
     ) -> None:
-        """Discover role requirements and mount all required capabilities.
+        """Mount every required capability.
 
-        Capability configuration comes exclusively from:
-
-          1. capability.yml defaults
-          2. workload manifest ``overrides[capability_id]``
-
-        Secrets are not resolved during mounting. They are injected from
-        Vault during workload boot.
+        Capability configuration comes exclusively from capability.yml defaults
+        and workload manifest ``overrides[capability_id]``; secrets are injected
+        from Vault later, during boot.
         """
         from vox.workloads.ast_analyzer import ASTWorkloadAnalyzer
 
@@ -189,7 +183,6 @@ class CapabilityBinder:
         cap: Any,
         bound: VOXBoundCapability,
     ) -> None:
-        """Register commands exposed by a mounted capability."""
         exposed = getattr(type(cap), "EXPOSED_COMMANDS", [])
 
         for cmd_def in exposed:
@@ -205,9 +198,9 @@ class CapabilityBinder:
                 f"  Exposed command: {cmd_name} (via {cap_id}.{method_name})"
             )
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Required-secret resolution
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     def _collect_required_secrets(self) -> dict[str, set[str]]:
         """Compute required secrets per capability from AST + YAML contracts.
@@ -216,11 +209,11 @@ class CapabilityBinder:
           1. The YAML contract marks it ``required: true``, AND
           2. At least one role declares it in ``REQUIRED_SECRETS``.
 
-        ``REQUIRED_SECRETS`` is scanned statically from role source files
-        via AST (consistent with ``REQUIRES`` scanning).
+        ``REQUIRED_SECRETS`` is scanned statically from role source files via
+        AST (consistent with ``REQUIRES`` scanning).
 
-        Returns ``{cap_id: {secret_names}}`` for capabilities with
-        required secrets.
+        Returns ``{cap_id: {secret_names}}`` for capabilities with required
+        secrets.
         """
         from vox.workloads.ast_analyzer import ASTWorkloadAnalyzer
 
@@ -255,9 +248,9 @@ class CapabilityBinder:
 
         return result
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Vault secret injection
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     def _inject_vault_for_capability(
         self,
@@ -302,10 +295,10 @@ class CapabilityBinder:
         """Resolve all declared capability secrets from the workload Vault.
 
         Secrets have no defaults and cannot be supplied through workload
-        configuration.  Required secrets (those marked ``required: true`` in
-        the YAML contract *and* declared in a role's ``REQUIRED_SECRETS``)
-        cause a hard failure when the Vault is unavailable.  Optional
-        missing secrets only disable the affected roles.
+        configuration. Required secrets (those marked ``required: true`` in the
+        YAML contract *and* declared in a role's ``REQUIRED_SECRETS``) cause a
+        hard failure when the Vault is unavailable. Optional missing secrets
+        only disable the affected roles.
         """
         workload = self._workload
 
@@ -376,15 +369,14 @@ class CapabilityBinder:
                     f"{', '.join(missing_optional)}"
                 )
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Role disabling
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     def _disable_roles_with_missing_capabilities(
         self,
         missing: set[str],
     ) -> None:
-        """Disable roles requiring unavailable capabilities."""
         for role_name, role in list(self._workload.roles.items()):
             requires = getattr(type(role), "REQUIRES", set())
 
@@ -404,7 +396,6 @@ class CapabilityBinder:
         self,
         cap_id: str,
     ) -> None:
-        """Disable roles requiring a capability with missing secrets."""
         for role_name, role in list(self._workload.roles.items()):
             requires = getattr(type(role), "REQUIRES", set())
 

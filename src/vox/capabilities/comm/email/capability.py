@@ -1,7 +1,7 @@
 """comm.email — Asynchronous email dispatch capability.
 
-Sends plain-text emails via SMTP using credentials from the
-bound workload's local .env file (SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS).
+Sends plain-text emails via SMTP using credentials from the bound workload's
+local .env file (SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS).
 """
 
 from vox.capabilities.base import VOXCapability

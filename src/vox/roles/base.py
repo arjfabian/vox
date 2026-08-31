@@ -10,9 +10,9 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-# ---------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 # Command marker — used by the @command decorator
-# ---------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 
 _COMMAND_MARKER = "_vox_command_meta"
 
@@ -36,9 +36,9 @@ def command(name: str, description: str = "", **metadata):
     return decorator
 
 
-# ---------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 # Data classes
-# ---------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 
 
 @dataclass
@@ -51,18 +51,18 @@ class CommandInfo:
     sample_prompts: list | None = None
 
 
-# ---------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 # Exceptions
-# ---------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 
 
 class WorkloadHostDeadError(Exception):
     pass
 
 
-# ---------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 # VOXRole
-# ---------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 
 
 class VOXRole:
@@ -76,8 +76,8 @@ class VOXRole:
 
     Class variables:
       REQUIRES: set[str] — capability IDs this role must be mounted with.
-      PREFERRED_MODEL: str | None — which Ollama model this role prefers,
-          or None to use the workload's default.
+      PREFERRED_MODEL: str | None — which Ollama model this role prefers, or
+      None to use the workload's default.
     """
 
     REQUIRES: set[str] = set()  # noqa: RUF012
@@ -115,8 +115,8 @@ class VOXRole:
         """
         Register an event handler.
 
-        Use this for non-command events (``on_boot``, ``inbound_message``,
-        etc.). For command handlers prefer the ``@command`` decorator.
+        Use this for non-command events (``on_boot``, ``inbound_message``, etc).
+        For command handlers, prefer the ``@command`` decorator.
         """
 
         def decorator(fn):

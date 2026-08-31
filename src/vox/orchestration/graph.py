@@ -1,8 +1,7 @@
 """FleetGraph — in-memory fleet topology index.
 
-Maintains indexed lookups of active, inactive, and degraded workloads,
-resolves workload identities, and exposes the hierarchical topology
-of the running fleet.
+Maintains indexed lookups of active, inactive, and degraded workloads, resolves
+workload identities, and exposes the hierarchical topology of the running fleet.
 """
 
 from __future__ import annotations
@@ -15,8 +14,8 @@ from vox.observability import VOXForensicLogger
 class FleetGraph:
     """Runtime index of the workload fleet.
 
-    Provides read-only query methods over the three workload registries
-    (active, inactive, degraded).
+    Provides read-only query methods over the three workload registries (active,
+    inactive, degraded).
     """
 
     def __init__(

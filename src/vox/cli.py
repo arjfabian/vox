@@ -1,7 +1,7 @@
 """VOX CLI entry point.
 
-Parses config, bootstraps observability, then builds and runs the VOX
-runtime.  Invoked by the ``vox`` console-script (``main()``) or
+Parses config, bootstraps observability, then builds and runs the VOX runtime.
+Invoked by the ``vox`` console-script (``main()``) or
 ``python -m vox`` (via :mod:`vox.__main__`).
 """
 
@@ -58,7 +58,8 @@ async def _main() -> None:
     if cli_args.command:
         try:
             resp = await _send_uds_command(
-                cli_args.command, [cli_args.workload_name] if cli_args.workload_name else []
+                cli_args.command,
+                ([cli_args.workload_name] if cli_args.workload_name else []),
             )
             if resp.get("ok"):
                 print(resp["data"])

@@ -38,7 +38,10 @@ class VOXColorFormatter(logging.Formatter):
     }
 
     def format(self, record: logging.LogRecord) -> str:
-        timestamp = datetime.fromtimestamp(record.created).strftime("%Y-%m-%d %H:%M:%S")  # noqa: DTZ006 — log formatting, local time intentional
+        # DTZ006: log formatting, local time intentional
+        timestamp = datetime.fromtimestamp(  # noqa: DTZ006
+            record.created
+        ).strftime("%Y-%m-%d %H:%M:%S")
 
         level_color = self._LEVEL_COLORS.get(
             record.levelno,
@@ -56,7 +59,10 @@ class VOXColorFormatter(logging.Formatter):
 
 class VOXPlainFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
-        timestamp = datetime.fromtimestamp(record.created).strftime("%Y-%m-%d %H:%M:%S")  # noqa: DTZ006 — log formatting, local time intentional
+        # DTZ006: log formatting, local time intentional
+        timestamp = datetime.fromtimestamp(  # noqa: DTZ006
+            record.created
+        ).strftime("%Y-%m-%d %H:%M:%S")
 
         tag = _source_tag(record)
 

@@ -1,16 +1,16 @@
 """IngressServer — aiohttp-based webhook listener for comm.gateway.
 
-Starts an HTTP server on a configurable port with routes for each
-registered adapter.  Incoming payloads are parsed into VOXInboundMessage
-and dispatched to the orchestrator via a caller-supplied callback.
+Starts an HTTP server on a configurable port with routes for each registered
+adapter. Incoming payloads are parsed into VOXInboundMessage and dispatched to
+the orchestrator via a caller-supplied callback.
 
-Routes are registered generically from each adapter's ``WEBHOOK_PATH``, so a
-new channel needs no server changes. POST serves the inbound payload; GET
-serves a provider subscription handshake when the adapter implements one.
+Routes are registered generically from each adapter's ``WEBHOOK_PATH``, so a new
+new channel needs no server changes. POST serves the inbound payload; GET serves
+a provider subscription handshake when the adapter implements one.
 
-The server is started by CommGatewayCapability.boot() and stopped by
-shutdown().  A single server instance serves all mounted workloads — the
-orchestrator routes inbound messages to the correct workload(s).
+The server is started by CommGatewayCapability.boot() and stopped by shutdown().
+A single server instance serves all mounted workloads — the orchestrator routes
+inbound messages to the correct workload(s).
 """
 
 from __future__ import annotations
@@ -47,9 +47,9 @@ class IngressServer:
         self._runner: web.AppRunner | None = None
         self._task: asyncio.Task | None = None
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Lifecycle
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     async def start(self) -> None:
         if self._app is not None:
@@ -63,7 +63,10 @@ class IngressServer:
         from vox.observability.constants import LOG_LEVEL_OK
 
         logger.log(
-            LOG_LEVEL_OK, "IngressServer listening on %s:%s", self._host, self._port
+            LOG_LEVEL_OK,
+            "IngressServer listening on %s:%s",
+            self._host,
+            self._port,
         )
 
     async def stop(self) -> None:
@@ -80,40 +83,42 @@ class IngressServer:
         self._app = None
         logger.info("IngressServer stopped")
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Route registration
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     def _register_routes(self) -> None:
-        # Register each adapter's declared webhook path generically. POST always
-        # serves the inbound payload; GET serves the provider subscription
-        # handshake when the adapter implements one, otherwise the generic
-        # "webhook registered" response.
+        # Register each adapter's webhook route: POST for inbound, GET for
+        # provider subscription handshake (if implemented) or a generic 200.
         for channel, adapter in self._adapters.items():
             path = getattr(adapter, "WEBHOOK_PATH", "")
             if not path:
                 continue
             self._app.router.add_post(path, self._make_handler(channel))
-            if type(adapter).handle_verification is not BaseAdapter.handle_verification:
+            base_verify = BaseAdapter.handle_verification
+            has_custom = type(adapter).handle_verification is not base_verify
+            if has_custom:
                 self._app.router.add_get(
-                    path, self._make_verification_handler(channel)
+                    path,
+                    self._make_verification_handler(channel),
                 )
             else:
                 self._app.router.add_get(path, self._handle_get)
 
         self._app.router.add_get("/health", self._handle_health)
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Handlers
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     def _make_handler(self, channel: str) -> Callable:
         adapter = self._adapters[channel]
 
         async def handler(request: web.Request) -> web.Response:
-            # Read the raw body first: body-signing channels (e.g. Meta/WhatsApp)
-            # verify against the exact bytes. aiohttp caches the payload, so
-            # request.json() below reuses what was read here.
+            # Read raw body first: body-signing channels (e.g. Meta/Whatsapp)
+            # verify against the exact bytes.
+            # aiohttp caches the payload, so request.json() below reuses what
+            # was read here.
             body = await request.read()
             if not adapter.verify_request(request, body):
                 return web.json_response({"error": "forbidden"}, status=403)
@@ -131,7 +136,7 @@ class IngressServer:
 
             try:
                 await self._dispatch(inbound)
-            except Exception as exc:  # noqa: BLE001 — dispatch failure returns 500
+            except Exception as exc:  # noqa: BLE001 — dispatch fails
                 logger.error("Dispatch error [%s]: %s", channel, exc)
                 return web.json_response({"error": "dispatch error"}, status=500)
 

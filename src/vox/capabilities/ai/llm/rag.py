@@ -1,11 +1,11 @@
 """RAG context retriever — workload-private store integration.
 
-Queries the calling workload's isolated SQLite ``memory.db`` for
-relevant context snippets via FTS5 full-text search, falling
-back to keyword matching on asset index entries.
+Queries the calling workload's isolated SQLite ``memory.db`` for relevant
+context snippets via FTS5 full-text search, falling back to keyword matching on
+asset index entries.
 
-Only receives a ``store_path`` string — never a direct reference
-to the workload object — preserving strict zero-coupling.
+Only receives a ``store_path`` string — never a direct reference to the workload
+object — preserving strict zero-coupling.
 """
 
 import json
@@ -49,7 +49,7 @@ class RAGRetriever:
                 if len(snippets) < self._max_snippets:
                     asset_rows = await self._asset_search(conn, tokens)
                     snippets.extend(asset_rows)
-        except Exception as exc:  # noqa: BLE001 — RAG failure is non-fatal, return empty
+        except Exception as exc:  # noqa: BLE001 — RAG failure is non-fatal
             logger.warning("RAG retrieve failed: %s", exc)
             return []
 
@@ -58,12 +58,13 @@ class RAGRetriever:
             text[:_SNIPPET_CHAR_LIMIT] for text, _ in snippets[: self._max_snippets]
         ]
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Internal search strategies
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     def _tokenize(self, text: str) -> list[str]:
-        return [w.strip(".,!?;:()[]{}") for w in text.lower().split() if len(w) > 2]
+        strip_chars = ".,!?;:()[]{}"
+        return [w.strip(strip_chars) for w in text.lower().split() if len(w) > 2]
 
     async def _fts_search(
         self, conn: aiosqlite.Connection, tokens: list[str]

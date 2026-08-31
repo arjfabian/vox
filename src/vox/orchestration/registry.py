@@ -1,7 +1,7 @@
 """VOXRegistry — workload and capability discovery from disk.
 
-Isolates all directory-traversal, YAML parsing, and dynamic
-import logic for capabilities and workloads.
+Isolates all directory-traversal, YAML parsing, and dynamic import logic for
+capabilities and workloads.
 """
 
 from __future__ import annotations
@@ -34,10 +34,8 @@ class VOXRegistry:
     """Filesystem scanner and loader for capabilities and workloads.
 
     Responsible for:
-    * Recursive discovery of ``capability.py`` files under the
-      capabilities directory.
-    * Dynamic import and health-checking of each ``VOXCapability``
-      subclass.
+    * Recursive discovery of ``capability.py`` files under the capabilities dir.
+    * Dynamic import and health-checking of each ``VOXCapability`` subclass.
     * Scanning ``manifest.yml`` manifests in the personas directory.
     * Hiring (constructing) ``VOXWorkload`` instances from disk.
     """
@@ -50,9 +48,9 @@ class VOXRegistry:
         self._orc = orchestrator
         self._logger = logger
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Capability discovery
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     async def discover_capabilities(self) -> bool:
         for capability_file in self._orc.capabilities_dir.rglob("capability.py"):
@@ -60,9 +58,10 @@ class VOXRegistry:
                 capability_file.relative_to(self._orc.capabilities_dir).parent.parts
             )
             await self._load_capability(capability_id, capability_file)
+        healthy = sum(1 for e in self._orc.capability_registry.values() if e.healthy)
         self._logger.info(
             f"Discovered {len(self._orc.capability_registry)} capabilities "
-            f"({sum(1 for e in self._orc.capability_registry.values() if e.healthy)} healthy)"
+            f"({healthy} healthy)"
         )
         return True
 
@@ -103,7 +102,7 @@ class VOXRegistry:
             else:
                 self._logger.error(f"Capability [{capability_id}] failed health check")
             return healthy
-        except Exception as exc:  # noqa: BLE001 — capability load failure is non-fatal
+        except Exception as exc:  # noqa: BLE001 — load failures are non-fatal
             self._logger.error(f"Failed to load capability [{capability_id}]: {exc}")
             return False
 
@@ -126,9 +125,9 @@ class VOXRegistry:
         self._logger.ok(f"Capability loaded: [{cap_id}]")
         return instance
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Workload discovery
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     def scan_workload_manifests(self):
         workload_specs = []
@@ -154,7 +153,7 @@ class VOXRegistry:
                         "name": data.get("name"),
                     }
                 )
-            except Exception as e:  # noqa: BLE001 — defensive catch at manifest parse
+            except Exception as e:  # noqa: BLE001 — malformed manifest skipped
                 self._logger.error(f"Failed parsing {persona_folder}: {e}")
         workloads_by_id = {}
         for spec in workload_specs:
@@ -185,7 +184,8 @@ class VOXRegistry:
                     if workload._degraded or not workload.health_check():
                         self._orc.degraded_workloads[workload.id] = workload
                         workload.logger.warning(
-                            "Workload DEGRADED \u2014 No active roles available. "
+                            "Workload DEGRADED \u2014 "
+                            "No active roles available. "
                             "Skipping onboarding."
                         )
                     elif spec["autostart"]:
@@ -219,13 +219,13 @@ class VOXRegistry:
                             "name", master
                         )
                         self._logger.error(
-                            f"Master Workload '{master_name}' not available \u2014 "
-                            f"cannot create {spec['name']}"
+                            f"Master Workload '{master_name}' not available "
+                            f"\u2014 cannot create {spec['name']}"
                         )
                     else:
                         self._logger.error(
-                            f"Unresolvable dependency for workload {spec['name']} "
-                            f"(master_id={master})"
+                            f"Unresolvable dependency for workload "
+                            f"{spec['name']} (master_id={master})"
                         )
                 return False
 
@@ -253,6 +253,6 @@ class VOXRegistry:
                 global_env=global_env,
             )
             return workload
-        except Exception as e:  # noqa: BLE001 — defensive catch at workload hire
+        except Exception as e:  # noqa: BLE001 — hire failures are non-fatal
             self._logger.error(f"hire_workload failed for {folder}: {e}")
             return None

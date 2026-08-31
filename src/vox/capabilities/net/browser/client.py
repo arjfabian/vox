@@ -14,7 +14,9 @@ class BrowserClient:
 
     async def start(self):
         self._pw = await async_playwright().start()
-        self.browser = await self._pw.firefox.launch(headless=self.config.headless)
+        self.browser = await self._pw.firefox.launch(
+            headless=self.config.headless
+        )
         self.context = await self.browser.new_context(
             ignore_https_errors=True,
             viewport={
@@ -46,29 +48,32 @@ class BrowserClient:
         if hasattr(self, "context") and self.context:
             try:
                 await asyncio.wait_for(self.context.close(), timeout=0.5)
-            except BaseException:  # noqa: BLE001, S110 — teardown must not raise
+            except BaseException:  # noqa: BLE001, S110 — teardown guard
                 pass
 
         if hasattr(self, "browser") and self.browser:
             try:
                 await asyncio.wait_for(self.browser.close(), timeout=0.5)
-            except BaseException:  # noqa: BLE001, S110 — teardown must not raise
+            except BaseException:  # noqa: BLE001, S110 — teardown guard
                 pass
 
         if hasattr(self, "_pw") and self._pw:
             try:
                 await asyncio.wait_for(self._pw.stop(), timeout=0.5)
-            except BaseException:  # noqa: BLE001, S110 — teardown must not raise
+            except BaseException:  # noqa: BLE001, S110 — teardown guard
                 pass
 
         # 3. CRITICAL OS FALLBACK: Force kill if the process is still alive
         if browser_pid:
             try:
                 os.kill(browser_pid, signal.SIGKILL)
-                print(f"[browser] Hard-killed/verified browser PID {browser_pid}")
+                print(
+                    "[browser] Hard-killed/verified "
+                    f"browser PID {browser_pid}"
+                )
             except ProcessLookupError:
                 pass
-            except Exception as e:  # noqa: BLE001 — OS kill failure is non-fatal
+            except Exception as e:  # noqa: BLE001 — OS kill is non-fatal
                 print(f"[browser] OS fallback kill failed: {e}")
 
     async def new_page(self):

@@ -1,8 +1,8 @@
 """VOXOrchestrator — unified fleet coordination facade.
 
-Coordinates workload discovery, capability mounting,
-and workload lifecycle management by delegating to specialised
-service components (VOXRegistry, FleetGraph, FleetController).
+Coordinates workload discovery, capability mounting, and workload lifecycle
+management by delegating to specialised service components (VOXRegistry,
+FleetGraph, FleetController).
 """
 
 import asyncio
@@ -17,7 +17,11 @@ from vox.observability import VOXForensicLogger
 from vox.orchestration.controller import FleetController
 from vox.orchestration.graph import FleetGraph
 from vox.orchestration.registry import CapabilityEntry, VOXRegistry
-from vox.orchestration.war_room import VOXWarRoom, VOXWarRoomMaster, WarRoomMessage
+from vox.orchestration.war_room import (
+    VOXWarRoom,
+    VOXWarRoomMaster,
+    WarRoomMessage,
+)
 from vox.orchestration.watcher import WorkloadFileWatcher
 from vox.security import InputSanitizer, SecurityError, VOXSpeakerProfile
 from vox.services import FleetMessenger
@@ -67,7 +71,8 @@ class VOXOrchestrator:
             self.fleet_messenger = None
             if not bot_token:
                 self.logger.warning(
-                    "FleetMessenger disabled \u2014 no TELEGRAM_BOT_TOKEN in environment"
+                    "FleetMessenger disabled \u2014 "
+                    "no TELEGRAM_BOT_TOKEN in environment"
                 )
 
         # Pub/Sub war room
@@ -87,9 +92,9 @@ class VOXOrchestrator:
 
         self._watcher: WorkloadFileWatcher | None = None
 
-        # ------------------------------------------------------------------
+        # ----------------------------------------------------------------------
         # Service components
-        # ------------------------------------------------------------------
+        # ----------------------------------------------------------------------
         self._registry = VOXRegistry(self, self.logger)
         self._graph = FleetGraph(
             self.active_workloads,
@@ -107,17 +112,17 @@ class VOXOrchestrator:
             self.degraded_workloads,
         )
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Fleet-wide properties
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     @property
     def _all_workloads(self) -> dict[str, "VOXWorkload"]:
         return self._graph.all_workloads
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Lifecycle
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     async def boot(self) -> bool:
         self.logger.info("Bootstrapping VOX orchestrator")
@@ -137,7 +142,11 @@ class VOXOrchestrator:
             msg += f", {degraded_count} degraded"
         self.logger.ok(msg)
 
-        if os.environ.get("VOX_WATCH_DISABLED", "").lower() not in ("1", "true", "yes"):
+        if os.environ.get("VOX_WATCH_DISABLED", "").lower() not in (
+            "1",
+            "true",
+            "yes",
+        ):
             self._watcher = WorkloadFileWatcher(self, self.personas_dir)
             await self._watcher.start()
 
@@ -159,7 +168,7 @@ class VOXOrchestrator:
         for workload in all_workloads:
             try:
                 await workload.shutdown()
-            except Exception as e:  # noqa: BLE001 — defensive catch at fleet shutdown
+            except Exception as e:  # noqa: BLE001 — fleet shutdown
                 self.logger.error(f"Workload shutdown failed [{workload.name}]: {e}")
         self.active_workloads.clear()
         self.inactive_workloads.clear()
@@ -169,18 +178,18 @@ class VOXOrchestrator:
             if entry.instance is not None:
                 try:
                     await entry.instance.shutdown()
-                except Exception as e:  # noqa: BLE001 — defensive catch at fleet shutdown
+                except Exception as e:  # noqa: BLE001 — fleet shutdown
                     self.logger.error(f"Capability shutdown failed [{cap_id}]: {e}")
         if self.fleet_messenger is not None:
             try:
                 await self.fleet_messenger.shutdown()
-            except Exception as e:  # noqa: BLE001 — defensive catch at fleet shutdown
+            except Exception as e:  # noqa: BLE001 — fleet shutdown
                 self.logger.error(f"FleetMessenger shutdown failed: {e}")
         self.logger.ok("VOX fleet shut down.")
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Fleet snapshot
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     def get_fleet_snapshot(self) -> dict:
         system = {
@@ -197,9 +206,13 @@ class VOXOrchestrator:
         ]
         all_workloads = self._all_workloads
         workloads = [
-            workload.describe() for workload in all_workloads.values() if not workload.master_id
+            workload.describe()
+            for workload in all_workloads.values()
+            if not workload.master_id
         ]
-        degraded = [workload.describe() for workload in self.degraded_workloads.values()]
+        degraded = [
+            workload.describe() for workload in self.degraded_workloads.values()
+        ]
         hierarchy = self._graph.get_hierarchy_snapshot()
         return {
             "system": system,
@@ -209,16 +222,16 @@ class VOXOrchestrator:
             "hierarchy": hierarchy,
         }
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Capability registry (delegated)
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     def get_capability_instance(self, cap_id: str) -> "VOXCapability | None":
         return self._registry.get_capability_instance(cap_id)
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Graph queries (delegated)
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     def resolve_workload_id(self, workload_name: str) -> str | None:
         return self._graph.resolve_workload_id(workload_name)
@@ -232,9 +245,9 @@ class VOXOrchestrator:
     def _resolve_workload(self, identifier: str):
         return self._graph.resolve_workload(identifier)
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Controller lifecycle (delegated)
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     async def stop_workload(self, workload_id: str) -> bool:
         return await self._controller.stop_workload(workload_id)
@@ -251,9 +264,9 @@ class VOXOrchestrator:
     async def resume_workload(self, workload_name: str) -> bool:
         return await self._controller.resume_workload(workload_name)
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Panic shutdown (core compromise)
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     def panic_shutdown(self) -> None:
         """Synchronous, uninterruptible emergency stop.
@@ -294,11 +307,15 @@ class VOXOrchestrator:
 
         self.logger.critical("PANIC SHUTDOWN complete")
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Inbound message routing (temporary facade)
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
-    async def dispatch_inbound_message(self, source: str, payload: dict) -> None:
+    async def dispatch_inbound_message(
+        self,
+        source: str,
+        payload: dict,
+    ) -> None:
         try:
             payload = self._guardrail.sanitize(payload)
         except SecurityError:

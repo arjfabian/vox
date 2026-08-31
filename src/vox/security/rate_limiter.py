@@ -1,8 +1,8 @@
 """Sliding-window rate limiter.
 
-Prevents event bursts by capping the number of emissions per workload
-within a rolling time window. Uses ``collections.deque`` for O(1)
-timestamp purge on each check.
+Prevents event bursts by capping the number of emissions per workload within a
+rolling time window. Uses ``collections.deque`` for O(1) timestamp purge on each
+check.
 """
 
 import time
@@ -16,9 +16,9 @@ class RateLimitError(Exception):
 class RateLimiter:
     """High-performance sliding-window rate limiter.
 
-    Tracks event timestamps in a deque; on each check, expired entries
-    are purged from the left (oldest) side. If the window is full the
-    caller is denied.
+    Tracks event timestamps in a deque; on each check, expired entries are
+    purged from the left (oldest) side. If the window is full the caller is
+    denied.
     """
 
     def __init__(self, max_calls: int = 30, window_seconds: int = 60) -> None:
@@ -27,14 +27,15 @@ class RateLimiter:
         self._calls: deque[float] = deque()
 
     def check_limit(self) -> None:
-        """Active enforcement — raises on breach (circuit-breaker style)."""
+        """Raises on breach — active enforcement (circuit-breaker style)."""
         if not self.allow():
             raise RateLimitError(
-                f"Rate limit breached: {self.max_calls} calls per {self.window}s window."
+                f"Rate limit breached: {self.max_calls} calls per "
+                f"{self.window}s window."
             )
 
     def allow(self) -> bool:
-        """Passive check — purges expired timestamps, then registers + returns bool."""
+        """Returns bool — passive check."""
         now = time.time()
         cutoff = now - self.window
 
@@ -48,7 +49,7 @@ class RateLimiter:
         return True
 
     def get_utilization(self) -> float:
-        """Current window utilization as a percentage (0‑100)."""
+        """Current window utilization as a percentage (0-100)."""
         if self.max_calls == 0:
             return 0.0
         return (len(self._calls) / self.max_calls) * 100

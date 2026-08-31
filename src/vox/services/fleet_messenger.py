@@ -1,7 +1,7 @@
 """FleetMessenger — War Room broadcast singleton.
 
-Posts operational alerts to a configured Telegram channel using
-the root-level bot token.
+Posts operational alerts to a configured Telegram channel using the root-level
+bot token.
 """
 
 import httpx
@@ -42,7 +42,7 @@ class FleetMessenger:
             )
             resp.raise_for_status()
             return True
-        except Exception as exc:  # noqa: BLE001 — HTTP send failure returns False
+        except Exception as exc:  # noqa: BLE001 — send failure
             self.logger.error(f"FleetMessenger send failed: {exc}")
             return False
 

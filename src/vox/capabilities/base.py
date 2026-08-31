@@ -80,18 +80,19 @@ class CapabilityContract:
 
     @property
     def secret_names(self) -> set[str]:
-        """Return names of all Vault-managed secrets."""
         return set(self.secrets)
 
     @property
     def required_secret_names(self) -> set[str]:
-        """Return names of Vault-managed secrets marked as required."""
         return {name for name, meta in self.secrets.items() if meta.required}
 
     @property
     def required_params(self) -> set[str]:
-        """Return non-secret parameters without a default value."""
-        return {name for name, meta in self.params.items() if meta.default is None}
+        return {
+            name
+            for name, meta in self.params.items()
+            if meta.default is None
+        }
 
 
 def _parse_params(raw_params: dict, source: str) -> dict[str, ParamMeta]:
@@ -106,7 +107,9 @@ def _parse_params(raw_params: dict, source: str) -> dict[str, ParamMeta]:
 
     for pname, pdef in raw_params.items():
         if not isinstance(pdef, dict):
-            raise TypeError(f"Invalid parameter definition '{pname}' in: {source}")
+            raise TypeError(
+                f"Invalid parameter definition '{pname}' in: {source}"
+            )
 
         params[pname] = ParamMeta(
             name=pname,
@@ -280,7 +283,8 @@ class VOXCapability:
 
     @property
     def name(self) -> str:
-        """Return the public capability identifier."""
+        """Public capability identifier from CAPABILITY_NAME, else contract
+        name, else the class name (last resort for test doubles)."""
         if self.CAPABILITY_NAME:
             return self.CAPABILITY_NAME
 
@@ -289,17 +293,16 @@ class VOXCapability:
 
     @classmethod
     def get_params(cls) -> list[str]:
-        """Return declared non-secret parameter names."""
         return list(cls._ensure_contract().params)
 
     @classmethod
     def get_secret_names(cls) -> set[str]:
-        """Return declared Vault-managed secret names."""
         return cls._ensure_contract().secret_names
 
     @classmethod
     def get_sensitive_params(cls) -> set[str]:
-        """Return declared Vault-managed secret names (backward compat)."""
+        """Legacy alias for ``get_secret_names()`` — retained for callers
+        that predate the param/secret namespace split."""
         return cls._ensure_contract().secret_names
 
     @classmethod
@@ -307,7 +310,6 @@ class VOXCapability:
         cls,
         param_name: str,
     ) -> ParamMeta | None:
-        """Return metadata for a declared parameter."""
         return cls._ensure_contract().params.get(param_name)
 
     @classmethod
@@ -315,7 +317,6 @@ class VOXCapability:
         cls,
         secret_name: str,
     ) -> SecretMeta | None:
-        """Return metadata for a declared Vault-managed secret."""
         return cls._ensure_contract().secrets.get(secret_name)
 
     # -- informational ---------------------------------------------------------
@@ -387,7 +388,9 @@ class VOXCapability:
         unknown = set(overrides) - set(contract.params)
 
         if unknown:
-            raise ValueError(f"Unknown parameter(s) for {self.name}: {sorted(unknown)}")
+            raise ValueError(
+                f"Unknown parameter(s) for {self.name}: {sorted(unknown)}"
+            )
 
         resolved: dict[str, Any] = {
             name: meta.default for name, meta in contract.params.items()
@@ -458,7 +461,8 @@ class VOXBoundCapability:
             attr = getattr(self._capability, name)
         except AttributeError:
             raise AttributeError(
-                f"Capability [{self._capability.name}] has no attribute '{name}'"
+                f"Capability [{self._capability.name}] "
+                f"has no attribute '{name}'"
             ) from None
 
         if not callable(attr):
@@ -524,7 +528,9 @@ class VOXBoundCapability:
         missing = self.validate_params()
 
         if missing:
-            raise ValueError(f"Missing required params for {self.name}: {missing}")
+            raise ValueError(
+                f"Missing required params for {self.name}: {missing}"
+            )
 
         self.ok("Capability initialized")
 

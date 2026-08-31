@@ -45,7 +45,11 @@ class VOXForensicLogger:
     ) -> None:
         kwargs.pop("extra", None)
         self._logger.log(
-            LOG_LEVEL_OK, message, *args, extra=self._extra(source), **kwargs
+            LOG_LEVEL_OK,
+            message,
+            *args,
+            extra=self._extra(source),
+            **kwargs,
         )
 
     def info(
@@ -91,11 +95,11 @@ class VOXForensicLogger:
         self._logger.debug(message, *args, extra=self._extra(source), **kwargs)
 
     def get_child(self, name: str) -> "VOXForensicLogger":
-        """Returns a new VOXForensicLogger whose records carry ``name``
-        as a dotted suffix on the logger name (e.g. ``vox.workload1``).
+        """Returns a child logger carrying ``name`` as a dotted suffix (e.g.
+        ``vox.workload1``).
 
-        Formatters can split on ``.`` and render only the last segment
-        so that workload-scoped messages show ``[workload1]`` instead of ``[vox]``.
+        Formatters split on ``.`` and render only the last segment so that
+        workload-scoped messages show ``[workload1]`` instead of ``[vox]``.
         """
         return VOXForensicLogger(
             self._logger.getChild(name),

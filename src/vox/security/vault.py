@@ -4,9 +4,9 @@ Uses AES-256-GCM with PBKDF2HMAC key derivation.
 Each workload gets an isolated ``secrets.vault`` SQLite file.
 Fallback chain: vault → local ``.env`` (via config dict).
 
-Synchronous ``sqlite3`` is used only inside ``__init__`` for schema
-creation and salt derivation (one-time bootstrap path).  All runtime
-public methods use ``aiosqlite`` and are fully async.
+Synchronous ``sqlite3`` is used only inside ``__init__`` for schema creation and
+salt derivation (one-time bootstrap path). All runtime public methods use
+``aiosqlite`` and are fully async.
 """
 
 import os
@@ -37,19 +37,19 @@ class WorkloadVault:
         self._config = config or {}
         self._key: bytes | None = None
 
-        # 1. Fail-fast check: Validate environment BEFORE touching the disk
+        # Fail-fast: validate VOX_MASTER_KEY before disk side-effects
         master_key = self._check_master_key_presence()
 
-        # 2. Initialize storage and derive key cleanly passing the validated token
+        # Bootstrap the DB, then derive the key with its persisted salt
         self._ensure_db_sync()
         self._key = self._derive_key(master_key)
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Public API — async runtime path
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     async def init_db(self) -> None:
-        """Async schema creation (runtime path)."""
+        """Creates the schema if absent (idempotent, runtime path)."""
         self._vault_path.parent.mkdir(parents=True, exist_ok=True)
         async with aiosqlite.connect(self._vault_path) as conn:
             await conn.execute("""
@@ -69,7 +69,7 @@ class WorkloadVault:
             """)
             await conn.commit()
 
-            # --- one-time capability rename migration -------------------
+            # --- one-time capability rename migration -------------------------
             async with conn.execute(
                 "SELECT COUNT(*) FROM secrets WHERE capability_name = ?",
                 ("comm.messenger",),
@@ -87,9 +87,8 @@ class WorkloadVault:
         """Return decrypted value from vault, falling back to config/.env.
 
         If the key exists in the database but is marked *inactive*, returns
-        ``None`` explicitly.  Only falls back to ``self._config`` (the
-        local ``.env``) when the key does **not** exist in the database at
-        all.
+        ``None`` explicitlyOnly falls back to ``self._config`` (the local
+        ``.env``) when the key does **not** exist in the database at all.
         """
         if self.exists():
             row = await self._query(
@@ -106,26 +105,30 @@ class WorkloadVault:
         return self._config.get(secret_key)
 
     async def set(
-        self, capability_name: str, secret_key: str, value: str, status: str = "active"
+        self,
+        capability_name: str,
+        secret_key: str,
+        value: str,
+        status: str = "active",
     ) -> None:
         encrypted = self._encrypt(value)
         await self._execute(
-            "INSERT OR REPLACE INTO secrets (capability_name, secret_key, encrypted_value, status) "
+            "INSERT OR REPLACE INTO secrets "
+            "(capability_name, secret_key, encrypted_value, status) "
             "VALUES (?, ?, ?, ?)",
             (capability_name, secret_key, encrypted, status),
         )
 
     async def list_inactive(self) -> set[tuple[str, str]]:
-        """Return ``{(capability_name, secret_key)}`` for all inactive rows."""
         rows = await self._query_all(
             "SELECT capability_name, secret_key FROM secrets WHERE status = 'inactive'"
         )
         return {(cap, key) for cap, key in rows}
 
     async def list_active(self) -> dict[str, dict[str, str]]:
-        """Return ``{capability_name: {secret_key: value}}`` for all active entries."""
         rows = await self._query_all(
-            "SELECT capability_name, secret_key, encrypted_value FROM secrets WHERE status = 'active'"
+            "SELECT capability_name, secret_key, encrypted_value "
+            "FROM secrets WHERE status = 'active'"
         )
         result: dict[str, dict[str, str]] = {}
         for cap, key, blob in rows:
@@ -149,12 +152,12 @@ class WorkloadVault:
             (capability_name, secret_key),
         )
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Synchronous get() for bootstrap path
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     def get_sync(self, capability_name: str, secret_key: str) -> str | None:
-        """Synchronous get() variant for use during ``__init__``-time bootstrap.
+        """Sync ``get()`` variant for ``__init__``-time bootstrap.
 
         Shares the exact same decryption logic as the async ``get()``.
         """
@@ -176,12 +179,12 @@ class WorkloadVault:
 
         return self._config.get(secret_key)
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Internal — encryption
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     def _check_master_key_presence(self) -> str:
-        """Ensure VOX_MASTER_KEY is available before any side-effects occur."""
+        """Fail before any side-effect if ``VOX_MASTER_KEY`` is missing."""
         master_key = os.environ.get("VOX_MASTER_KEY")
         if not master_key:
             raise RuntimeError(
@@ -191,7 +194,6 @@ class WorkloadVault:
         return master_key
 
     def _derive_key(self, master_key: str) -> bytes:
-        """Derive the encryption key using the persistent unique salt."""
         salt = self._get_or_create_salt_sync()
 
         kdf = PBKDF2HMAC(
@@ -203,7 +205,7 @@ class WorkloadVault:
         return kdf.derive(master_key.encode())
 
     def _get_or_create_salt_sync(self) -> bytes:
-        """Retrieve the existing salt or safely insert a new one, avoiding race conditions."""
+        """Fetch the persisted salt, or insert one without racing."""
         conn = _sync_sqlite3.connect(self._vault_path)
         try:
             row = conn.execute(
@@ -239,9 +241,9 @@ class WorkloadVault:
         ciphertext = blob[12:]
         return aesgcm.decrypt(nonce, ciphertext, None).decode()
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Internal — storage (sync bootstrap)
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     def _ensure_db_sync(self) -> None:
         self._vault_path.parent.mkdir(parents=True, exist_ok=True)
@@ -264,7 +266,7 @@ class WorkloadVault:
             """)
             conn.commit()
 
-            # --- one-time capability rename migration -------------------
+            # --- one-time capability rename migration -------------------------
             cursor = conn.execute(
                 "SELECT COUNT(*) FROM secrets WHERE capability_name = ?",
                 ("comm.messenger",),
@@ -278,9 +280,9 @@ class WorkloadVault:
         finally:
             conn.close()
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Internal — storage (async runtime)
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     async def _query(self, sql: str, params: tuple = ()) -> tuple | None:
         async with aiosqlite.connect(self._vault_path) as conn:

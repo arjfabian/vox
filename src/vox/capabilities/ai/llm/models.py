@@ -1,7 +1,7 @@
 """ai.llm — data model definitions.
 
-Immutable dataclasses for request construction, response parsing,
-sanitization results, and cache entries across the full LLM pipeline.
+Immutable dataclasses for request construction, response parsing, sanitization
+results, and cache entries across the full LLM pipeline.
 """
 
 from dataclasses import dataclass, field

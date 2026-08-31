@@ -1,9 +1,9 @@
-"""Operator voice identity — loads a pre-enrolled voice embedding and
-verifies incoming audio against it using cosine similarity.
+"""Operator voice identity — loads a pre-enrolled voice embedding and verifies
+incoming audio against it using cosine similarity.
 
 System-level infrastructure, not a workload capability.
-VOXOrchestrator owns one instance and exposes it to capabilities that
-need speaker verification (e.g. comm.gateway).
+VOXOrchestrator owns one instance and exposes it to capabilities that need
+speaker verification (e.g. comm.gateway).
 """
 
 import io
@@ -42,7 +42,7 @@ class VOXSpeakerProfile:
             self._embedding = np.load(path)
             self._logger.ok(f"Speaker profile loaded from '{path}'.")
             return True
-        except Exception as e:  # noqa: BLE001 — profile load failure returns False
+        except Exception as e:  # noqa: BLE001 — load failure returns False
             self._logger.error(f"Failed to load speaker profile: {e}")
             return False
 
@@ -60,7 +60,7 @@ class VOXSpeakerProfile:
             similarity = self._cosine_similarity(self._embedding, embedding)
             self._logger.info(f"Speaker similarity score: {similarity:.3f}")
             return similarity >= _SIMILARITY_THRESHOLD
-        except Exception as e:  # noqa: BLE001 — verification failure returns False
+        except Exception as e:  # noqa: BLE001 — verify failure returns False
             self._logger.error(f"Speaker verification error: {e}")
             return False
 
