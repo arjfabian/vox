@@ -300,12 +300,6 @@ class VOXCapability:
         return cls._ensure_contract().secret_names
 
     @classmethod
-    def get_sensitive_params(cls) -> set[str]:
-        """Legacy alias for ``get_secret_names()`` — retained for callers
-        that predate the param/secret namespace split."""
-        return cls._ensure_contract().secret_names
-
-    @classmethod
     def get_param_meta(
         cls,
         param_name: str,

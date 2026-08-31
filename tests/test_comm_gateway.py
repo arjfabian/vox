@@ -196,15 +196,22 @@ class TestCommGatewayAdapterParams(unittest.TestCase):
         )
         CommGatewayCapability.load_contract(cap_file)
 
-    def test_gateway_yaml_contains_adapter_params(self):
+    def test_gateway_yaml_contains_adapter_config(self):
+        from vox.capabilities.base import load_config_yml
         from vox.capabilities.comm.gateway import CommGatewayCapability
         from vox.capabilities.comm.gateway.adapters import ADAPTER_REGISTRY
 
         gateway_params = set(CommGatewayCapability.get_params())
         gateway_secrets = set(CommGatewayCapability.get_secret_names())
         gateway_all = gateway_params | gateway_secrets
-        for adapter in ADAPTER_REGISTRY.values():
-            for key in adapter.PARAMS:
+        adapter_dir = (
+            pathlib.Path("src/vox/capabilities/comm/gateway/adapters")
+        )
+        for channel in ADAPTER_REGISTRY:
+            config_yml = adapter_dir / channel / "config.yml"
+            self.assertTrue(config_yml.is_file(), f"missing {config_yml}")
+            params, secrets = load_config_yml(config_yml)
+            for key in set(params) | set(secrets):
                 self.assertIn(
                     key,
                     gateway_all,
@@ -722,8 +729,6 @@ class _ProviderAdapter(BaseAdapter):
 
     CHANNEL = "test_provider"
     WEBHOOK_PATH = "/webhook/test-provider"
-    PARAMS = {"TEST_PROVIDER_TOKEN": {"label": "API Token", "required": True}}  # noqa: RUF012
-    SENSITIVE_PARAMS = ("TEST_PROVIDER_TOKEN",)
 
     def __init__(self, config: dict):
         self._config = config
@@ -851,9 +856,17 @@ class TestIngressServerAbstraction(unittest.TestCase):
         self.assertIn("GATEWAY_WEBHOOK_SECRET", secrets)
         self.assertIn("GATEWAY_PORT", params)
 
-    def test_adapter_base_params_union(self):
-        """BaseAdapter.PARAMS is empty; specific adapters override."""
-        self.assertEqual(BaseAdapter.PARAMS, {})
+    def test_adapter_declares_no_python_contract(self):
+        """Adapters must not redeclare configuration via Python class attrs;
+        the YAML config.yml contract is the single source of truth."""
+        self.assertFalse(
+            hasattr(BaseAdapter, "PARAMS"),
+            "BaseAdapter must not expose a Python-side PARAMS contract",
+        )
+        self.assertFalse(
+            getattr(BaseAdapter, "SENSITIVE_PARAMS", None),
+            "BaseAdapter must not expose SENSITIVE_PARAMS",
+        )
 
 
 _FIXTURES_DIR = pathlib.Path(__file__).parent / "fixtures" / "whatsapp"

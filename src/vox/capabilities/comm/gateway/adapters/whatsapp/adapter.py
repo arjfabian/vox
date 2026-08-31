@@ -10,8 +10,8 @@ Webhook verification uses Meta's ``hub.mode`` / ``hub.verify_token`` /
 ``hub.challenge`` handshake, and every inbound POST is HMAC-SHA256 signed via
 ``X-Hub-Signature-256``.
 
-All keys are drawn from the workload's ``secrets.vault`` via the gateway's
-``SENSITIVE_PARAMS`` injection (``WHATSAPP_ACCESS_TOKEN``,
+All keys are drawn from the workload's ``secrets.vault`` (injected as bound
+capability secrets declared in the adapter's ``config.yml``: ``WHATSAPP_ACCESS_TOKEN``,
 ``WHATSAPP_APP_SECRET``, ``WHATSAPP_VERIFY_TOKEN``).
 """
 

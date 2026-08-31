@@ -252,45 +252,6 @@ class CapabilityBinder:
     # Vault secret injection
     # --------------------------------------------------------------------------
 
-    def _inject_vault_for_capability(
-        self,
-        cap_id: str,
-        bound: VOXBoundCapability,
-        required_names: set[str] | None = None,
-    ) -> list[str]:
-        """Inject all declared secrets for a capability.
-
-        Returns the names of *required* secrets that could not be resolved.
-
-        Secrets are stored exclusively in ``bound._secrets`` and never in
-        ``bound._params``.
-        """
-        vault = self._workload._vault
-
-        if vault is None:
-            if required_names:
-                return [
-                    n
-                    for n in bound._capability.get_secret_names()
-                    if n in required_names
-                ]
-            return []
-
-        missing: list[str] = []
-
-        for secret_name in bound._capability.get_secret_names():
-            value = vault.get_sync(cap_id, secret_name)
-
-            if value is None:
-                if required_names and secret_name in required_names:
-                    missing.append(secret_name)
-                continue
-
-            bound._secrets[secret_name] = value
-            self.logger.info(f"Injected Vault secret: {cap_id}.{secret_name}")
-
-        return missing
-
     async def inject_vault_secrets(self) -> None:
         """Resolve all declared capability secrets from the workload Vault.
 
