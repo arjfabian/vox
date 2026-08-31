@@ -34,23 +34,29 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from vox.observability import VOXForensicLogger
+from vox.provider import CapabilityHostProtocol
 from vox.security import WorkloadVault
 from vox.security.vault import VaultAccessError
 
 if TYPE_CHECKING:
     from vox.capabilities.base import VOXBoundCapability
-    from vox.workloads.base import VOXWorkload
 
 
 class CapabilityBinder:
-    """Mount capabilities and bind their Vault-managed secrets."""
+    """Mount capabilities and bind their Vault-managed secrets.
+
+    The binder is a composition mechanism, not part of a capability's business
+    implementation. It depends only on ``CapabilityHostProtocol`` for the
+    workload services it needs and never reaches into concrete workload
+    private state.
+    """
 
     def __init__(
         self,
-        workload: VOXWorkload,
+        host: CapabilityHostProtocol,
         logger: VOXForensicLogger,
     ) -> None:
-        self._workload = workload
+        self._host = host
         self.logger = logger
 
     # --------------------------------------------------------------------------
@@ -59,14 +65,14 @@ class CapabilityBinder:
 
     def init_vault_sync(self) -> None:
         try:
-            self._workload._vault = WorkloadVault(
-                self._workload.dir,
-                self._workload.id,
-                config=self._workload.config,
+            self._host.vault = WorkloadVault(
+                self._host.dir,
+                self._host.id,
+                config=self._host.config,
             )
         except RuntimeError as exc:
             self.logger.warning(f"Vault unavailable: {exc}")
-            self._workload._vault = None
+            self._host.vault = None
 
     async def init_vault(self) -> None:
         self.init_vault_sync()
@@ -88,7 +94,7 @@ class CapabilityBinder:
         """
         from vox.workloads.ast_analyzer import ASTWorkloadAnalyzer
 
-        workload = self._workload
+        host = self._host
         needed: set[str] = set(system_capabilities)
 
         if roles_dir.exists():
@@ -104,21 +110,21 @@ class CapabilityBinder:
         self.logger.info(f"Capabilities required by roles: {sorted(needed)}")
 
         for cap_id in sorted(needed):
-            if workload._capability_provider is None:
+            if host.capability_provider is None:
                 self.logger.warning(
                     f"Capability provider unavailable — cannot mount '{cap_id}'"
                 )
-                workload._degraded = True
+                host.mark_degraded()
                 continue
 
-            cap = workload._capability_provider.get_capability_instance(cap_id)
+            cap = host.capability_provider.get_capability_instance(cap_id)
 
             if cap is None:
                 self.logger.warning(
                     f"Security warning: capability '{cap_id}' not found — "
                     f"roles depending on it will be disabled"
                 )
-                workload._degraded = True
+                host.mark_degraded()
                 continue
 
             try:
@@ -127,20 +133,20 @@ class CapabilityBinder:
                 self.logger.warning(
                     f"Capability '{cap_id}' could not be mounted: {exc}"
                 )
-                workload._degraded = True
+                host.mark_degraded()
                 continue
 
-            workload.capabilities[cap_id] = bound
+            host.register_capability(cap_id, bound)
             bound.logger = self.logger
 
             self.logger.ok(f"Mounted capability: {cap_id}")
 
-            self._register_exposed_commands(cap_id, cap, bound)
+            self._register_exposed_commands(cap_id, bound)
 
-        missing = needed - set(workload.capabilities)
+        missing = needed - set(host.capabilities)
 
         if missing:
-            workload._degraded = True
+            host.mark_degraded()
             self._disable_roles_with_missing_capabilities(missing)
 
     def _mount_capability(
@@ -155,8 +161,8 @@ class CapabilityBinder:
         ``manifest.yml`` is the only workload-side source of parameter
         overrides. Unknown parameters are rejected by ``VOXCapability.mount``.
         """
-        workload = self._workload
-        overrides_config = workload.config.get("overrides", {})
+        host = self._host
+        overrides_config = host.config.get("overrides", {})
 
         if overrides_config is None:
             overrides_config = {}
@@ -173,14 +179,13 @@ class CapabilityBinder:
             raise TypeError(f"Override for capability '{cap_id}' must be a mapping")
 
         return cap.mount(
-            workload,
+            host,
             overrides=override,
         )
 
     def _register_exposed_commands(
         self,
         cap_id: str,
-        cap: Any,
         bound: VOXBoundCapability,
     ) -> None:
         exposed = bound.get_exposed_commands()
@@ -191,8 +196,7 @@ class CapabilityBinder:
 
             handler = getattr(bound, method_name)
 
-            self._workload._capability_commands[cmd_name] = handler
-            self._workload.commands.add(cmd_name)
+            self._host.register_capability_command(cmd_name, handler)
 
             self.logger.info(
                 f"  Exposed command: {cmd_name} (via {cap_id}.{method_name})"
@@ -217,8 +221,8 @@ class CapabilityBinder:
         """
         from vox.workloads.ast_analyzer import ASTWorkloadAnalyzer
 
-        workload = self._workload
-        roles_dir = workload.dir / "roles"
+        host = self._host
+        roles_dir = host.dir / "roles"
 
         # Union of REQUIRED_SECRETS across all role files
         role_required: dict[str, set[str]] = {}
@@ -233,7 +237,7 @@ class CapabilityBinder:
 
         # Intersect with YAML contract's required secrets
         result: dict[str, set[str]] = {}
-        for cap_id, bound in workload.capabilities.items():
+        for cap_id, bound in host.capabilities.items():
             contract_required = bound.get_required_secret_names()
             if not contract_required:
                 continue
@@ -259,26 +263,26 @@ class CapabilityBinder:
         hard failure when the Vault is unavailable. Optional missing secrets
         only disable the affected roles.
         """
-        workload = self._workload
+        host = self._host
 
         required_by_cap: dict[str, set[str]] = self._collect_required_secrets()
         all_secret_caps = {
             cap_id
-            for cap_id, bound in workload.capabilities.items()
+            for cap_id, bound in host.capabilities.items()
             if bound.get_secret_names()
         }
 
         if not all_secret_caps:
             return
 
-        if workload._vault is None:
+        if host.vault is None:
             if required_by_cap:
                 detail = "; ".join(
                     f"{cap}: {sorted(secrets)}"
                     for cap, secrets in sorted(required_by_cap.items())
                 )
                 raise VaultAccessError(
-                    f"Workload '{workload.name}' requires Vault-managed "
+                    f"Workload '{host.name}' requires Vault-managed "
                     f"secrets but the workload Vault is unavailable: {detail}"
                 )
             self.logger.warning(
@@ -286,7 +290,7 @@ class CapabilityBinder:
             )
             return
 
-        for cap_id, bound in workload.capabilities.items():
+        for cap_id, bound in host.capabilities.items():
             secret_names = bound.get_secret_names()
 
             if not secret_names:
@@ -296,7 +300,7 @@ class CapabilityBinder:
             missing: list[str] = []
 
             for secret_name in secret_names:
-                value = await workload._vault.get(
+                value = await host.vault.get(
                     cap_id,
                     secret_name,
                 )
@@ -336,7 +340,7 @@ class CapabilityBinder:
         self,
         missing: set[str],
     ) -> None:
-        for role_name, role in list(self._workload.roles.items()):
+        for role_name, role in list(self._host.roles.items()):
             requires = getattr(type(role), "REQUIRES", set())
 
             affected = requires & missing
@@ -344,7 +348,7 @@ class CapabilityBinder:
             if not affected:
                 continue
 
-            self._workload.roles.pop(role_name)
+            self._host.roles.pop(role_name)
 
             self.logger.warning(
                 f"Role '{role_name}' disabled — "
@@ -355,13 +359,13 @@ class CapabilityBinder:
         self,
         cap_id: str,
     ) -> None:
-        for role_name, role in list(self._workload.roles.items()):
+        for role_name, role in list(self._host.roles.items()):
             requires = getattr(type(role), "REQUIRES", set())
 
             if cap_id not in requires:
                 continue
 
-            self._workload.roles.pop(role_name)
+            self._host.roles.pop(role_name)
 
             self.logger.warning(
                 f"Role '{role_name}' disabled due to missing "

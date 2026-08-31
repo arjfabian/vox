@@ -34,7 +34,7 @@ import yaml
 
 if TYPE_CHECKING:
     from vox.observability import VOXForensicLogger
-    from vox.workloads.base import VOXWorkload
+    from vox.provider import CapabilityHostProtocol
 
 logger = logging.getLogger(__name__)
 
@@ -441,7 +441,7 @@ class VOXCapability:
 
     def mount(
         self,
-        workload: VOXWorkload,
+        host: CapabilityHostProtocol,
         overrides: dict[str, Any] | None = None,
     ) -> VOXBoundCapability:
         """Create a per-workload binding from YAML params + manifest overrides.
@@ -467,7 +467,7 @@ class VOXCapability:
 
         return VOXBoundCapability(
             self,
-            workload,
+            host,
             resolved,
         )
 
@@ -478,16 +478,21 @@ class VOXCapability:
 
 
 class VOXBoundCapability:
-    """Per-workload runtime proxy for a mounted capability."""
+    """Per-workload runtime binding of a capability.
+
+    Holds the resolved (non-secret) parameters and the injected secrets, and
+    delegates to a ``CapabilityHostProtocol`` for any services it needs from
+    the workload runtime. It never reaches into concrete workload internals.
+    """
 
     def __init__(
         self,
         capability: VOXCapability,
-        workload: VOXWorkload,
+        host: CapabilityHostProtocol,
         params: dict[str, Any],
     ) -> None:
         object.__setattr__(self, "_capability", capability)
-        object.__setattr__(self, "_workload", workload)
+        object.__setattr__(self, "_host", host)
         object.__setattr__(self, "_params", params)
         object.__setattr__(self, "_secrets", {})
         object.__setattr__(self, "_instance_attrs", {})
@@ -571,28 +576,18 @@ class VOXBoundCapability:
         sub_dir: str,
         filename: str,
     ) -> Path:
-        return self._workload.get_safe_path(sub_dir, filename)
-
-    async def emit(
-        self,
-        event_name: str,
-        **kwargs: Any,
-    ) -> None:
-        orch = self._workload.orchestrator
-
-        if orch:
-            await orch.dispatch_inbound_message(
-                source=self._capability.CAPABILITY_NAME,
-                payload=kwargs,
-            )
-        else:
-            await self._workload.emit(event_name, **kwargs)
+        return self._host.get_safe_path(sub_dir, filename)
 
     def get_capability(
         self,
         cap_id: str,
     ) -> object | None:
-        return self._workload.capabilities.get(cap_id)
+        """Look up another mounted capability through the host registry.
+
+        Capability-to-capability access crosses an explicit host interface
+        rather than reaching into a concrete registry implementation.
+        """
+        return self._host.get_capability(cap_id)
 
     def validate_params(self) -> list[str]:
         """Return required non-secret parameters that are missing."""

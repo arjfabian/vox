@@ -17,7 +17,7 @@ from vox.observability import VOXForensicLogger, VOXLogSource
 from vox.provider import CapabilityProviderProtocol
 from vox.roles import CommandInfo, VOXRole
 from vox.security import RateLimiter, RateLimitError
-from vox.security.vault import VaultAccessError
+from vox.security.vault import VaultAccessError, WorkloadVault
 from vox.workloads.ast_analyzer import ASTWorkloadAnalyzer
 from vox.workloads.capability_binder import CapabilityBinder
 from vox.workloads.lifecycle import EventQueue, WorkloadState
@@ -79,6 +79,35 @@ class VOXWorkload:
     @property
     def orchestrator(self) -> CapabilityProviderProtocol | None:
         return self._capability_provider
+
+    @property
+    def capability_provider(self) -> CapabilityProviderProtocol | None:
+        """Provider accessor exposed via CapabilityHostProtocol."""
+        return self._capability_provider
+
+    @property
+    def vault(self) -> WorkloadVault | None:
+        """Vault accessor exposed via CapabilityHostProtocol."""
+        return self._vault
+
+    @vault.setter
+    def vault(self, value: WorkloadVault | None) -> None:
+        self._vault = value
+
+    # -- CapabilityHostProtocol services -------------------------------------
+
+    def get_capability(self, cap_id: str) -> Any | None:
+        return self.capabilities.get(cap_id)
+
+    def register_capability(self, cap_id: str, bound: Any) -> None:
+        self.capabilities[cap_id] = bound
+
+    def mark_degraded(self) -> None:
+        self._degraded = True
+
+    def register_capability_command(self, name: str, handler: Any) -> None:
+        self._capability_commands[name] = handler
+        self.commands.add(name)
 
     @property
     def name(self) -> str:

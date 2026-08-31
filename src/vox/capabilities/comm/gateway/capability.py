@@ -162,7 +162,7 @@ class CommGatewayCapability(VOXCapability):
 
         port = int(self.GATEWAY_PORT) if self.GATEWAY_PORT else 8001
         host = self.GATEWAY_HOST or "0.0.0.0"
-        orchestrator = self._workload.orchestrator
+        orchestrator = self._host.capability_provider
 
         async def dispatch(message: VOXInboundMessage) -> None:
             if orchestrator is None:

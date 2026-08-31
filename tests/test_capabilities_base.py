@@ -159,18 +159,18 @@ class TestVOXBoundCapability(unittest.TestCase):
         self.workload.get_safe_path.assert_called_once_with("evidence", "test.png")
         self.assertEqual(result, "/safe/path")
 
-    def test_emit_delegates_to_workload(self):
-        self.workload.orchestrator = None
-        asyncio.run(self.bound.emit("inbound_message", content="hi"))
-        self.workload.emit.assert_called_once_with("inbound_message", content="hi")
+    def test_emit_delegates_to_workload_removed(self):
+        """Capabilities must not emit workload events through bound internals;
+        the host interface is the only coupling surface."""
+        self.assertFalse(hasattr(self.bound, "emit"))
 
     def test_get_capability_found(self):
-        self.workload.capabilities = {"ollama": "ollama_instance"}
+        self.workload.get_capability.return_value = "ollama_instance"
         result = self.bound.get_capability("ollama")
         self.assertEqual(result, "ollama_instance")
 
     def test_get_capability_not_found(self):
-        self.workload.capabilities = {}
+        self.workload.get_capability.return_value = None
         result = self.bound.get_capability("nonexistent")
         self.assertIsNone(result)
 
@@ -195,15 +195,8 @@ class TestVOXBoundCapabilityEdgeCases(unittest.TestCase):
         bound.logger.ok.assert_called_once()
 
     def test_get_safe_path_no_workload_get_safe_path(self):
-        del self.workload.get_safe_path
+        """Delegating to a host that lacks the service surfaces AttributeError."""
+        self.workload.configure_mock(**{"get_safe_path.side_effect": AttributeError("no host get_safe_path")})
         bound = VOXBoundCapability(self.cap, self.workload, {})
         with self.assertRaises(AttributeError):
             bound.get_safe_path("a", "b")
-
-    def test_emit_with_orchestrator_delegates_to_dispatch(self):
-        self.workload.orchestrator = MagicMock()
-        self.workload.orchestrator.dispatch_inbound_message = AsyncMock()
-        bound = VOXBoundCapability(self.cap, self.workload, {})
-        bound.logger = MagicMock()
-        asyncio.run(bound.emit("evt"))
-        self.workload.orchestrator.dispatch_inbound_message.assert_awaited_once()
