@@ -102,12 +102,15 @@ class TestNoExternalPrivateStateAccess(unittest.TestCase):
                     violations.append(f"{rel}:{lineno}: {line.strip()}")
         self.assertEqual(violations, [])
 
-    def test_known_api_server_guardrail_debt_is_allowlisted_not_reproduced(self):
-        # Confirm the single documented NON-CONFORMANT guardrail reach is
-        # present in exactly the one known location (orchestrator private).
+    def test_api_server_no_longer_reaches_orchestrator_private_guardrail(self):
+        # The previously allowlisted NON-CONFORMANT reach into the orchestrator's
+        # private guardrail (``self._orc._guardrail.sanitize``) has been closed:
+        # the API server now builds its own ``InputSanitizer`` from ``vox.security``.
         api_server = (SRC / "vox" / "api_server.py").read_text()
-        matches = [ln for ln in api_server.splitlines() if "_orc._guardrail" in ln]
-        self.assertEqual(len(matches), 1)
+        self.assertNotIn("_orc._guardrail", api_server)
+        self.assertIn(
+            "InputSanitizer", (SRC / "vox" / "api_server.py").read_text()
+        )
 
 
 class TestVaultSeparateStorageFromConfig(unittest.TestCase):

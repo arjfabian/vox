@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from aiohttp import web
 
-from vox.security import SecurityError
+from vox.security import InputSanitizer, SecurityError
 
 if TYPE_CHECKING:
     # TC004: kept under TYPE_CHECKING to avoid circular import
@@ -24,6 +24,7 @@ class VOXAPIServer:
     def __init__(self, orchestrator: VOXOrchestrator, port: int = 8000) -> None:
         self._orc = orchestrator
         self._port = port
+        self._guardrail = InputSanitizer(orchestrator.logger)
         self._app = web.Application(
             middlewares=[
                 self._auth_middleware,
@@ -57,7 +58,7 @@ class VOXAPIServer:
             raw = ""
         if raw.strip():
             try:
-                self._orc._guardrail.sanitize(raw)
+                self._guardrail.sanitize(raw)
             except SecurityError:
                 return self._json(
                     {"error": "request blocked by security policy"}, status=400
@@ -139,7 +140,7 @@ class VOXAPIServer:
 
     async def _handle_workload(self, request: web.Request) -> web.Response:
         identifier = request.match_info["id"]
-        workload = self._orc._resolve_workload(identifier)
+        workload = self._orc.resolve_workload(identifier)
         if not workload:
             return self._json(
                 {"error": f"Workload '{identifier}' not found"}, status=404
@@ -148,7 +149,7 @@ class VOXAPIServer:
 
     async def _handle_workload_commands(self, request: web.Request) -> web.Response:
         identifier = request.match_info["id"]
-        workload = self._orc._resolve_workload(identifier)
+        workload = self._orc.resolve_workload(identifier)
         if not workload:
             return self._json(
                 {"error": f"Workload '{identifier}' not found"}, status=404

@@ -120,16 +120,14 @@ not a routine edit:
 
 ## Known boundary debt (current vs. target)
 
-- **NON-CONFORMANT — API server reaches orchestrator private guardrail.**
-  `src/vox/api_server.py::_guardrail_middleware` calls
-  `self._orc._guardrail.sanitize(...)`, reaching the orchestrator's **private**
-  guardrail instance rather than a public security path (it does import
-  `SecurityError` from `vox.security`). The correct boundary is that the API
-  server builds/receives its own `InputSanitizer` from `vox.security`, or the
-  orchestrator exposes guardrail enforcement through a public method. Both fixes
-  live on the **api_server/orchestration** side, not the security silo — this is
-  out-of-scope debt for the security audit and is left unchanged (see
-  `runtime/AGENTS.md` and `orchestration/AGENTS.md`).
+- **Closed — API server now builds its own `InputSanitizer` from `vox.security`.**
+  The previously NON-CONFORMANT reach by `src/vox/api_server.py::_guardrail_middleware`
+  into the orchestrator's **private** guardrail (`self._orc._guardrail.sanitize`)
+  was resolved on the api-server side: `VOXAPIServer` constructs its own
+  `InputSanitizer` from the public `vox.security` surface (the security-silo
+  recommended fix) and applies it to its HTTP POST ingress. The security silo's
+  guardrail policy and enforcement remain owned here; the API server is only the
+  transport/invocation boundary. (See also `orchestration/AGENTS.md`.)
 - **Reported — keeper `VaultAccessError` not exported from the package root.**
   `WorkloadVault` is exported via `vox.security`, but its companion
   `VaultAccessError` (raised by the vault and caught by the binder) is imported

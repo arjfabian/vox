@@ -94,14 +94,14 @@ consumer must not be declared as a phantom config.
 
 ## Known boundary debt (current vs. target)
 
-- **Out-of-silo (reported, not fixed here):** `src/vox/api_server.py:60`
-  (`VOXAPIServer._guardrail_middleware`) reaches `self._orc._guardrail.sanitize`
-  — the orchestrator's private guardrail. The API server is consumed by the
-  runtime factory and lives on the `VOXRuntime` container, but the access
-  violates the orchestrator's public boundary and should be fixed from the
-  api-server/orchestration side (e.g. expose a public sanitize/guardrail path on
-  `VOXOrchestrator`). It is in-scope-ownership debt for the API server silo, not
-  the runtime silo.
+- **Closed — API server no longer reaches the orchestrator's private guardrail.**
+  The previously reported `VOXAPIServer._guardrail_middleware` access to
+  `self._orc._guardrail.sanitize` was resolved from the api-server side: the API
+  server now builds its own `InputSanitizer` from `vox.security` and applies it
+  to its HTTP POST ingress. It also uses the public `resolve_workload` fleet
+  operation instead of the orchestrator's private `_resolve_workload`. This keeps
+  the runtime's composition of `VOXAPIServer`/`VOXOrchestrator` intact while the
+  API server consumes only their public surfaces.
 - **Deferred (behavior-preserving):** `daemon.py` hardcodes the keepalive
   interval (`3600`). No runtime config currently drives it; exposing it as
   config warrants a `VOXConfig` addition and is a deliberate change, not part of

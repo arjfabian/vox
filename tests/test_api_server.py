@@ -66,7 +66,7 @@ class TestVOXAPIServerHandlers(unittest.TestCase):
         self.assertIn("capabilities", data)
 
     def test_workload_not_found_returns_404(self):
-        self.orchestrator._resolve_workload.return_value = None
+        self.orchestrator.resolve_workload.return_value = None
         resp = self._run(
             self.server._handle_workload(_req(match_info={"id": "nonexistent"}))
         )
@@ -75,7 +75,7 @@ class TestVOXAPIServerHandlers(unittest.TestCase):
     def test_workload_found_returns_describe(self):
         mock_workload = MagicMock()
         mock_workload.describe.return_value = {"id": "a1", "name": "workload1"}
-        self.orchestrator._resolve_workload.return_value = mock_workload
+        self.orchestrator.resolve_workload.return_value = mock_workload
         resp = self._run(self.server._handle_workload(_req(match_info={"id": "a1"})))
         data = self._check_json(resp)
         self.assertEqual(data["name"], "workload1")
@@ -87,7 +87,7 @@ class TestVOXAPIServerHandlers(unittest.TestCase):
         mock_cmd = MagicMock()
         mock_cmd.description = "Does something"
         mock_workload.get_command_map.return_value = {"doit": mock_cmd}
-        self.orchestrator._resolve_workload.return_value = mock_workload
+        self.orchestrator.resolve_workload.return_value = mock_workload
         resp = self._run(
             self.server._handle_workload_commands(_req(match_info={"id": "a1"}))
         )
@@ -96,7 +96,7 @@ class TestVOXAPIServerHandlers(unittest.TestCase):
         self.assertIn("doit", data["commands"])
 
     def test_workload_commands_not_found_returns_404(self):
-        self.orchestrator._resolve_workload.return_value = None
+        self.orchestrator.resolve_workload.return_value = None
         resp = self._run(
             self.server._handle_workload_commands(_req(match_info={"id": "ghost"}))
         )

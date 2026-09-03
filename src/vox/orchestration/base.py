@@ -236,11 +236,11 @@ class VOXOrchestrator:
     def resolve_workload_id(self, workload_name: str) -> str | None:
         return self._graph.resolve_workload_id(workload_name)
 
+    def resolve_workload(self, identifier: str) -> VOXWorkload | None:
+        return self._graph.resolve_workload(identifier)
+
     def get_hierarchy_snapshot(self) -> dict[str, list[str]]:
         return self._graph.get_hierarchy_snapshot()
-
-    def _resolve_workload(self, identifier: str):
-        return self._graph.resolve_workload(identifier)
 
     # --------------------------------------------------------------------------
     # Controller lifecycle (delegated)
