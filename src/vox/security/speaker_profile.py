@@ -7,6 +7,7 @@ speaker verification (e.g. comm.gateway).
 """
 
 import io
+from pathlib import Path
 
 import numpy as np
 
@@ -20,7 +21,7 @@ class VOXSpeakerProfile:
     Read access after load() is stateless and safe for concurrent use.
     """
 
-    def __init__(self, identity_dir: str, logger: VOXForensicLogger) -> None:
+    def __init__(self, identity_dir: Path, logger: VOXForensicLogger) -> None:
         self._embedding: np.ndarray | None = None
         self._identity_dir = identity_dir
         self._logger = logger
