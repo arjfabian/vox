@@ -118,6 +118,43 @@ class TestParamSecretSeparation(unittest.TestCase):
                             self.fail(f"Python EXPOSED_COMMANDS in {py}")
 
 
+class TestDeclaredConfigOnly(unittest.TestCase):
+    """Capability code reads config only from its declared YAML contract.
+
+    Every ``self.<UPPER_CASE>`` attribute a capability references at runtime must
+    be declared as a ``param`` or ``secret`` in its contract. The gateway's
+    contract is the aggregate of its per-adapter ``config.yml`` files (GATEWAY_*
+    and adapter params/secrets), so it is resolved through ``load_contract``.
+    This guards against any drift back to undeclared Python-side configuration.
+    """
+
+    def test_self_attrs_are_declared_in_contract(self):
+        import re
+
+        from vox.capabilities.comm.gateway.capability import CommGatewayCapability
+
+        ATTR = re.compile(r"\bself\.([A-Z][A-Z0-9_]*)\b")
+
+        for py in BOUNDARY_FILES:
+            if not py.exists():
+                continue
+            contract = (
+                CommGatewayCapability.load_contract(py)
+                if py.parent.name == "gateway"
+                else load_capability_yaml(py)
+            )
+            self.assertIsNotNone(contract, py)
+            declared = set(contract.params) | set(contract.secrets)
+            used = set(ATTR.findall(py.read_text()))
+            undeclared = used - declared
+            self.assertEqual(
+                undeclared,
+                set(),
+                f"{py}: reads config attr(s) not declared in YAML contract: "
+                f"{sorted(undeclared)}",
+            )
+
+
 class TestContractParsing(unittest.TestCase):
     """load_capability_yaml is strict: bad shape raises, never falls back."""
 
