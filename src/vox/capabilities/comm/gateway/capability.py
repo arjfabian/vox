@@ -15,8 +15,9 @@ YAML config files are authoritative.
 Architecture note: The IngressServer is shared across all workloads that mount
 this capability. The first workload to boot creates the server; subsequent
 workloads attach to the existing instance and log an attachment message.
-Adapters are also shared since the server routes all inbound traffic to the
-orchestrator, which fans out to every workload with comm.gateway mounted.
+Adapters are also shared since the server routes all inbound traffic through the
+host's narrow ``dispatch_inbound`` service, which delegates to the shared
+dispatcher that fans out to every workload with comm.gateway mounted.
 
 Shutdown: A reference count (_mounted_workloads_count) tracks how many workloads
 have the capability booted. The server is only stopped when the last workload
@@ -162,20 +163,14 @@ class CommGatewayCapability(VOXCapability):
 
         port = int(self.GATEWAY_PORT) if self.GATEWAY_PORT else 8001
         host = self.GATEWAY_HOST or "0.0.0.0"
-        orchestrator = self._host.capability_provider
 
         async def dispatch(message: VOXInboundMessage) -> None:
-            if orchestrator is None:
-                return
-            from vox.security import SecurityError
-
-            try:
-                await orchestrator.dispatch_inbound_message(
-                    source="comm.gateway",
-                    payload=message.model_dump(),
-                )
-            except SecurityError as exc:
-                logger.warning("Inbound dispatch blocked by guardrail: %s", exc)
+            delivered = await self._host.dispatch_inbound(
+                source="comm.gateway",
+                payload=message.model_dump(),
+            )
+            if not delivered:
+                logger.warning("Gateway inbound dropped: no dispatch target")
 
         # Instantiate every registered adapter, slicing its declared params out
         # of the bound config. A channel is skipped when it is not configured

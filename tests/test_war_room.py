@@ -224,8 +224,9 @@ class TestAlertRouting(unittest.IsolatedAsyncioTestCase):
 
         orc = VOXOrchestrator(config=self.config, logger=self.logger)
         payload = {"type": "alert", "event": "breach", "severity": "CRITICAL"}
-        await orc.dispatch_inbound_message("workload3", payload)
+        delivered = await orc.dispatch_inbound_message("workload3", payload)
         history = orc._war_room.get_history()
+        self.assertTrue(delivered)
         self.assertEqual(len(history), 1)
         self.assertEqual(history[0].source, "workload3")
         self.assertEqual(history[0].payload, payload)
@@ -235,6 +236,40 @@ class TestAlertRouting(unittest.IsolatedAsyncioTestCase):
 
         orc = VOXOrchestrator(config=self.config, logger=self.logger)
         payload = {"type": "chat", "content": "hello"}
-        await orc.dispatch_inbound_message("comm.gateway", payload)
+        delivered = await orc.dispatch_inbound_message("comm.gateway", payload)
         history = orc._war_room.get_history()
         self.assertEqual(len(history), 0)
+        # No workload has comm.gateway mounted, so nothing received it.
+        self.assertFalse(delivered)
+
+    async def test_guardrail_reject_returns_false(self):
+        from vox.orchestration.base import VOXOrchestrator
+
+        orc = VOXOrchestrator(config=self.config, logger=self.logger)
+        payload = {"type": "chat", "content": "<script>alert(1)</script>"}
+        delivered = await orc.dispatch_inbound_message("comm.gateway", payload)
+        self.assertFalse(delivered)
+
+    async def test_dispatches_to_mounted_workload_and_returns_true(self):
+        from vox.orchestration.base import VOXOrchestrator
+
+        orc = VOXOrchestrator(config=self.config, logger=self.logger)
+
+        received = []
+
+        class FakeWorkload:
+            def __init__(self):
+                self.capabilities = {"comm.gateway"}
+
+            async def emit(self, event_name, **kwargs):
+                if event_name == "inbound_message":
+                    received.append(kwargs)
+
+        orc.active_workloads["gw-holder"] = FakeWorkload()
+
+        payload = {"type": "chat", "content": "hello"}
+        delivered = await orc.dispatch_inbound_message("comm.gateway", payload)
+        self.assertTrue(delivered)
+        self.assertEqual(len(received), 1)
+        self.assertEqual(received[0]["source"], "comm.gateway")
+        self.assertEqual(received[0]["content"], "hello")

@@ -16,7 +16,7 @@ from typing import Any
 from vox.observability import VOXForensicLogger, VOXLogSource
 from vox.provider import CapabilityProviderProtocol
 from vox.roles import CommandInfo, VOXRole
-from vox.security import RateLimiter, RateLimitError
+from vox.security import RateLimiter, RateLimitError, SecurityError
 from vox.security.vault import VaultAccessError, WorkloadVault
 from vox.workloads.ast_analyzer import ASTWorkloadAnalyzer
 from vox.workloads.capability_binder import CapabilityBinder
@@ -105,9 +105,51 @@ class VOXWorkload:
     def mark_degraded(self) -> None:
         self._degraded = True
 
+    def disable_roles(
+        self,
+        reason_for: Callable[[Any], str | None],
+    ) -> dict[str, str]:
+        """Remove role objects for which ``reason_for`` returns a reason.
+
+        Never exposes the role registry: role removal happens here.
+        """
+        disabled: dict[str, str] = {}
+
+        for role_name, role in list(self.roles.items()):
+            reason = reason_for(role)
+
+            if reason is None:
+                continue
+
+            self.roles.pop(role_name)
+            disabled[role_name] = reason
+
+        return disabled
+
     def register_capability_command(self, name: str, handler: Any) -> None:
         self._capability_commands[name] = handler
         self.commands.add(name)
+
+    async def dispatch_inbound(self, source: str, payload: dict) -> bool:
+        """Deliver inbound traffic to the mounted workload(s).
+
+        This is the narrow capability-facing inbound entry point. It delegates
+        to the shared provider dispatcher (which sanitizes through the guardrail
+        and fans out to every mounted workload) and absorbs the ``SecurityError``
+        raised when the guardrail rejects a payload, returning a boolean signal.
+        """
+        if self._capability_provider is None:
+            return False
+
+        try:
+            return await self._capability_provider.dispatch_inbound_message(
+                source, payload
+            )
+        except SecurityError:
+            self.logger.warning(
+                "Inbound dispatch blocked by guardrail (source=%s)", source
+            )
+            return False
 
     @property
     def name(self) -> str:

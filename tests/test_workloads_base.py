@@ -215,6 +215,67 @@ class TestVOXWorkloadSafePath(_MessengerMockMixin, unittest.TestCase):
             self.workload.get_safe_path("../../etc", "passwd")
 
 
+class TestVOXWorkloadDispatchInbound(unittest.TestCase):
+    """The narrow capability-facing inbound dispatch entry point."""
+
+    def setUp(self):
+        self.tmp = Path("/tmp") / f"test_vox_dispatch_{id(self)}"
+        (self.tmp / "roles").mkdir(parents=True, exist_ok=True)
+        (self.tmp / "manifest.yml").write_text("name: Test\nid: test-uuid-1234\n")
+        self.logger = MagicMock()
+        self.orchestrator = MagicMock()
+        self.orchestrator.dispatch_inbound_message = AsyncMock()
+        self.workload = VOXWorkload(self.tmp, self.logger, self.orchestrator)
+
+    def tearDown(self):
+        import shutil
+
+        if self.tmp.exists():
+            shutil.rmtree(self.tmp)
+
+    def test_dispatch_inbound_delegates_to_shared_dispatcher(self):
+        self.orchestrator.dispatch_inbound_message.return_value = True
+        result = asyncio.run(
+            self.workload.dispatch_inbound("comm.gateway", {"text": "hi"})
+        )
+        self.assertTrue(result)
+        self.orchestrator.dispatch_inbound_message.assert_awaited_once_with(
+            "comm.gateway", {"text": "hi"}
+        )
+
+    def test_dispatch_inbound_false_when_no_dispatch_target(self):
+        """Host returns False when the provider reports no target received it."""
+        self.orchestrator.dispatch_inbound_message.return_value = False
+        self.workload.logger.reset_mock()
+        result = asyncio.run(
+            self.workload.dispatch_inbound("comm.gateway", {"text": "hi"})
+        )
+        self.assertFalse(result)
+        self.workload.logger.warning.assert_not_called()
+
+    def test_dispatch_inbound_false_when_no_provider(self):
+        workload = VOXWorkload(self.tmp, self.logger, None)
+        workload.logger.reset_mock()
+        result = asyncio.run(
+            workload.dispatch_inbound("comm.gateway", {"text": "hi"})
+        )
+        self.assertFalse(result)
+        workload.logger.warning.assert_not_called()
+
+    def test_dispatch_inbound_absorbs_guardrail_security_error(self):
+        from vox.security import SecurityError
+
+        self.orchestrator.dispatch_inbound_message.side_effect = SecurityError(
+            "blocked"
+        )
+        self.workload.logger.reset_mock()
+        result = asyncio.run(
+            self.workload.dispatch_inbound("comm.gateway", {"text": "bad"})
+        )
+        self.assertFalse(result)
+        self.workload.logger.warning.assert_called()
+
+
 class TestVOXWorkloadBootCapabilities(unittest.TestCase):
     def setUp(self):
         self.tmp = Path("/tmp") / f"test_vox_boot_{id(self)}"

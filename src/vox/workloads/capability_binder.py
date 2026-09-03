@@ -42,6 +42,20 @@ if TYPE_CHECKING:
     from vox.capabilities.base import VOXBoundCapability
 
 
+def _role_requires(role: Any) -> set[str]:
+    """Return the capability IDs a role's ``REQUIRES`` declares.
+
+    Roles declare requirements as a set of capability IDs; the value is
+    normalized to a set so intersection is always well-defined.
+    """
+    requires = getattr(type(role), "REQUIRES", set())
+
+    if not requires:
+        return set()
+
+    return set(requires)
+
+
 class CapabilityBinder:
     """Mount capabilities and bind their Vault-managed secrets.
 
@@ -340,34 +354,29 @@ class CapabilityBinder:
         self,
         missing: set[str],
     ) -> None:
-        for role_name, role in list(self._host.roles.items()):
-            requires = getattr(type(role), "REQUIRES", set())
-
-            affected = requires & missing
-
+        def _reason(role: Any) -> str | None:
+            affected = _role_requires(role) & missing
             if not affected:
-                continue
+                return None
+            return f"missing capabilities: {sorted(affected)}"
 
-            self._host.roles.pop(role_name)
+        disabled = self._host.disable_roles(_reason)
 
-            self.logger.warning(
-                f"Role '{role_name}' disabled — "
-                f"missing capabilities: {sorted(affected)}"
-            )
+        for role_name, reason in disabled.items():
+            self.logger.warning(f"Role '{role_name}' disabled — {reason}")
 
     def _disable_roles_for_capability(
         self,
         cap_id: str,
     ) -> None:
-        for role_name, role in list(self._host.roles.items()):
-            requires = getattr(type(role), "REQUIRES", set())
+        def _reason(role: Any) -> str | None:
+            if cap_id not in _role_requires(role):
+                return None
+            return f"due to missing Vault secrets for capability '{cap_id}'"
 
-            if cap_id not in requires:
-                continue
+        disabled = self._host.disable_roles(_reason)
 
-            self._host.roles.pop(role_name)
-
+        for role_name, reason in disabled.items():
             self.logger.warning(
-                f"Role '{role_name}' disabled due to missing "
-                f"Vault secrets for capability '{cap_id}'"
+                f"Role '{role_name}' disabled {reason}"
             )

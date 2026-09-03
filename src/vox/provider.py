@@ -8,6 +8,7 @@ Orchestrator implementations.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
@@ -28,7 +29,7 @@ class CapabilityProviderProtocol(Protocol):
 
     def get_children(self, workload_id: str) -> list: ...
 
-    async def dispatch_inbound_message(self, source: str, payload: dict) -> None: ...
+    async def dispatch_inbound_message(self, source: str, payload: dict) -> bool: ...
 
 
 @runtime_checkable
@@ -73,10 +74,33 @@ class CapabilityHostProtocol(Protocol):
 
     def register_capability(self, cap_id: str, bound: Any) -> None: ...
 
+    # -- inbound message dispatch ----------------------------------------------
+    async def dispatch_inbound(self, source: str, payload: dict) -> bool:
+        """Deliver an inbound message to the container's mounted workload(s).
+
+        Returns ``True`` when a dispatch target actually received the message and
+        ``False`` when there is no provider, the guardrail rejected the payload,
+        or no matching workload was mounted. This is the narrow capability-facing
+        entry point for inbound traffic; a capability never reaches for the whole
+        ``capability_provider``.
+        """
+
     # -- safe path resolution -------------------------------------------------
     def get_safe_path(self, sub_dir: str, filename: str) -> Path: ...
 
     # -- lifecycle / degradation -----------------------------------------------
     def mark_degraded(self) -> None: ...
+
+    def disable_roles(
+        self,
+        reason_for: Callable[[Any], str | None],
+    ) -> dict[str, str]:
+        """Remove the role objects for which ``reason_for`` returns a reason.
+
+        ``reason_for`` is applied to each role object; a non-``None`` return
+        disables that role and is recorded as its reason. Returns
+        ``{role_name: reason}`` for the roles disabled. The role registry is
+        never exposed: the host performs the mutation itself.
+        """
 
     def register_capability_command(self, name: str, handler: Any) -> None: ...

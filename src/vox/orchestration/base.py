@@ -315,11 +315,18 @@ class VOXOrchestrator:
         self,
         source: str,
         payload: dict,
-    ) -> None:
+    ) -> bool:
+        """Route an inbound message, returning whether a target handled it.
+
+        Returns ``True`` when the message was delivered somewhere (a mounted
+        workload with ``source`` in its capabilities, or the war room for an
+        alert) and ``False`` when the guardrail rejected the payload or no
+        matching workload is mounted.
+        """
         try:
             payload = self._guardrail.sanitize(payload)
         except SecurityError:
-            return
+            return False
 
         if payload.get("type") == "alert":
             msg = WarRoomMessage(
@@ -327,9 +334,11 @@ class VOXOrchestrator:
                 payload=payload,
             )
             await self._war_room.publish(msg)
-            return
+            return True
 
         for workload in self.active_workloads.values():
             if source in workload.capabilities:
                 await workload.emit("inbound_message", source=source, **payload)
-                return
+                return True
+
+        return False

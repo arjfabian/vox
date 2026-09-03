@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 import unittest
 from pathlib import Path
+from typing import ClassVar
 
 import yaml
 
@@ -195,8 +196,21 @@ class TestBoundaryNoPrivates(unittest.TestCase):
 
     def test_no_workload_private_access_in_binder(self):
         binder = ROOT / "src" / "vox" / "workloads" / "capability_binder.py"
-        hits = FORBIDDEN_ACCESS_PATTERNS.findall(binder.read_text())
+        source = binder.read_text()
+        hits = FORBIDDEN_ACCESS_PATTERNS.findall(source)
         self.assertEqual(hits, [], str(binder))
+        # The role registry is never reached directly; enabling/disabling roles
+        # traverses the declared disable_roles host operation instead.
+        self.assertNotIn("host.roles", source)
+        self.assertNotIn("_host.roles", source)
+
+    def test_binder_disables_roles_only_via_declared_operation(self):
+        """Role disabling goes through disable_roles, never host.roles."""
+        binder = ROOT / "src" / "vox" / "workloads" / "capability_binder.py"
+        source = binder.read_text()
+        self.assertIn("disable_roles", source)
+        self.assertNotIn("host.roles", source)
+        self.assertNotIn("_host.roles", source)
 
 
 class TestBinderDependsOnHostProtocol(unittest.TestCase):
@@ -245,3 +259,88 @@ class TestBinderDependsOnHostProtocol(unittest.TestCase):
         bound = host.register_capability.call_args[0][1]
         self.assertIsInstance(bound, VOXBoundCapability)
         self.assertIs(bound.get_capability("x"), host.get_capability.return_value)
+
+    def test_role_disabling_traverses_declared_operation(self):
+        """Role disabling uses only the declared disable_roles host operation.
+
+        The host is a strict protocol-conforming object with no public ``roles``
+        attribute, so any direct roles access by the binder would fail loudly.
+        """
+        from unittest.mock import MagicMock
+
+        from vox.workloads.capability_binder import CapabilityBinder
+
+        calls = []
+
+        class MinimalHost:
+            def __init__(self):
+                self._roles = {}
+
+            def add_role(self, name, role):
+                self._roles[name] = role
+
+            def disable_roles(self, reason_for):
+                calls.append(reason_for)
+                removed = {}
+                for name, role in list(self._roles.items()):
+                    reason = reason_for(role)
+                    if reason is not None:
+                        self._roles.pop(name)
+                        removed[name] = reason
+                return removed
+
+        class RoleA:
+            REQUIRES: ClassVar[set[str]] = {"x"}
+
+        class RoleB:
+            REQUIRES: ClassVar[set[str]] = {"y"}
+
+        host = MinimalHost()
+        host.add_role("a", RoleA())
+        host.add_role("b", RoleB())
+
+        binder = CapabilityBinder(host, MagicMock())
+        binder._disable_roles_with_missing_capabilities({"x"})
+
+        self.assertEqual(len(calls), 1)
+        # Only the affected role is disabled, and only via the host operation.
+        self.assertEqual(set(host._roles), {"b"})
+        self.assertEqual(
+            binder.logger.warning.call_args[0][0],
+            "Role 'a' disabled — missing capabilities: ['x']",
+        )
+
+        binder._disable_roles_for_capability("nope")
+        self.assertEqual(set(host._roles), {"b"})
+        # A second call with no matching capability leaves roles untouched.
+        binder._disable_roles_for_capability("y")
+        self.assertEqual(host._roles, {})
+
+
+class TestInboundDispatchBoundary(unittest.TestCase):
+    """The gateway routes inbound traffic through the host's narrow
+    ``dispatch_inbound`` service, never the whole provider abstraction."""
+
+    def test_gateway_uses_host_dispatch_not_provider(self):
+        gateway_py = (CAPABILITIES / "comm" / "gateway" / "capability.py").read_text()
+        self.assertIn("_host.dispatch_inbound", gateway_py)
+        self.assertNotIn(".capability_provider", gateway_py)
+        self.assertNotIn("dispatch_inbound_message", gateway_py)
+        self.assertNotIn("SecurityError", gateway_py)
+
+    def test_host_protocol_declares_narrow_dispatch_service(self):
+        from vox.provider import CapabilityHostProtocol
+
+        self.assertTrue(hasattr(CapabilityHostProtocol, "dispatch_inbound"))
+
+    def test_no_capability_reaches_for_whole_provider(self):
+        for path in BOUNDARY_FILES:
+            source = path.read_text()
+            self.assertNotIn(
+                "dispatch_inbound_message", source,
+                f"{path}: must use host.dispatch_inbound, not the provider",
+            )
+            self.assertNotIn(
+                ".capability_provider", source,
+                f"{path}: must not depend on the whole provider abstraction",
+            )
