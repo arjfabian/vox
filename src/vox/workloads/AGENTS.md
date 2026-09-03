@@ -46,6 +46,31 @@ authority**. It owns the inbound entry point but not the routing policy.
 - `memory.py` — `VOXWorkloadMemory` (forensic audit log; not semantic memory).
 - `store.py` — `VOXWorkloadStore` (isolated SQLite workspace + asset sandbox).
 
+## Roles boundary
+
+The role **contract** (`VOXRole`, `command`, `CommandInfo`) lives in
+`src/vox/roles/` as a leaf package (imports no internal vox modules); the role
+**runtime** is owned by the workload silo. `VOXWorkload` is the sole producer of
+concrete role instances and the owner of the role registry and event router.
+
+- Discovery/registration/execution/disabling and role registry state are
+  host-owned (`_load_roles`, `event_router`, `disable_roles`, `emit`).
+- The host builds its event router from the role's **public** surface only —
+  `get_route_names()` and `get_commands()` — and never reaches `role._handlers`
+  or other role privates.
+- A role reaches its host through the existing public workload surface
+  (`workload.capabilities`, `get_capability`, `name`, `id`, `config`, `emit`,
+  `get_safe_path`, `log_workload_info`) via the safe `workload` weakref. No
+  separate role-host protocol is required; roles are co-located behavioral
+  modules of their host.
+- Role disabling keys off the workload-owned registry: callers supply a
+  predicate to the declared `disable_roles(reason_for)` host operation and never
+  touch the registry directly. The predicate (which roles, and why) is the
+  caller/binder's responsibility; the mutation is the host's.
+- Roles must not know about orchestration/fleet topology; orchestration never
+  imports or manipulates role objects (it consumes role state only via
+  `health_check`/`degraded`/`describe` and watches role files for hot-reload).
+
 ## Boundaries
 
 ### Inbound (workload → provider)

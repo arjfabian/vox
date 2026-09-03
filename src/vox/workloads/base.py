@@ -311,9 +311,9 @@ class VOXWorkload:
                 self.logger.error(f"Role load failed [{role_name}]: {exc}")
 
     def _register_role_routes(self, role: Any) -> None:
-        handlers = getattr(role, "_handlers", {})
+        route_names = role.get_route_names()
         command_names = set(role.get_commands().keys())
-        for route_name in handlers:
+        for route_name in route_names:
             is_command = route_name in command_names
             if is_command:
                 self.commands.add(route_name)

@@ -135,3 +135,13 @@ class VOXRole:
     def get_commands(self) -> dict[str, CommandInfo]:
         """Returns {command_name: CommandInfo} for all registered commands."""
         return dict(self._commands)
+
+    def get_route_names(self) -> set[str]:
+        """Return all registered event and command route names.
+
+        This is the single public view of the role's full routing surface
+        (events registered via ``on`` plus ``@command`` handlers). The host
+        workload consumes this to build its event router without reaching into
+        role internals.
+        """
+        return set(self._handlers)
