@@ -5,7 +5,7 @@ import json
 import os
 
 from vox.observability import VOXForensicLogger
-from vox.runtime import VOXRuntime
+from vox.runtime.models import VOXRuntime
 
 
 async def _handle_status(orchestrator, args):

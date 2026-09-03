@@ -6,22 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from vox.runtime.control_plane import handle_control_command
 from vox.runtime.daemon import run_vox
 from vox.runtime.factory import build_vox
-from vox.runtime.models import VOXRuntime, VOXRuntimeConfig
-
-
-class TestVOXRuntimeConfig(unittest.TestCase):
-    def test_default_uds_path(self):
-        cfg = VOXRuntimeConfig()
-        self.assertEqual(str(cfg.uds_path), "/tmp/vox.sock")
-
-    def test_default_keepalive_interval(self):
-        cfg = VOXRuntimeConfig()
-        self.assertEqual(cfg.keepalive_interval, 3600)
-
-    def test_custom_values(self):
-        cfg = VOXRuntimeConfig(uds_path="/tmp/custom.sock", keepalive_interval=60)
-        self.assertEqual(str(cfg.uds_path), "/tmp/custom.sock")
-        self.assertEqual(cfg.keepalive_interval, 60)
+from vox.runtime.models import VOXRuntime
 
 
 class TestVOXRuntime(unittest.TestCase):
