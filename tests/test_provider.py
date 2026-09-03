@@ -11,7 +11,6 @@ class TestCapabilityProviderProtocol(unittest.TestCase):
     def test_protocol_methods_exist(self):
         methods = [
             "get_capability_instance",
-            "get_children",
             "dispatch_inbound_message",
         ]
         for m in methods:
@@ -22,15 +21,17 @@ class TestCapabilityProviderProtocol(unittest.TestCase):
             def get_capability_instance(self, cap_id: str) -> object | None:
                 return None
 
-            def get_children(self, workload_id: str) -> list:
-                return []
-
             async def dispatch_inbound_message(
                 self, source: str, payload: dict
             ) -> None:
                 pass
 
         self.assertIsInstance(FakeProvider(), CapabilityProviderProtocol)
+
+    def test_protocol_no_longer_exposes_fleet_topology(self):
+        """get_children was removed: the workload is not a fleet authority and
+        hierarchy is reported by orchestration via get_hierarchy_snapshot."""
+        self.assertFalse(hasattr(CapabilityProviderProtocol, "get_children"))
 
     def test_class_missing_method_is_not_instance(self):
         class BadProvider:

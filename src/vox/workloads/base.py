@@ -225,10 +225,6 @@ class VOXWorkload:
             "capabilities": list(self.capabilities.keys()),
             "commands": sorted(self.commands),
             "events": sorted(self.events),
-            "subordinates": [
-                child.describe()
-                for child in self._capability_provider.get_children(self.id)
-            ],
         }
 
     def get_command_map(self) -> dict[str, Any]:

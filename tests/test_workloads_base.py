@@ -76,7 +76,7 @@ class TestVOXWorkloadInit(unittest.TestCase):
         self.assertEqual(desc["state"], "IDLE")
         self.assertIn("capabilities", desc)
         self.assertIn("commands", desc)
-        self.assertIn("subordinates", desc)
+        self.assertNotIn("subordinates", desc)
 
 
 class TestVOXWorkloadManifest(unittest.TestCase):

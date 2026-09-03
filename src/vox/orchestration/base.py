@@ -239,9 +239,6 @@ class VOXOrchestrator:
     def get_hierarchy_snapshot(self) -> dict[str, list[str]]:
         return self._graph.get_hierarchy_snapshot()
 
-    def get_children(self, workload_id: str) -> list:
-        return self._graph.get_children(workload_id)
-
     def _resolve_workload(self, identifier: str):
         return self._graph.resolve_workload(identifier)
 

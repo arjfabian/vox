@@ -16,7 +16,6 @@ def mock_orchestrator():
 
     orc = MagicMock()
     orc.get_capability_instance.return_value = None
-    orc.get_children.return_value = []
     return orc
 
 

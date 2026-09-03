@@ -67,7 +67,9 @@ current needs, and future work should shrink it further where possible.
   `register_capability_command`).
 - `CapabilityProviderProtocol` — the narrow, minimal provider surface the
   workload consumes when it must reach outward (`get_capability_instance`,
-  `get_children`, `dispatch_inbound_message`).
+  `dispatch_inbound_message`). Fleet-topology queries are NOT part of the
+  provider surface: the workload is not a fleet authority and hierarchy is
+  reported by orchestration via `get_hierarchy_snapshot`.
 
 `dispatch_inbound(source, payload) -> bool` is the single capability-facing
 inbound entry point. It delegates to the provider dispatcher and absorbs

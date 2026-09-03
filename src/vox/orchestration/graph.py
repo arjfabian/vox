@@ -63,10 +63,3 @@ class FleetGraph:
                 continue
             hierarchy.setdefault(workload.master_id, []).append(workload.id)
         return hierarchy
-
-    def get_children(self, workload_id: str) -> list[Any]:
-        return [
-            workload
-            for workload in self.all_workloads.values()
-            if workload.master_id == workload_id
-        ]
