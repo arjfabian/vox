@@ -685,3 +685,54 @@ class TestInjectVaultSecretsRequiredVsOptional(_MessengerMockMixin, unittest.Tes
         result = asyncio.run(wl.boot())
         self.assertTrue(result)
         self.assertEqual(wl.state, WorkloadState.ACTIVE)
+
+
+class TestVOXWorkloadOwnedTeardown(_MessengerMockMixin, unittest.TestCase):
+    """The panic path consumes workload-owned teardown via public methods only."""
+
+    def setUp(self):
+        self.tmp = Path("/tmp") / f"test_vox_teardown_{id(self)}"
+        (self.tmp / "roles").mkdir(parents=True, exist_ok=True)
+        (self.tmp / "roles" / "chat.py").write_text(
+            "from vox.roles import VOXRole\n\n"
+            "class TestRole(VOXRole):\n"
+            "    REQUIRES = set()\n"
+        )
+        (self.tmp / "manifest.yml").write_text(
+            "name: TestWorkload\nid: test-uuid-1234\nautostart: false\n"
+        )
+        self.logger = MagicMock()
+        self.orchestrator = MagicMock()
+        mock_cap, _ = self._make_messenger_mocks()
+        self.orchestrator.get_capability_instance.return_value = mock_cap
+        self.workload = VOXWorkload(self.tmp, self.logger, self.orchestrator)
+
+    def tearDown(self):
+        import shutil
+
+        if self.tmp.exists():
+            shutil.rmtree(self.tmp)
+
+    def test_cancel_tasks_cancels_and_clears(self):
+        task = MagicMock()
+        self.workload._tasks = [task]
+        self.workload.cancel_tasks()
+        task.cancel.assert_called_once()
+        self.assertEqual(self.workload._tasks, [])
+
+    def test_cancel_tasks_handles_empty(self):
+        self.workload._tasks = []
+        self.workload.cancel_tasks()
+        self.assertEqual(self.workload._tasks, [])
+
+    def test_purge_vault_wipes_and_detaches(self):
+        vault = MagicMock()
+        self.workload._vault = vault
+        self.workload.purge_vault()
+        vault.wipe.assert_called_once()
+        self.assertIsNone(self.workload._vault)
+
+    def test_purge_vault_noop_when_none(self):
+        self.workload._vault = None
+        self.workload.purge_vault()
+        self.assertIsNone(self.workload._vault)

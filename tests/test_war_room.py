@@ -182,30 +182,29 @@ class TestPanicShutdown(unittest.TestCase):
 
     def test_panic_shutdown_purges_vault_keys(self):
         orc = self._make_orc_with_workloads()
-        vault = MagicMock()
-        vault._key = b"secret_key_data_32_bytes_long!!"
         workload = MagicMock()
-        workload._vault = vault
-        workload._tasks = []
+        workload.cancel_tasks = MagicMock()
+        workload.purge_vault = MagicMock()
         orc.active_workloads["a1"] = workload
 
         orc.panic_shutdown()
 
-        self.assertIsNone(vault._key)
-        self.assertIsNone(workload._vault)
+        # Orchestration requests secret destruction through the public
+        # workload-owned API, never through _vault / vault._key.
+        workload.purge_vault.assert_called_once()
         self.logger.critical.assert_any_call("PANIC SHUTDOWN initiated")
 
     def test_panic_shutdown_cancels_workload_tasks(self):
         orc = self._make_orc_with_workloads()
-        task = MagicMock()
         workload = MagicMock()
-        workload._tasks = [task]
-        workload._vault = None
+        workload.cancel_tasks = MagicMock()
         orc.active_workloads["a1"] = workload
 
         orc.panic_shutdown()
 
-        task.cancel.assert_called_once()
+        # Orchestration requests task teardown through the public workload-owned
+        # API, never by iterating workload._tasks.
+        workload.cancel_tasks.assert_called_once()
 
 
 # ------------------------------------------------------------------

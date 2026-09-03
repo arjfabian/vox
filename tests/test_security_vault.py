@@ -135,3 +135,15 @@ async def test_fallback_to_config_only_when_no_db_entry(vault_dir):
     )
     value = await v2.get("llm", "key")
     assert value == "from-vault"
+
+
+def test_wipe_destroys_key_material(vault):
+    assert vault._key is not None
+    vault.wipe()
+    assert vault._key is None
+
+
+def test_wipe_is_idempotent_when_already_wiped(vault):
+    vault.wipe()
+    vault.wipe()
+    assert vault._key is None

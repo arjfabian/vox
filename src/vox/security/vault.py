@@ -152,6 +152,17 @@ class WorkloadVault:
             (capability_name, secret_key),
         )
 
+    def wipe(self) -> None:
+        """Synchronously destroy the derived key material in memory.
+
+        Zeroes then drops ``_key`` so the workload can no longer decrypt its
+        secrets. Vault-owned key lifecycle; callers never reach ``_key``
+        directly.
+        """
+        if self._key is not None:
+            self._key = b"\x00" * 32
+            self._key = None
+
     # --------------------------------------------------------------------------
     # Synchronous get() for bootstrap path
     # --------------------------------------------------------------------------

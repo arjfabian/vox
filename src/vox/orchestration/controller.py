@@ -90,7 +90,7 @@ class FleetController:
                 self._logger.error(f"Failed to re-hire workload '{workload_name}'")
                 return False
 
-            if new_workload._degraded or not new_workload.health_check():
+            if new_workload.degraded or not new_workload.health_check():
                 self._degraded_workloads[new_workload.id] = new_workload
                 self._logger.warning(
                     f"Workload '{workload_name}' restarted in DEGRADED state"

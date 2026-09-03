@@ -277,21 +277,16 @@ class VOXOrchestrator:
         """
         self.logger.critical("PANIC SHUTDOWN initiated")
 
-        # 1. Freeze all workload tasks
+        # 1. Freeze all workload tasks (workload-owned teardown)
         for workload in self._all_workloads.values():
-            for task in workload._tasks:
-                task.cancel()
+            workload.cancel_tasks()
 
         # 2. Stop war room dispatcher
         self._war_room_master._running = False
 
-        # 3. Purge cryptographic material from WorkloadVault instances
+        # 3. Purge cryptographic material (workload-owned secret destruction)
         for workload in self._all_workloads.values():
-            vault = getattr(workload, "_vault", None)
-            if vault is not None:
-                vault._key = b"\x00" * 32
-                vault._key = None
-                workload._vault = None
+            workload.purge_vault()
 
         # 4. Flush war room queue to in-memory history
         self._war_room.flush_to_disk()

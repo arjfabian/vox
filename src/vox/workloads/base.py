@@ -420,6 +420,28 @@ class VOXWorkload:
         self._state = WorkloadState.STOPPED
         self.logger.warning("Workload shutdown complete")
 
+    def cancel_tasks(self) -> None:
+        """Cancel and clear this workload's running tasks (synchronous).
+
+        Workload-owned teardown: used by the panic path, which cannot await.
+        External layers request task teardown through this method rather than
+        touching ``_tasks``.
+        """
+        for task in self._tasks:
+            task.cancel()
+        self._tasks.clear()
+
+    def purge_vault(self) -> None:
+        """Synchronously purge this workload's Vault key material.
+
+        Workload-owned secret destruction. External layers (e.g. the
+        orchestrator's panic path) request this through the public method rather
+        than touching ``_vault`` or ``vault._key``.
+        """
+        if self._vault is not None:
+            self._vault.wipe()
+            self._vault = None
+
     # --------------------------------------------------------------------------
     # Event emission
     # --------------------------------------------------------------------------
