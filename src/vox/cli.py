@@ -14,14 +14,13 @@ import sys
 
 from vox.config import load_config
 from vox.config.from_cli import load_cli_args
+from vox.config.models import DEFAULT_UDS_PATH
 from vox.observability import (
     VOXColorFormatter,
     VOXForensicLogger,
     VOXPlainFormatter,
 )
 from vox.runtime import build_vox, run_vox
-
-_DEFAULT_UDS_PATH = "/tmp/vox.sock"
 
 
 def main() -> None:
@@ -30,7 +29,7 @@ def main() -> None:
 
 
 async def _send_uds_command(cmd: str, args: list[str]) -> dict:
-    uds_path = os.environ.get("VOX_UDS_PATH", _DEFAULT_UDS_PATH)
+    uds_path = os.environ.get("VOX_UDS_PATH", DEFAULT_UDS_PATH)
     reader, writer = await asyncio.open_unix_connection(uds_path)
     try:
         payload = json.dumps({"cmd": cmd, "args": args}) + "\n"
