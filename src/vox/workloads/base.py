@@ -105,6 +105,11 @@ class VOXWorkload:
     def mark_degraded(self) -> None:
         self._degraded = True
 
+    @property
+    def degraded(self) -> bool:
+        """Read-only degradation flag (workload-owned state)."""
+        return self._degraded
+
     def disable_roles(
         self,
         reason_for: Callable[[Any], str | None],

@@ -368,7 +368,7 @@ class TestVOXWorkloadDegradedParams(unittest.TestCase):
         self.orchestrator.get_capability_instance.side_effect = _get_cap
 
         workload = VOXWorkload(self.tmp, self.logger, self.orchestrator)
-        self.assertTrue(workload._degraded)
+        self.assertTrue(workload.degraded)
         self.assertFalse(workload.health_check())
         self.assertNotIn("missing_cap", workload.capabilities)
         self.assertIn("strict_cap", workload.capabilities)
