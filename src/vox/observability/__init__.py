@@ -16,10 +16,12 @@ Rule of thumb:
     caught without logging (and only at loop boundaries).
 """
 
+from .constants import LOG_LEVEL_OK
 from .formatters import VOXColorFormatter, VOXPlainFormatter
 from .models import VOXForensicLogger, VOXLogSource
 
 __all__ = [
+    "LOG_LEVEL_OK",
     "VOXColorFormatter",
     "VOXForensicLogger",
     "VOXLogSource",

@@ -106,7 +106,7 @@ async def _main() -> None:
     base_logger.addHandler(file_handler)
 
     # Thin wrapper that adds VOXLogSource metadata to every record.
-    logger = VOXForensicLogger(base_logger)
+    logger = VOXForensicLogger(base_logger, verbose=config.verbose_logging)
 
     logger.info("Logger initialized")
 
