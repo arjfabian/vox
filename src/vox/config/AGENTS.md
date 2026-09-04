@@ -88,11 +88,10 @@ its raw source, and never re-declare a duplicate default.
   `VOX_UDS_PATH` is honored by the client but not the server. Closing this fixes
   a behavior difference and belongs to `cli.py`/`from_env.py`; it is deferred
   because it changes server binding behavior.
-- **NON-CONFORMANT — `verbose_logging` resolved but unconsumed.** `VOXConfig.verbose_logging`
-  (from `-v`/`VOX_VERBOSE_LOGGING`) is resolved but never wired into
-  `VOXForensicLogger`/formatter construction in `cli.py`. The config resolution
-  is correct; the leak is at the logging construction site (cli/observability),
-  so the fix is reported there, not imposed here.
+- **Closed — `verbose_logging` is now consumed.** `VOXConfig.verbose_logging`
+  (from `-v`/`VOX_VERBOSE_LOGGING`) is wired into `VOXForensicLogger` at the
+  cli bootstrap construction site (`cli.py` passes `verbose=config.verbose_logging`).
+  Behavior-preserving: default `False`.
 - **Reported** — no env override currently exists for `log_path` (resolved to
   default only); this is a feature gap, not a boundary violation.
 
