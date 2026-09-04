@@ -128,13 +128,13 @@ not a routine edit:
   recommended fix) and applies it to its HTTP POST ingress. The security silo's
   guardrail policy and enforcement remain owned here; the API server is only the
   transport/invocation boundary. (See also `orchestration/AGENTS.md`.)
-- **Reported — keeper `VaultAccessError` not exported from the package root.**
-  `WorkloadVault` is exported via `vox.security`, but its companion
-  `VaultAccessError` (raised by the vault and caught by the binder) is imported
-  only via the deep path `vox.security.vault` in `workloads/capability_binder.py`
-  and `workloads/base.py`. The public surface is inconsistent. Closing it is a
-  normalization churn that crosses the workload silo (consumer imports), so it is
-  deferred/reported rather than imposed here.
+- **Closed — `VaultAccessError` is exported from the package root.**
+  `VaultAccessError` is part of the consumer-facing Vault contract (raised by
+  the vault's public operations and caught by the workload binder/loader). It is
+  now exported from `vox.security` alongside `WorkloadVault`, and the workloads
+  consumers migrated from the deep `vox.security.vault` path to the public
+  package-root surface. Vault internals remain exclusively security-owned;
+  consumers use public `vox.security` symbols only.
 - **Reported — `VOXSpeakerProfile.identity_dir` is a `Path` at runtime and was
   mis-annotated `str`.** This was corrected in-silo (annotation now `Path`, as
   orchestration supplies a `Path` and the body uses path division).

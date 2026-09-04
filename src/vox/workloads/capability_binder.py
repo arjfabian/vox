@@ -35,8 +35,7 @@ from typing import TYPE_CHECKING, Any
 
 from vox.observability import VOXForensicLogger
 from vox.provider import CapabilityHostProtocol
-from vox.security import WorkloadVault
-from vox.security.vault import VaultAccessError
+from vox.security import VaultAccessError, WorkloadVault
 
 if TYPE_CHECKING:
     from vox.capabilities.base import VOXBoundCapability

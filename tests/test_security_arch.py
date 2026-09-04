@@ -11,10 +11,6 @@ guard the boundary:
   consumers across silos use);
 * external silos never reach private security state (``_key``, ``_embedding``,
   ``_calls``, ``_compiled``).
-
-The known api_server/orchestration guardrail ingestion (``self._orc._guardrail``)
-is explicitly allowlisted as documented NON-CONFORMANT debt that belongs to the
-api_server/orchestration side, not to the security silo.
 """
 
 from __future__ import annotations
@@ -66,9 +62,21 @@ class TestPublicSurface(unittest.TestCase):
             "RateLimiter",
             "RateLimitError",
             "VOXSpeakerProfile",
+            "VaultAccessError",
             "WorkloadVault",
         ):
             self.assertIn(name, security.__all__, f"missing public export: {name}")
+
+    def test_no_deep_import_of_public_vault_symbols(self):
+        # Consumers must import Vault symbols from the package root
+        # (``vox.security``), never deep from ``vox.security.vault``.
+        deep = re.compile(r"from\s+vox\.security\.vault\s+import\b")
+        for py in SRC.glob("vox/**/*.py"):
+            if str(py.relative_to(SRC)).startswith("vox/security/"):
+                continue
+            for lineno, line in enumerate(py.read_text().splitlines(), 1):
+                if deep.search(line):
+                    self.fail(f"{py}:{lineno}: {line.strip()}")
 
 
 class TestNoExternalPrivateStateAccess(unittest.TestCase):
@@ -88,10 +96,6 @@ class TestNoExternalPrivateStateAccess(unittest.TestCase):
         for py in SRC.glob("vox/**/*.py"):
             rel = str(py.relative_to(SRC))
             if rel.startswith("vox/security/"):
-                continue
-            if rel == "vox/api_server.py":
-                # NON-CONFORMANT: reaches orchestrator's _guardrail. This is
-                # security-adjacent ingestion debt owned by api_server/orchestration.
                 continue
             for lineno, line in enumerate(py.read_text().splitlines(), 1):
                 # Skip prose/docstring lines (backtick-quoted) — they name the

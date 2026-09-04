@@ -16,8 +16,13 @@ from typing import Any
 from vox.observability import VOXForensicLogger, VOXLogSource
 from vox.provider import CapabilityProviderProtocol
 from vox.roles import CommandInfo, VOXRole
-from vox.security import RateLimiter, RateLimitError, SecurityError
-from vox.security.vault import VaultAccessError, WorkloadVault
+from vox.security import (
+    RateLimiter,
+    RateLimitError,
+    SecurityError,
+    VaultAccessError,
+    WorkloadVault,
+)
 from vox.workloads.ast_analyzer import ASTWorkloadAnalyzer
 from vox.workloads.capability_binder import CapabilityBinder
 from vox.workloads.lifecycle import EventQueue, WorkloadState

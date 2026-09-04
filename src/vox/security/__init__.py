@@ -1,7 +1,7 @@
 from .guardrails import InputSanitizer, SecurityError
 from .rate_limiter import RateLimiter, RateLimitError
 from .speaker_profile import VOXSpeakerProfile
-from .vault import WorkloadVault
+from .vault import VaultAccessError, WorkloadVault
 
 __all__ = [
     "InputSanitizer",
@@ -9,5 +9,6 @@ __all__ = [
     "RateLimiter",
     "SecurityError",
     "VOXSpeakerProfile",
+    "VaultAccessError",
     "WorkloadVault",
 ]
