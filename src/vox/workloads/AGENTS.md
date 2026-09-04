@@ -167,17 +167,13 @@ or equivalent internals to effect them.
 
 ## Known boundary debt (current vs. target)
 
-The orchestration layer currently reads workload-private state directly and
-that is **explicitly NON-CONFORMANT legacy code**, not accepted architecture:
-
-- `registry.py` / `controller.py` read `workload._degraded`;
-- `orchestration/base.py` panic shutdown reads `workload._tasks` and
-  `workload._vault` / `vault._key`.
-
-These must be removed/fixed during the orchestration audit by routing the
-operations through public workload-owned APIs (e.g. lifecycle, task teardown,
-and vault/secret-destruction methods owned by `VOXWorkload`). They are outside
-the workload silo and must not be replicated. Fix them from the orchestration
-side, proposing the public workload-owned APIs as part of that change — not by
-openly touching workload privates, and not by unilaterally editing orchestration
-files from within the workload silo.
+- **Closed — orchestration no longer reads workload-private state.** The
+  orchestration layer previously read workload internals directly
+  (`workload._degraded`, `workload._tasks`, `workload._vault` / `vault._key`).
+  That debt is now closed via the **public** workload-owned surface: degradation
+  reads use the read-only `degraded` accessor and the panic path uses
+  `cancel_tasks()` and `purge_vault()`. Orchestration must keep requesting
+  these operations through public workload-owned APIs and must never reintroduce
+  private reach into workload or `WorkloadVault` internals (see
+  `src/vox/orchestration/AGENTS.md`). This remains a workload-silo invariant:
+  external layers never touch `_degraded`, `_tasks`, `_vault`, or `vault._key`.

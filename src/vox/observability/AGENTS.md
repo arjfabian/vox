@@ -136,10 +136,13 @@ not a routine edit:
   `VOXForensicLogger(base_logger, verbose=config.verbose_logging)`, activating
   the resolved intent only when `-v`/`VOX_VERBOSE_LOGGING` is set (default
   `False`, behavior-preserving).
-- **Closed — `LOG_LEVEL_OK` is now public.** It was consumed only via a deep
-  import (`vox.observability.constants.LOG_LEVEL_OK` from the comm.gateway
+- **Closed (export) — `LOG_LEVEL_OK` is now public.** It was consumed only via a
+  deep import (`vox.observability.constants.LOG_LEVEL_OK` from the comm.gateway
   server) because it was missing from the package root; it is now exported from
-  `vox.observability`.
+  `vox.observability`. **Deferred (consumer migration)** — `comm/gateway/server.py`
+  still deep-imports `vox.observability.constants.LOG_LEVEL_OK` instead of the
+  package public surface; that consumer-side migration remains NON-CONFORMANT
+  and is allowed as documented debt until moved to the public root.
 - **Note (not a violation)** — library modules (capabilities, workloads
   memory/store) keep module-level `logging.getLogger(__name__)` loggers on the
   same `vox` hierarchy as the forensic wrapper. This is the standard Python

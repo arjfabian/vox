@@ -94,6 +94,21 @@ its raw source, and never re-declare a duplicate default.
   Behavior-preserving: default `False`.
 - **Reported** — no env override currently exists for `log_path` (resolved to
   default only); this is a feature gap, not a boundary violation.
+- **NON-CONFORMANT — `VOX_API_TOKEN` / `VOX_API_HOST` read directly in
+  `src/vox/api_server.py`.** The HTTP-ingress auth token and bind host are read
+  straight from `os.environ`, bypassing `from_env`/`VOXConfig`. These are raw
+  env reads in application code, inconsistent with the "normalize through
+  `from_env`" rule, and are **not** part of `VOXConfig`. Deferred as a
+  cross-silo/config decision: promoting them into `VOXConfig` would change
+  default/binding and authentication-enablement semantics. Recorded here as
+  documented debt; the env reads are left in place.
+- **NON-CONFORMANT — `VOX_WATCH_DISABLED` read directly in
+  `src/vox/orchestration/base.py`.** This hot-reload feature toggle is read
+  directly from `os.environ` in orchestration, bypassing the config silo. It is
+  a raw env read in application code and is not part of `VOXConfig`. Deferred
+  as a cross-silo/config decision: promoting it into `VOXConfig` (or explicit
+  orchestration configuration) would change its resolution/default semantics.
+  Recorded here as documented debt; the env read is left in place.
 
 ## Testing / architecture enforcement
 
