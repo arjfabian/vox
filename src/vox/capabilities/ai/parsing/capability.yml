@@ -1,0 +1,13 @@
+name: ai.parsing
+version: 1.0.0
+
+description: |
+  Natural-language command/intent resolution.
+  Given a user message and a caller-supplied command vocabulary (name +
+  description), returns a normalized parsed intent (command, confidence,
+  entities). Intended resolution is provided by the generic ai.llm capability,
+  reached through the capability host; a future cosine/semantic resolver
+  fallback can be added without changing this capability's public contract.
+
+provides:
+  - intent_parsing

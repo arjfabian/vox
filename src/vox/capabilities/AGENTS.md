@@ -74,9 +74,18 @@ must not require them as part of its context.
   channel-specific code lives in `capability.py`/`server.py`.
 - `comm.voicetotext` — offline transcription via `transcribe(file_path)`.
   `WHISPER_*` are `params`.
-- `ai.llm` — unified generation via `generate(...)`, `chat(...)`,
-  `generate_vision(...)`, `parse_intent(...)`. `LLM_*` are `params` (opaque
-  backend URL/model/etc.). None are secrets.
+- `ai.llm` — generic LLM inference via `generate(...)`, `chat(...)`,
+  `generate_vision(...)`. `LLM_*` are `params` (opaque backend URL/model/etc.).
+  None are secrets. It is a provider, not a semantic owner.
+- `ai.parsing` — natural-language command/intent resolution. `parse(text,
+  vocabulary) -> ParsedIntent` where `vocabulary` is a list of `CommandSpec`
+  (name + description); returns a normalized intent (command, confidence,
+  entities). `ai.parsing` owns intent semantics; it consumes `ai.llm` as its
+  provider via `host.get_capability("ai.llm")`, never importing it directly.
+  It is decoupled from any channel, role, workload, or fleet topology. An
+  unresolved input returns an empty-string `command` (a caller-mapped default,
+  e.g. conversational fallback). The `parse` entry point is the stable
+  extension point for a future cosine/semantic resolver fallback.
 - `net.browser` — headless browsing: `capture_page(url)` /
   `get_text(url)`. `BROWSER_*` are `params`; captured assets are written via
   `get_safe_path("evidence", ...)`.
@@ -106,8 +115,10 @@ Rules:
 - Optional credentials MUST be declared with default `""` (never `None`).
   In bound params, `None` means "required — workload flagged DEGRADED if
   missing"; `""` means "unconfigured / feature inactive".
-- Cross-capability access goes through `host.get_capability`, never a concrete
-  registry.
+- Cross-capability access MUST go through `host.get_capability`, never a
+  concrete registry or direct capability import.
+- The capability dependency graph MUST remain acyclic. A capability must never
+  introduce a dependency path that eventually resolves back to itself.
 
 ## Forbidden access
 
