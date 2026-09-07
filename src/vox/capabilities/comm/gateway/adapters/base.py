@@ -41,6 +41,18 @@ class BaseAdapter(ABC):
     @abstractmethod
     async def send_outbound(self, message: VOXOutboundMessage) -> bool: ...
 
+    async def resolve_attachment(
+        self,
+        inbound: VOXInboundMessage,
+    ) -> VOXInboundMessage:
+        """Resolve channel-specific binary media into ``inbound.attachment``.
+
+        Channels that deliver attachments as references (e.g. Telegram photo
+        file IDs) override this to download the bytes into the message before
+        dispatch. The base implementation passes the message through unchanged.
+        """
+        return inbound
+
     @abstractmethod
     def verify_request(self, request: Any, body: bytes | None = None) -> bool:
         """Validate an inbound webhook request.

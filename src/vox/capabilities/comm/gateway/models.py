@@ -12,7 +12,14 @@ from pydantic import BaseModel, Field
 
 
 class VOXInboundMessage(BaseModel):
-    """Channel-agnostic inbound message contract."""
+    """Channel-agnostic inbound message contract.
+
+    ``attachment`` carries the resolved binary payload for media messages
+    (e.g. downloaded Telegram photo bytes) only when the channel adapter can
+    resolve it; it is always ``None`` for text/event messages. ``source`` is
+    intentionally absent from this model — it is reserved by orchestration as
+    the inbound transport/channel origin, applied at emit time.
+    """
 
     message_id: str
     channel: str
@@ -22,6 +29,7 @@ class VOXInboundMessage(BaseModel):
     content_type: str = "text"
     text: str | None = None
     media_url: str | None = None
+    attachment: bytes | None = None
     raw_payload: dict[str, Any] = Field(default_factory=dict)
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 

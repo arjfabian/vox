@@ -253,6 +253,71 @@ class TelegramAdapter(BaseAdapter):
 
         return "text", fallback_text, None
 
+    @staticmethod
+    def _photo_file_id(msg: dict) -> str | None:
+        photo = msg.get("photo")
+        if not photo:
+            return None
+        largest = max(photo, key=lambda size: size.get("file_size") or 0)
+        return largest.get("file_id")
+
+    async def resolve_attachment(
+        self,
+        inbound: VOXInboundMessage,
+    ) -> VOXInboundMessage:
+        """Download Telegram photo bytes into ``inbound.attachment``.
+
+        Telegram photo messages are normalized as ``content_type="image"``
+        with only file-ID metadata in ``raw_payload``. The bytes must be
+        fetched through the Bot API: ``getFile`` resolves the ``file_path``,
+        then ``file/bot<token>/<file_path>`` streams the bytes. All other
+        fields (caption in ``text``, ``content_type``) are preserved.
+        """
+        if inbound.content_type != "image" or inbound.attachment is not None:
+            return inbound
+
+        file_id = self._photo_file_id(inbound.raw_payload)
+        if not file_id or not self._bot_token:
+            return inbound
+
+        try:
+            file_path = await self._resolve_file_path(file_id)
+            if not file_path:
+                logger.warning(
+                    "Telegram getFile returned no file_path for %r", file_id
+                )
+                return inbound
+
+            bytes_data = await self._download_file(file_path)
+
+        except Exception as exc:  # noqa: BLE001 — attachment fetch is best-effort
+            logger.error("Telegram attachment download failed: %s", exc)
+            return inbound
+
+        if not bytes_data:
+            return inbound
+
+        return inbound.model_copy(update={"attachment": bytes_data})
+
+    async def _resolve_file_path(self, file_id: str) -> str | None:
+        client = await self._ensure_client()
+
+        response = await client.get(
+            f"/bot{self._bot_token}/getFile",
+            params={"file_id": file_id},
+        )
+        response.raise_for_status()
+
+        return (response.json().get("result") or {}).get("file_path")
+
+    async def _download_file(self, file_path: str) -> bytes | None:
+        client = await self._ensure_client()
+
+        response = await client.get(f"/file/bot{self._bot_token}/{file_path}")
+        response.raise_for_status()
+
+        return response.content
+
     # --------------------------------------------------------------------------
     # Outbound
     # --------------------------------------------------------------------------
@@ -367,6 +432,7 @@ class TelegramAdapter(BaseAdapter):
     ) -> None:
         try:
             inbound = self.parse_inbound(update)
+            inbound = await self.resolve_attachment(inbound)
 
         except Exception as exc:  # noqa: BLE001
             logger.error(

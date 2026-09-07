@@ -20,6 +20,34 @@ from vox.capabilities.comm.gateway.server import IngressServer
 
 _TELEGRAM_API = "https://api.telegram.org"
 
+JPEG_BYTES = b"\xff\xd8\xff\xe0" + b"\x00" * 16
+
+_PHOTO_UPDATE = {
+    "update_id": 1,
+    "message": {
+        "message_id": 10,
+        "from": {"id": 42, "username": "jose"},
+        "chat": {"id": 42, "type": "private"},
+        "caption": "/parse_receipt",
+        "photo": [
+            {
+                "file_id": "SMALL",
+                "file_unique_id": "u1",
+                "width": 100,
+                "height": 100,
+                "file_size": 1000,
+            },
+            {
+                "file_id": "LARGE",
+                "file_unique_id": "u2",
+                "width": 400,
+                "height": 400,
+                "file_size": 4000,
+            },
+        ],
+    },
+}
+
 
 def _adapter_with_transport(handler, token="123:ABC", dispatch=None):
     adapter = TelegramAdapter(
@@ -123,6 +151,138 @@ class TestTelegramAdapterPolling(unittest.TestCase):
         inbound = adapter.parse_inbound({"update_id": 9})
         self.assertEqual(inbound.content_type, "event")
         self.assertEqual(inbound.sender_id, "unknown")
+
+
+class TestTelegramAdapterAttachment(unittest.TestCase):
+    def _handler(self, requested_file_ids=None):
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            url = str(request.url)
+            if "/getFile" in url:
+                if requested_file_ids is not None:
+                    requested_file_ids.append(request.url.params.get("file_id"))
+                return httpx.Response(
+                    200,
+                    json={
+                        "ok": True,
+                        "result": {
+                            "file_id": "LARGE",
+                            "file_unique_id": "u2",
+                            "file_size": 4000,
+                            "file_path": "photos/test_captured_photo.jpg",
+                        },
+                    },
+                )
+            if "/file/bot123:ABC/" in url:
+                return httpx.Response(200, content=JPEG_BYTES)
+            return httpx.Response(404)
+
+        return handler
+
+    def test_photo_message_is_image_with_caption_preserved(self):
+        adapter = _adapter_with_transport(self._handler())
+        inbound = adapter.parse_inbound(_PHOTO_UPDATE)
+
+        self.assertEqual(inbound.content_type, "image")
+        self.assertEqual(inbound.text, "/parse_receipt")
+        self.assertIsNone(inbound.attachment)
+
+    def test_resolve_attachment_downloads_largest_photo_bytes(self):
+        requested_file_ids = []
+        adapter = _adapter_with_transport(
+            self._handler(requested_file_ids=requested_file_ids)
+        )
+        inbound = adapter.parse_inbound(_PHOTO_UPDATE)
+
+        resolved = asyncio.run(adapter.resolve_attachment(inbound))
+
+        # The largest photo (by file_size) was resolved via getFile.
+        self.assertEqual(requested_file_ids, ["LARGE"])
+        self.assertEqual(resolved.attachment, JPEG_BYTES)
+        self.assertEqual(resolved.model_dump()["attachment"], JPEG_BYTES)
+        self.assertEqual(resolved.content_type, "image")
+        self.assertEqual(resolved.text, "/parse_receipt")
+
+    def test_resolve_attachment_leaves_non_media_messages_untouched(self):
+        adapter = _adapter_with_transport(self._handler())
+        inbound = adapter.parse_inbound(
+            {
+                "update_id": 7,
+                "message": {
+                    "message_id": 99,
+                    "from": {"id": 42},
+                    "chat": {"id": 42},
+                    "text": "/visit_website https://example.com",
+                },
+            }
+        )
+
+        resolved = asyncio.run(adapter.resolve_attachment(inbound))
+
+        self.assertEqual(resolved, inbound)
+        self.assertIsNone(resolved.attachment)
+        self.assertEqual(resolved.text, "/visit_website https://example.com")
+
+    def test_resolve_attachment_without_file_path_is_graceful(self):
+        calls = {"n": 0}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if "/getFile" in str(request.url):
+                calls["n"] += 1
+                return httpx.Response(200, json={"ok": True, "result": {}})
+            return httpx.Response(404)
+
+        adapter = _adapter_with_transport(handler)
+        inbound = adapter.parse_inbound(_PHOTO_UPDATE)
+
+        resolved = asyncio.run(adapter.resolve_attachment(inbound))
+
+        self.assertEqual(calls["n"], 1)
+        self.assertIsNone(resolved.attachment)
+        self.assertEqual(resolved.text, "/parse_receipt")
+
+    def test_poll_inbound_photo_carries_downloaded_attachment(self):
+        calls = {"n": 0}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            url = str(request.url)
+            if "/getUpdates" in url:
+                calls["n"] += 1
+                if calls["n"] == 1:
+                    return httpx.Response(
+                        200,
+                        json={"ok": True, "result": [_PHOTO_UPDATE]},
+                    )
+                return httpx.Response(200, json={"ok": True, "result": []})
+            if "/getFile" in url:
+                return httpx.Response(
+                    200,
+                    json={
+                        "ok": True,
+                        "result": {
+                            "file_path": "photos/test_captured_photo.jpg",
+                        },
+                    },
+                )
+            if "/file/bot123:ABC/" in url:
+                return httpx.Response(200, content=JPEG_BYTES)
+            return httpx.Response(404)
+
+        dispatch = AsyncMock()
+        adapter = _adapter_with_transport(handler, dispatch=dispatch)
+
+        async def run():
+            await adapter.start()
+            await asyncio.sleep(0.2)
+            await adapter.shutdown()
+
+        asyncio.run(run())
+
+        self.assertEqual(dispatch.await_count, 1)
+        msg = dispatch.await_args.args[0]
+        self.assertEqual(msg.content_type, "image")
+        self.assertEqual(msg.text, "/parse_receipt")
+        self.assertEqual(msg.attachment, JPEG_BYTES)
 
 
 class TestTelegramAdapterWebhookVerification(unittest.TestCase):

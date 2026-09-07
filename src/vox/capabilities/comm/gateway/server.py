@@ -130,6 +130,7 @@ class IngressServer:
 
             try:
                 inbound = adapter.parse_inbound(raw)
+                inbound = await adapter.resolve_attachment(inbound)
             except Exception as exc:  # noqa: BLE001 — parse failure returns 422
                 logger.error("Parse error [%s]: %s", channel, exc)
                 return web.json_response({"error": "parse error"}, status=422)
