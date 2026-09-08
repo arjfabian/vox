@@ -1,6 +1,6 @@
 """ASTWorkloadAnalyzer — static AST dependency scanner for role files.
 
-Scans role source files at bootstrap to discover required capability IDs and
+Scans role source files at bootstrap to discover referenced capability IDs and
 their required secrets without executing any code. This keeps filesystem parsing
 isolated from the runtime workload lifecycle, which is critical for safe
 hot-reload of individual roles.
@@ -17,7 +17,6 @@ class ASTWorkloadAnalyzer:
     secrets from role source code without importing or executing the module.
     Detected declarations:
 
-    * ``REQUIRES = {"cap_id", ...}`` — required capability IDs.
     * ``REQUIRED_SECRETS = {"cap_id": ["SECRET_1", ...]}`` — secrets that the
       role needs from each capability.
     * ``self.workload.capabilities["cap_id"]`` subscript access.
@@ -36,7 +35,6 @@ class ASTWorkloadAnalyzer:
         """Return all capability IDs referenced in a role source file.
 
         Parses the file with ``ast.parse`` and walks the tree looking for:
-        * ``REQUIRES = {"cap_id", ...}`` declarations (top-level only)
         * ``self.workload.capabilities["cap_id"]`` subscript access
         * ``self.workload.capabilities.get("cap_id")`` method calls
         """
@@ -46,18 +44,6 @@ class ASTWorkloadAnalyzer:
                 tree = ast.parse(f.read())
         except SyntaxError:
             return cap_ids
-
-        for node in ast.iter_child_nodes(tree):
-            if isinstance(node, ast.Assign) and len(node.targets) == 1:
-                target = node.targets[0]
-                if (
-                    isinstance(target, ast.Name)
-                    and target.id == "REQUIRES"
-                    and isinstance(node.value, (ast.Set, ast.List, ast.Tuple))
-                ):
-                    for elt in node.value.elts:
-                        if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
-                            cap_ids.add(elt.value)
 
         for node in ast.walk(tree):
             if isinstance(node, ast.Subscript):

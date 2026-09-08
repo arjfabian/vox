@@ -81,6 +81,11 @@ class TestWorkloadRateLimiterIntegration(unittest.TestCase):
         self.tmp = Path("/tmp") / f"test_rate_workload_{id(self)}"
         roles_dir = self.tmp / "roles"
         roles_dir.mkdir(parents=True, exist_ok=True)
+        (roles_dir / "main.py").write_text(
+            "from vox.roles import VOXRole\n\n"
+            "class Role(VOXRole):\n"
+            "    pass\n"
+        )
         (self.tmp / "manifest.yml").write_text(
             "name: RateTestWorkload\nid: rate-test-uuid\n"
             "rate_limit_max_calls: 3\nrate_limit_window: 60\n"

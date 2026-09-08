@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > **Note**: No API stability guarantees are implied — VOX remains pre-1.0.
 
+---
+
+## [0.5.6] - Unreleased
+
+### Changed
+- **Role-scoped capability attribution** — capability requirements are derived
+  from AST scans of successfully loaded Roles' `self.workload.capabilities`
+  references; a Role that fails to load contributes no requirements.
+  `VOXRole.REQUIRES` is no longer a source of capability requirements.
+- **Empty `_system_capabilities`** — `comm.gateway` is no longer implicitly
+  mounted on every workload; it (and any other capability) is mounted only when
+  a loaded Role references it. Shared capabilities are mounted once.
+- **Role-scoped disabling** — a missing capability disables only the Roles that
+  reference it; unrelated Roles stay operational.
+- **Degraded ≠ unhealthy** — `health_check()` is `True` while at least one Role
+  is available. A degraded workload with operational Roles still boots (and
+  re-boots on restart); only workloads with zero operational Roles stay parked.
+
+---
+
 ## [0.5.5] - 2026.08.27
 
 ### Added

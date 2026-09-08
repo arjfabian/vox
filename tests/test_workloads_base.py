@@ -9,6 +9,31 @@ from vox.workloads.base import VOXWorkload, WorkloadProvisionError
 from vox.workloads.lifecycle import WorkloadState
 
 
+def _write_loadable_role(
+    roles_dir: Path,
+    name: str,
+    caps: set[str] | None = None,
+    required_secrets: dict[str, list[str]] | None = None,
+) -> None:
+    """Write a loadable VOXRole module referencing capabilities by subscript.
+
+    Capability requirements are AST-derived from ``self.workload.capabilities``
+    references, so the role must be a real ``VOXRole`` subclass that touches the
+    capability at runtime; a bare ``REQUIRES`` literal is not a loadable role.
+    """
+    caps = caps or set()
+    lines = ["from vox.roles import VOXRole", ""]
+    if required_secrets:
+        lines.append(f"REQUIRED_SECRETS = {required_secrets!r}")
+        lines.append("")
+    lines.append("class Role(VOXRole):")
+    lines.append("    def handle(self, text: str = '') -> str:")
+    for cap_id in sorted(caps):
+        lines.append(f"        cap = self.workload.capabilities[{cap_id!r}]")
+    lines.append('        return "handled"')
+    (roles_dir / f"{name}.py").write_text("\n".join(lines) + "\n")
+
+
 class TestVOXWorkloadInit(unittest.TestCase):
     def setUp(self):
         self.tmp = Path("/tmp") / f"test_vox_workload_{id(self)}"
@@ -124,33 +149,14 @@ class TestVOXWorkloadManifest(unittest.TestCase):
         self.assertEqual(src.source_name, "testworkload")
 
 
-class _MessengerMockMixin:
-    """Provide a working comm.gateway mock for workloads that need it during boot."""
-
-    @staticmethod
-    def _make_messenger_mocks():
-        mock_cap = MagicMock()
-        mock_bound = MagicMock()
-        mock_bound.initialize = AsyncMock()
-        mock_bound.boot = AsyncMock()
-        mock_bound.validate_params = MagicMock(return_value=[])
-        mock_cap.mount.return_value = mock_bound
-        mock_cap.CAPABILITY_NAME = "comm.gateway"
-        mock_cap.get_secret_names.return_value = []
-        mock_bound._capability = mock_cap
-        mock_bound.get_exposed_commands.return_value = []
-        return mock_cap, mock_bound
-
-
-class TestVOXWorkloadStateTransitions(_MessengerMockMixin, unittest.TestCase):
+class TestVOXWorkloadStateTransitions(unittest.TestCase):
     def setUp(self):
         self.tmp = Path("/tmp") / f"test_vox_state_{id(self)}"
         (self.tmp / "roles").mkdir(parents=True, exist_ok=True)
         (self.tmp / "manifest.yml").write_text("name: TestWorkload\nid: test-uuid-1234\n")
         self.logger = MagicMock()
         self.orchestrator = MagicMock()
-        mock_cap, _ = self._make_messenger_mocks()
-        self.orchestrator.get_capability_instance.return_value = mock_cap
+        _write_loadable_role(self.tmp / "roles", "chat")
         self.workload = VOXWorkload(self.tmp, self.logger, self.orchestrator)
 
     def tearDown(self):
@@ -188,15 +194,13 @@ class TestVOXWorkloadStateTransitions(_MessengerMockMixin, unittest.TestCase):
         self.assertEqual(self.workload.state, WorkloadState.ACTIVE)
 
 
-class TestVOXWorkloadSafePath(_MessengerMockMixin, unittest.TestCase):
+class TestVOXWorkloadSafePath(unittest.TestCase):
     def setUp(self):
         self.tmp = Path("/tmp") / f"test_vox_path_{id(self)}"
         (self.tmp / "roles").mkdir(parents=True, exist_ok=True)
         (self.tmp / "manifest.yml").write_text("name: TestWorkload\nid: test-uuid-1234\n")
         self.logger = MagicMock()
         orchestrator = MagicMock()
-        mock_cap, _ = self._make_messenger_mocks()
-        orchestrator.get_capability_instance.return_value = mock_cap
         self.workload = VOXWorkload(self.tmp, self.logger, orchestrator)
 
     def tearDown(self):
@@ -281,7 +285,6 @@ class TestVOXWorkloadBootCapabilities(unittest.TestCase):
         self.tmp = Path("/tmp") / f"test_vox_boot_{id(self)}"
         (self.tmp / "roles").mkdir(parents=True, exist_ok=True)
         (self.tmp / "manifest.yml").write_text("name: TestWorkload\nid: test-uuid-1234\n")
-        (self.tmp / "roles" / "chat.py").write_text('REQUIRES = {"test_cap"}\n')
         self.logger = MagicMock()
         self.orchestrator = MagicMock()
         self.mock_cap = MagicMock()
@@ -294,6 +297,7 @@ class TestVOXWorkloadBootCapabilities(unittest.TestCase):
         self.mock_bound._capability = self.mock_cap
         self.mock_bound.get_exposed_commands.return_value = []
         self.orchestrator.get_capability_instance.return_value = self.mock_cap
+        _write_loadable_role(self.tmp / "roles", "chat", {"test_cap"})
 
     def tearDown(self):
         import shutil
@@ -305,9 +309,9 @@ class TestVOXWorkloadBootCapabilities(unittest.TestCase):
         workload = VOXWorkload(self.tmp, self.logger, self.orchestrator)
         result = asyncio.run(workload.boot())
         self.assertTrue(result)
-        # initialize/boot is called once per mounted capability (test_cap + comm.gateway)
-        self.assertEqual(self.mock_bound.initialize.await_count, 2)
-        self.assertEqual(self.mock_bound.boot.await_count, 2)
+        # initialize/boot is called once per mounted capability (only test_cap)
+        self.assertEqual(self.mock_bound.initialize.await_count, 1)
+        self.assertEqual(self.mock_bound.boot.await_count, 1)
 
     def test_boot_failure_when_capability_fails(self):
         self.mock_bound.initialize.side_effect = Exception("fail")
@@ -324,7 +328,7 @@ class TestVOXWorkloadDegradedParams(unittest.TestCase):
         (self.tmp / "manifest.yml").write_text(
             "name: TestWorkload\nid: test-uuid-5678\nautostart: false\n"
         )
-        (self.tmp / "roles" / "chat.py").write_text('REQUIRES = {"strict_cap"}\n')
+        _write_loadable_role(self.tmp / "roles", "chat", {"strict_cap"})
         self.logger = MagicMock()
         self.orchestrator = MagicMock()
 
@@ -348,16 +352,17 @@ class TestVOXWorkloadDegradedParams(unittest.TestCase):
         if self.tmp.exists():
             shutil.rmtree(self.tmp)
 
-    def test_missing_required_param_routes_to_degraded(self):
+    def test_missing_required_param_keeps_workload_operational(self):
         workload = VOXWorkload(self.tmp, self.logger, self.orchestrator)
         self.assertIn("strict_cap", workload.capabilities)
         bound = workload.capabilities["strict_cap"]
         self.assertEqual(bound.validate_params(), ["API_KEY"])
-        self.assertFalse(workload.health_check())
+        # An unresolved required param is not a degradation/onboarding blocker.
+        self.assertTrue(workload.health_check())
 
     def test_missing_params_plus_missing_cap_does_not_crash(self):
-        (self.tmp / "roles" / "chat.py").write_text(
-            'REQUIRES = {"missing_cap", "strict_cap"}\n'
+        _write_loadable_role(
+            self.tmp / "roles", "chat", {"missing_cap", "strict_cap"}
         )
 
         def _get_cap(cap_id):
@@ -399,7 +404,7 @@ _PlainCapForTest._contract = CapabilityContract(
 )
 
 
-class TestVOXWorkloadVaultFailFast(_MessengerMockMixin, unittest.TestCase):
+class TestVOXWorkloadVaultFailFast(unittest.TestCase):
     def setUp(self):
         self.tmp = Path("/tmp") / f"test_vox_vault_fail_{id(self)}"
         (self.tmp / "roles").mkdir(parents=True, exist_ok=True)
@@ -407,7 +412,6 @@ class TestVOXWorkloadVaultFailFast(_MessengerMockMixin, unittest.TestCase):
         self._saved_key = os.environ.pop("VOX_MASTER_KEY", None)
         self.logger = MagicMock()
         self.orchestrator = MagicMock()
-        self.mock_messenger_cap, _ = self._make_messenger_mocks()
 
     def tearDown(self):
         if self._saved_key is not None:
@@ -418,21 +422,20 @@ class TestVOXWorkloadVaultFailFast(_MessengerMockMixin, unittest.TestCase):
             shutil.rmtree(self.tmp)
 
     def test_boot_fails_when_vault_missing_with_sensitive_params(self):
-        (self.tmp / "roles" / "chat.py").write_text(
-            'REQUIRES = {"sensitive_cap"}\n'
-            'REQUIRED_SECRETS = {"sensitive_cap": ["API_KEY"]}\n'
+        _write_loadable_role(
+            self.tmp / "roles",
+            "chat",
+            {"sensitive_cap"},
+            {"sensitive_cap": ["API_KEY"]},
         )
 
         sensitive_cap = _SensitiveCapForTest()
         sensitive_cap.id = "sensitive_cap"
         sensitive_cap.logger = self.logger
 
-        def _get_cap(cap_id):
-            if cap_id == "comm.gateway":
-                return self.mock_messenger_cap
-            return sensitive_cap
-
-        self.orchestrator.get_capability_instance.side_effect = _get_cap
+        self.orchestrator.get_capability_instance.side_effect = (
+            lambda cap_id: sensitive_cap
+        )
 
         workload = VOXWorkload(self.tmp, self.logger, self.orchestrator)
         result = asyncio.run(workload.boot())
@@ -440,18 +443,15 @@ class TestVOXWorkloadVaultFailFast(_MessengerMockMixin, unittest.TestCase):
         self.assertEqual(workload.state, WorkloadState.FAILED)
 
     def test_boot_succeeds_without_vault_when_no_sensitive_params(self):
-        (self.tmp / "roles" / "chat.py").write_text('REQUIRES = {"plain_cap"}\n')
+        _write_loadable_role(self.tmp / "roles", "chat", {"plain_cap"})
 
         plain_cap = _PlainCapForTest()
         plain_cap.id = "plain_cap"
         plain_cap.logger = self.logger
 
-        def _get_cap(cap_id):
-            if cap_id == "comm.gateway":
-                return self.mock_messenger_cap
-            return plain_cap
-
-        self.orchestrator.get_capability_instance.side_effect = _get_cap
+        self.orchestrator.get_capability_instance.side_effect = (
+            lambda cap_id: plain_cap
+        )
 
         workload = VOXWorkload(self.tmp, self.logger, self.orchestrator)
         result = asyncio.run(workload.boot())
@@ -459,7 +459,7 @@ class TestVOXWorkloadVaultFailFast(_MessengerMockMixin, unittest.TestCase):
         self.assertEqual(workload.state, WorkloadState.ACTIVE)
 
 
-class TestCollectRequiredSecrets(_MessengerMockMixin, unittest.TestCase):
+class TestCollectRequiredSecrets(unittest.TestCase):
     """_collect_required_secrets() intersects AST REQUIRED_SECRETS with YAML contract."""
 
     def setUp(self):
@@ -470,23 +470,22 @@ class TestCollectRequiredSecrets(_MessengerMockMixin, unittest.TestCase):
         )
         self.logger = MagicMock()
         self.orchestrator = MagicMock()
-        self.mock_messenger_cap, _ = self._make_messenger_mocks()
-        self.orchestrator.get_capability_instance.return_value = self.mock_messenger_cap
 
     def tearDown(self):
         import shutil
 
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def _make_workload(self, role_content: str, cap) -> tuple:
-        (self.tmp / "roles" / "chat.py").write_text(role_content)
-
-        def _get_cap(cap_id):
-            if cap_id == "comm.gateway":
-                return self.mock_messenger_cap
-            return cap
-
-        self.orchestrator.get_capability_instance.side_effect = _get_cap
+    def _make_workload(
+        self,
+        caps: set[str],
+        cap,
+        required_secrets: dict[str, list[str]] | None = None,
+    ) -> VOXWorkload:
+        _write_loadable_role(self.tmp / "roles", "chat", caps, required_secrets)
+        self.orchestrator.get_capability_instance.side_effect = (
+            lambda cap_id: cap
+        )
         return VOXWorkload(self.tmp, self.logger, self.orchestrator)
 
     def test_full_intersection(self):
@@ -508,9 +507,9 @@ class TestCollectRequiredSecrets(_MessengerMockMixin, unittest.TestCase):
         cap.logger = self.logger
 
         wl = self._make_workload(
-            'REQUIRES = {"test_cap"}\n'
-            'REQUIRED_SECRETS = {"test_cap": ["API_KEY"]}\n',
+            {"test_cap"},
             cap,
+            {"test_cap": ["API_KEY"]},
         )
         result = wl._capability_binder._collect_required_secrets()
         self.assertEqual(result, {"test_cap": {"API_KEY"}})
@@ -535,9 +534,9 @@ class TestCollectRequiredSecrets(_MessengerMockMixin, unittest.TestCase):
         cap.logger = self.logger
 
         wl = self._make_workload(
-            'REQUIRES = {"test_cap"}\n'
-            'REQUIRED_SECRETS = {"test_cap": ["K1", "K2"]}\n',
+            {"test_cap"},
             cap,
+            {"test_cap": ["K1", "K2"]},
         )
         result = wl._capability_binder._collect_required_secrets()
         self.assertEqual(result, {"test_cap": {"K1"}})
@@ -561,15 +560,15 @@ class TestCollectRequiredSecrets(_MessengerMockMixin, unittest.TestCase):
         cap.logger = self.logger
 
         wl = self._make_workload(
-            'REQUIRES = {"test_cap"}\n'
-            'REQUIRED_SECRETS = {"test_cap": ["K2"]}\n',
+            {"test_cap"},
             cap,
+            {"test_cap": ["K2"]},
         )
         result = wl._capability_binder._collect_required_secrets()
         self.assertEqual(result, {})
 
     def test_no_roles_returns_empty(self):
-        """No role files → empty."""
+        """No secrets declared → empty."""
         from vox.capabilities.base import CapabilityContract, SecretMeta
 
         class _Cap(VOXCapability):
@@ -586,7 +585,7 @@ class TestCollectRequiredSecrets(_MessengerMockMixin, unittest.TestCase):
         cap.id = "test_cap"
         cap.logger = self.logger
 
-        wl = self._make_workload("", cap)
+        wl = self._make_workload(set(), cap)
         result = wl._capability_binder._collect_required_secrets()
         self.assertEqual(result, {})
 
@@ -610,27 +609,28 @@ class TestCollectRequiredSecrets(_MessengerMockMixin, unittest.TestCase):
         cap.id = "test_cap"
         cap.logger = self.logger
 
-        (self.tmp / "roles" / "role_a.py").write_text(
-            'REQUIRES = {"test_cap"}\n'
-            'REQUIRED_SECRETS = {"test_cap": ["K1"]}\n'
+        _write_loadable_role(
+            self.tmp / "roles",
+            "role_a",
+            {"test_cap"},
+            {"test_cap": ["K1"]},
         )
-        (self.tmp / "roles" / "role_b.py").write_text(
-            'REQUIRES = {"test_cap"}\n'
-            'REQUIRED_SECRETS = {"test_cap": ["K2"]}\n'
+        _write_loadable_role(
+            self.tmp / "roles",
+            "role_b",
+            {"test_cap"},
+            {"test_cap": ["K2"]},
         )
 
-        def _get_cap(cap_id):
-            if cap_id == "comm.gateway":
-                return self.mock_messenger_cap
-            return cap
-
-        self.orchestrator.get_capability_instance.side_effect = _get_cap
+        self.orchestrator.get_capability_instance.side_effect = (
+            lambda cap_id: cap
+        )
         wl = VOXWorkload(self.tmp, self.logger, self.orchestrator)
         result = wl._capability_binder._collect_required_secrets()
         self.assertEqual(result, {"test_cap": {"K1", "K2"}})
 
 
-class TestInjectVaultSecretsRequiredVsOptional(_MessengerMockMixin, unittest.TestCase):
+class TestInjectVaultSecretsRequiredVsOptional(unittest.TestCase):
     """inject_vault_secrets() distinguishes required vs optional on vault-unavailable."""
 
     def setUp(self):
@@ -642,8 +642,6 @@ class TestInjectVaultSecretsRequiredVsOptional(_MessengerMockMixin, unittest.Tes
         self._saved_key = os.environ.pop("VOX_MASTER_KEY", None)
         self.logger = MagicMock()
         self.orchestrator = MagicMock()
-        self.mock_messenger_cap, _ = self._make_messenger_mocks()
-        self.orchestrator.get_capability_instance.return_value = self.mock_messenger_cap
 
     def tearDown(self):
         if self._saved_key is not None:
@@ -670,24 +668,23 @@ class TestInjectVaultSecretsRequiredVsOptional(_MessengerMockMixin, unittest.Tes
         cap.id = "opt_cap"
         cap.logger = self.logger
 
-        (self.tmp / "roles" / "chat.py").write_text(
-            'REQUIRES = {"opt_cap"}\n'
-            'REQUIRED_SECRETS = {"opt_cap": ["OPT_KEY"]}\n'
+        _write_loadable_role(
+            self.tmp / "roles",
+            "chat",
+            {"opt_cap"},
+            {"opt_cap": ["OPT_KEY"]},
         )
 
-        def _get_cap(cap_id):
-            if cap_id == "comm.gateway":
-                return self.mock_messenger_cap
-            return cap
-
-        self.orchestrator.get_capability_instance.side_effect = _get_cap
+        self.orchestrator.get_capability_instance.side_effect = (
+            lambda cap_id: cap
+        )
         wl = VOXWorkload(self.tmp, self.logger, self.orchestrator)
         result = asyncio.run(wl.boot())
         self.assertTrue(result)
         self.assertEqual(wl.state, WorkloadState.ACTIVE)
 
 
-class TestVOXWorkloadOwnedTeardown(_MessengerMockMixin, unittest.TestCase):
+class TestVOXWorkloadOwnedTeardown(unittest.TestCase):
     """The panic path consumes workload-owned teardown via public methods only."""
 
     def setUp(self):
@@ -703,8 +700,6 @@ class TestVOXWorkloadOwnedTeardown(_MessengerMockMixin, unittest.TestCase):
         )
         self.logger = MagicMock()
         self.orchestrator = MagicMock()
-        mock_cap, _ = self._make_messenger_mocks()
-        self.orchestrator.get_capability_instance.return_value = mock_cap
         self.workload = VOXWorkload(self.tmp, self.logger, self.orchestrator)
 
     def tearDown(self):

@@ -3,8 +3,9 @@
 A workload is the technical runtime for one persona: configuration from
 ``manifest.yml``, a per-workload Vault, mounted capabilities, and explicit
 roles. This module belongs to the workloads runtime layer; the fleet controller
-drives lifecycle, and every required capability must be declared via
-``REQUIRES`` in a role — nothing is auto-discovered.
+drives lifecycle, and required capabilities come from the AST-scanned references
+of successfully loaded roles plus the declared system capabilities — nothing is
+auto-discovered.
 """
 
 import asyncio
@@ -57,7 +58,7 @@ class VOXWorkload:
         self.commands: set[str] = set()
         self.events: set[str] = set()
         self._capability_commands: dict[str, Callable] = {}
-        self._system_capabilities: set[str] = {"comm.gateway"}
+        self._system_capabilities: set[str] = set()
 
         self._state = WorkloadState.BOOTING
         self._tasks: list[asyncio.Task] = []
@@ -117,21 +118,28 @@ class VOXWorkload:
 
     def disable_roles(
         self,
-        reason_for: Callable[[Any], str | None],
+        reason_for: Callable[[str, Any], str | None],
     ) -> dict[str, str]:
         """Remove role objects for which ``reason_for`` returns a reason.
 
-        Never exposes the role registry: role removal happens here.
+        ``reason_for`` is invoked with the stable role registry key
+        (``role_name``) and the role object; a non-``None`` return disables that
+        role. Never exposes the role registry: role removal happens here.
+
+        A disabled role is also removed from the event router and the
+        ``commands`` / ``events`` metadata so it is no longer reachable through
+        workload dispatch.
         """
         disabled: dict[str, str] = {}
 
         for role_name, role in list(self.roles.items()):
-            reason = reason_for(role)
+            reason = reason_for(role_name, role)
 
             if reason is None:
                 continue
 
             self.roles.pop(role_name)
+            self._unregister_role_routes(role)
             disabled[role_name] = reason
 
         return disabled
@@ -215,7 +223,12 @@ class VOXWorkload:
         return self._rate_limiter.get_utilization()
 
     def health_check(self) -> bool:
-        return len(self.roles) > 0 and not self._degraded
+        """Operational iff at least one role remains available.
+
+        Degradation is a reporting latch, not an onboarding blocker: a degraded
+        workload with one or more available roles may still boot.
+        """
+        return len(self.roles) > 0
 
     def describe(self) -> dict:
         return {
@@ -260,7 +273,9 @@ class VOXWorkload:
         self._capability_binder.init_vault_sync()
         self._load_roles()
         self._capability_binder.discover_and_mount(
-            self.dir / "roles", self._system_capabilities
+            self.dir / "roles",
+            self._system_capabilities,
+            loaded_role_names=set(self.roles),
         )
         if not self.roles:
             self.logger.warning(
@@ -315,9 +330,12 @@ class VOXWorkload:
             except Exception as exc:  # noqa: BLE001 — role boundary
                 self.logger.error(f"Role load failed [{role_name}]: {exc}")
 
+    def _role_route_names(self, role: Any) -> tuple[set[str], set[str]]:
+        """Return (route names, command names) from the role's public surface."""
+        return role.get_route_names(), set(role.get_commands())
+
     def _register_role_routes(self, role: Any) -> None:
-        route_names = role.get_route_names()
-        command_names = set(role.get_commands().keys())
+        route_names, command_names = self._role_route_names(role)
         for route_name in route_names:
             is_command = route_name in command_names
             if is_command:
@@ -329,6 +347,55 @@ class VOXWorkload:
             if role not in self.event_router[route_name]:
                 self.event_router[route_name].append(role)
                 self.logger.info(f"Route registered: {route_name}")
+
+    def _unregister_role_routes(self, role: Any) -> None:
+        """Remove a disabled role from routing and reconcile route metadata.
+
+        Only routing/derived state belonging to ``role`` is removed: the role is
+        dropped from the ``event_router`` fan-out lists and the ``commands`` /
+        ``events`` sets are reconciled against the remaining loaded roles and
+        capability commands. Routes still claimed by other roles are retained.
+        """
+        route_names, _ = self._role_route_names(role)
+
+        for route_name in route_names:
+            targets = self.event_router.get(route_name)
+            if not targets:
+                continue
+            remaining = [target for target in targets if target is not role]
+            if remaining:
+                self.event_router[route_name] = remaining
+            else:
+                self.event_router.pop(route_name, None)
+
+        for route_name in route_names:
+            if route_name in self._capability_commands:
+                self.commands.add(route_name)
+                self.events.discard(route_name)
+                continue
+
+            command_claimed = False
+            event_claimed = False
+            for remaining in self.roles.values():
+                remaining_routes, remaining_commands = self._role_route_names(
+                    remaining
+                )
+                if route_name in remaining_commands:
+                    command_claimed = True
+                elif route_name in remaining_routes:
+                    event_claimed = True
+                if command_claimed:
+                    break
+
+            if command_claimed:
+                self.commands.add(route_name)
+                self.events.discard(route_name)
+            elif event_claimed:
+                self.commands.discard(route_name)
+                self.events.add(route_name)
+            else:
+                self.commands.discard(route_name)
+                self.events.discard(route_name)
 
     # --------------------------------------------------------------------------
     # Lifecycle — state transitions
@@ -349,6 +416,15 @@ class VOXWorkload:
         except VaultAccessError as e:
             self.logger.error(str(e))
             self._state = WorkloadState.FAILED
+            return False
+
+        if not self.health_check():
+            self._degraded = True
+            self._state = WorkloadState.FAILED
+            self.logger.error(
+                f"[{self.name}] Boot ABORTED — all roles were disabled while "
+                "resolving required Vault secrets. Zero operational roles."
+            )
             return False
 
         await self.store.init_db()

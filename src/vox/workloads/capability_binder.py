@@ -41,20 +41,6 @@ if TYPE_CHECKING:
     from vox.capabilities.base import VOXBoundCapability
 
 
-def _role_requires(role: Any) -> set[str]:
-    """Return the capability IDs a role's ``REQUIRES`` declares.
-
-    Roles declare requirements as a set of capability IDs; the value is
-    normalized to a set so intersection is always well-defined.
-    """
-    requires = getattr(type(role), "REQUIRES", set())
-
-    if not requires:
-        return set()
-
-    return set(requires)
-
-
 class CapabilityBinder:
     """Mount capabilities and bind their Vault-managed secrets.
 
@@ -71,6 +57,7 @@ class CapabilityBinder:
     ) -> None:
         self._host = host
         self.logger = logger
+        self._role_capabilities: dict[str, set[str]] = {}
 
     # --------------------------------------------------------------------------
     # Vault initialisation
@@ -98,24 +85,39 @@ class CapabilityBinder:
         self,
         roles_dir: Path,
         system_capabilities: set[str],
+        loaded_role_names: set[str] | None = None,
     ) -> None:
         """Mount every required capability.
 
         Capability configuration comes exclusively from capability.yml defaults
         and workload manifest ``overrides[capability_id]``; secrets are injected
         from Vault later, during boot.
+
+        Requirements are attributed per successfully loaded Role: only Role
+        files whose stem is in ``loaded_role_names`` are AST-scanned, so a Role
+        that failed to load contributes nothing. The mount set is
+        ``system_capabilities`` unioned with the loaded Roles' requirements.
         """
         from vox.workloads.ast_analyzer import ASTWorkloadAnalyzer
 
         host = self._host
-        needed: set[str] = set(system_capabilities)
+        loaded_role_names = loaded_role_names or set()
 
+        role_capabilities: dict[str, set[str]] = {}
         if roles_dir.exists():
             for role_file in roles_dir.glob("*.py"):
                 if role_file.name.startswith("_"):
                     continue
+                if role_file.stem not in loaded_role_names:
+                    continue
+                role_capabilities[role_file.stem] = (
+                    ASTWorkloadAnalyzer.scan_role_capabilities(role_file)
+                )
+        self._role_capabilities = role_capabilities
 
-                needed |= ASTWorkloadAnalyzer.scan_role_capabilities(role_file)
+        needed: set[str] = set(system_capabilities)
+        for caps in role_capabilities.values():
+            needed |= caps
 
         if not needed:
             return
@@ -227,7 +229,7 @@ class CapabilityBinder:
           2. At least one role declares it in ``REQUIRED_SECRETS``.
 
         ``REQUIRED_SECRETS`` is scanned statically from role source files via
-        AST (consistent with ``REQUIRES`` scanning).
+        AST; only files belonging to successfully loaded roles are considered.
 
         Returns ``{cap_id: {secret_names}}`` for capabilities with required
         secrets.
@@ -237,11 +239,13 @@ class CapabilityBinder:
         host = self._host
         roles_dir = host.dir / "roles"
 
-        # Union of REQUIRED_SECRETS across all role files
+        # Union of REQUIRED_SECRETS across loaded role files
         role_required: dict[str, set[str]] = {}
         if roles_dir.exists():
             for role_file in roles_dir.glob("*.py"):
                 if role_file.name.startswith("_"):
+                    continue
+                if role_file.stem not in self._role_capabilities:
                     continue
                 for cap_id, names in ASTWorkloadAnalyzer.scan_required_secrets(
                     role_file
@@ -353,8 +357,8 @@ class CapabilityBinder:
         self,
         missing: set[str],
     ) -> None:
-        def _reason(role: Any) -> str | None:
-            affected = _role_requires(role) & missing
+        def _reason(role_name: str, role: Any) -> str | None:
+            affected = self._role_capabilities.get(role_name, set()) & missing
             if not affected:
                 return None
             return f"missing capabilities: {sorted(affected)}"
@@ -368,11 +372,12 @@ class CapabilityBinder:
         self,
         cap_id: str,
     ) -> None:
-        def _reason(role: Any) -> str | None:
-            if cap_id not in _role_requires(role):
+        def _reason(role_name: str, role: Any) -> str | None:
+            if cap_id not in self._role_capabilities.get(role_name, set()):
                 return None
             return f"due to missing Vault secrets for capability '{cap_id}'"
 
+        self._host.mark_degraded()
         disabled = self._host.disable_roles(_reason)
 
         for role_name, reason in disabled.items():

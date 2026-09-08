@@ -181,7 +181,7 @@ class VOXRegistry:
 
                 workload = self.hire_workload(spec["folder"], spec["id"])
                 if workload:
-                    if workload.degraded or not workload.health_check():
+                    if not workload.health_check():
                         self._orc.degraded_workloads[workload.id] = workload
                         workload.logger.warning(
                             "Workload DEGRADED \u2014 "

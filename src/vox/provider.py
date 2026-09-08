@@ -91,14 +91,15 @@ class CapabilityHostProtocol(Protocol):
 
     def disable_roles(
         self,
-        reason_for: Callable[[Any], str | None],
+        reason_for: Callable[[str, Any], str | None],
     ) -> dict[str, str]:
         """Remove the role objects for which ``reason_for`` returns a reason.
 
-        ``reason_for`` is applied to each role object; a non-``None`` return
-        disables that role and is recorded as its reason. Returns
-        ``{role_name: reason}`` for the roles disabled. The role registry is
-        never exposed: the host performs the mutation itself.
+        ``reason_for`` is invoked with the stable role registry key
+        (``role_name``) and the role object; a non-``None`` return disables that
+        role and is recorded as its reason. Returns ``{role_name: reason}`` for
+        the roles disabled. The role registry is never exposed: the host
+        performs the mutation itself.
         """
 
     def register_capability_command(self, name: str, handler: Any) -> None: ...

@@ -95,7 +95,7 @@ class TestScanRequiredSecrets(unittest.TestCase):
 
 
 class TestScanRoleCapabilities(unittest.TestCase):
-    """scan_role_capabilities() is unchanged — basic sanity checks."""
+    """scan_role_capabilities() discovers capability references (AST)."""
 
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
@@ -110,15 +110,15 @@ class TestScanRoleCapabilities(unittest.TestCase):
         p.write_text(content)
         return p
 
-    def test_requires_set(self):
+    def test_requires_literal_is_ignored(self):
         path = self._write_role("chat", 'REQUIRES = {"cap_a", "cap_b"}\n')
         result = ASTWorkloadAnalyzer.scan_role_capabilities(path)
-        self.assertEqual(result, {"cap_a", "cap_b"})
+        self.assertEqual(result, set())
 
-    def test_requires_list(self):
+    def test_requires_list_is_ignored(self):
         path = self._write_role("chat", 'REQUIRES = ["cap_a"]\n')
         result = ASTWorkloadAnalyzer.scan_role_capabilities(path)
-        self.assertEqual(result, {"cap_a"})
+        self.assertEqual(result, set())
 
     def test_subscript_access(self):
         path = self._write_role(

@@ -11,7 +11,6 @@ from __future__ import annotations
 import re
 import unittest
 from pathlib import Path
-from typing import ClassVar
 
 import yaml
 
@@ -313,31 +312,36 @@ class TestBinderDependsOnHostProtocol(unittest.TestCase):
         class MinimalHost:
             def __init__(self):
                 self._roles = {}
+                self.degraded = False
 
             def add_role(self, name, role):
                 self._roles[name] = role
+
+            def mark_degraded(self):
+                self.degraded = True
 
             def disable_roles(self, reason_for):
                 calls.append(reason_for)
                 removed = {}
                 for name, role in list(self._roles.items()):
-                    reason = reason_for(role)
+                    reason = reason_for(name, role)
                     if reason is not None:
                         self._roles.pop(name)
                         removed[name] = reason
                 return removed
 
         class RoleA:
-            REQUIRES: ClassVar[set[str]] = {"x"}
+            pass
 
         class RoleB:
-            REQUIRES: ClassVar[set[str]] = {"y"}
+            pass
 
         host = MinimalHost()
         host.add_role("a", RoleA())
         host.add_role("b", RoleB())
 
         binder = CapabilityBinder(host, MagicMock())
+        binder._role_capabilities = {"a": {"x"}, "b": {"y"}}
         binder._disable_roles_with_missing_capabilities({"x"})
 
         self.assertEqual(len(calls), 1)
@@ -350,6 +354,7 @@ class TestBinderDependsOnHostProtocol(unittest.TestCase):
 
         binder._disable_roles_for_capability("nope")
         self.assertEqual(set(host._roles), {"b"})
+        self.assertTrue(host.degraded)
         # A second call with no matching capability leaves roles untouched.
         binder._disable_roles_for_capability("y")
         self.assertEqual(host._roles, {})

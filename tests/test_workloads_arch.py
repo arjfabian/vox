@@ -20,21 +20,6 @@ from vox.workloads.base import VOXWorkload
 SRC = Path(__file__).resolve().parent.parent / "src"
 
 
-def _make_messenger_mocks():
-    """comm.gateway mock so a workload mounts system capability and stays healthy."""
-    mock_cap = MagicMock()
-    mock_bound = MagicMock()
-    mock_bound.initialize = MagicMock()
-    mock_bound.boot = MagicMock()
-    mock_bound.validate_params = MagicMock(return_value=[])
-    mock_cap.mount.return_value = mock_bound
-    mock_cap.CAPABILITY_NAME = "comm.gateway"
-    mock_cap.get_secret_names.return_value = []
-    mock_bound._capability = mock_cap
-    mock_bound.get_exposed_commands.return_value = []
-    return mock_cap, mock_bound
-
-
 class TestDegradationEncapsulation(unittest.TestCase):
     def setUp(self):
         self.tmp = Path("/tmp") / f"test_workload_arch_{id(self)}"
@@ -49,8 +34,6 @@ class TestDegradationEncapsulation(unittest.TestCase):
         )
         self.logger = MagicMock()
         self.orchestrator = MagicMock()
-        mock_cap, _ = _make_messenger_mocks()
-        self.orchestrator.get_capability_instance.return_value = mock_cap
 
     def tearDown(self):
         import shutil
@@ -70,7 +53,8 @@ class TestDegradationEncapsulation(unittest.TestCase):
         self.assertFalse(workload.degraded)
         workload.mark_degraded()
         self.assertTrue(workload.degraded)
-        self.assertFalse(workload.health_check())
+        # degraded is a reporting latch, not a health/onboarding blocker.
+        self.assertTrue(workload.health_check())
 
 
 class TestWorkloadSiloBoundary(unittest.TestCase):
@@ -87,8 +71,6 @@ class TestWorkloadSiloBoundary(unittest.TestCase):
         )
         self.logger = MagicMock()
         self.orchestrator = MagicMock()
-        mock_cap, _ = _make_messenger_mocks()
-        self.orchestrator.get_capability_instance.return_value = mock_cap
 
     def tearDown(self):
         import shutil
