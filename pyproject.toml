@@ -1,6 +1,6 @@
 [project]
 name = "vox"
-version = "0.5.5"
+dynamic = ["version"]
 description = ""
 authors = [
     { name = "José Fabián", email = "jfabian@datorum.net" }
@@ -12,6 +12,9 @@ vox = "vox.cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
+
+[tool.setuptools.dynamic]
+version = { attr = "vox.__version__" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
