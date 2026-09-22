@@ -61,6 +61,7 @@ class ParsingCapability(VOXCapability):
         text: str,
         vocabulary: list[CommandSpec],
         *,
+        adapter: str,
         model: str | None = None,
     ) -> ParsedIntent:
         """Resolve a user message into a normalized ``ParsedIntent``.
@@ -68,7 +69,9 @@ class ParsingCapability(VOXCapability):
         Args:
             text: Raw user message.
             vocabulary: Caller-supplied command vocabulary (name + description).
-            model: Optional ai.llm model override.
+            adapter: The ai.llm adapter to generate with (execution-time
+                selection — ``ai.parsing`` never picks a provider implicitly).
+            model: Optional per-operation ai.llm model override.
 
         Returns:
             A ``ParsedIntent`` whose ``command`` is one of the vocabulary names,
@@ -84,7 +87,7 @@ class ParsingCapability(VOXCapability):
             self.warning("ai.llm provider unavailable; intent unresolved")
             return UNRESOLVED
 
-        return await resolver(text, vocabulary, model=model)
+        return await resolver(text, vocabulary, adapter=adapter, model=model)
 
     # -- resolution -----------------------------------------------------------
 
@@ -101,12 +104,14 @@ class ParsingCapability(VOXCapability):
         text: str,
         vocabulary: list[CommandSpec],
         *,
+        adapter: str,
         model: str | None = None,
     ) -> ParsedIntent:
         system = ParsingCapability._build_prompt(vocabulary)
         raw = await self._llm.generate(
             system=system,
             prompt=text,
+            adapter=adapter,
             model=model,
             json_mode=True,
         )

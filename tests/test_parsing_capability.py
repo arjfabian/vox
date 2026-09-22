@@ -105,7 +105,7 @@ class TestParseEndToEnd(unittest.TestCase):
             llm = MagicMock()
             llm.generate = AsyncMock(return_value='{"command": "weather", "confidence": 0.85, "entities": {"city": "berlin"}}')
             bound = await _bound_capability(llm)
-            intent = await bound.parse("What's the weather in Berlin?", _vocabulary())
+            intent = await bound.parse("What's the weather in Berlin?", _vocabulary(), adapter="ollama")
             self.assertIsInstance(intent, ParsedIntent)
             self.assertEqual(intent.command, "weather")
             self.assertEqual(intent.confidence, 0.85)
@@ -117,9 +117,12 @@ class TestParseEndToEnd(unittest.TestCase):
             llm = MagicMock()
             llm.generate = AsyncMock(return_value='{"command": "weather", "confidence": 0.9, "entities": {}}')
             bound = await _bound_capability(llm)
-            await bound.parse("weather berlin", _vocabulary())
+            await bound.parse("weather berlin", _vocabulary(), adapter="ollama")
             bound._host.get_capability.assert_called_once_with("ai.llm")
             llm.generate.assert_called_once()
+            self.assertEqual(
+                llm.generate.await_args.kwargs.get("adapter"), "ollama"
+            )
         asyncio.run(scenario())
 
     def test_empty_text_returns_unresolved_without_llm(self):
@@ -127,7 +130,7 @@ class TestParseEndToEnd(unittest.TestCase):
             llm = MagicMock()
             llm.generate = AsyncMock()
             bound = await _bound_capability(llm)
-            intent = await bound.parse("   ", _vocabulary())
+            intent = await bound.parse("   ", _vocabulary(), adapter="ollama")
             self.assertIs(intent, UNRESOLVED)
             llm.generate.assert_not_called()
         asyncio.run(scenario())
@@ -137,7 +140,7 @@ class TestParseEndToEnd(unittest.TestCase):
             llm = MagicMock()
             llm.generate = AsyncMock()
             bound = await _bound_capability(llm)
-            intent = await bound.parse("do something", [])
+            intent = await bound.parse("do something", [], adapter="ollama")
             self.assertIs(intent, UNRESOLVED)
             llm.generate.assert_not_called()
         asyncio.run(scenario())
@@ -191,23 +194,26 @@ class TestFutureResolverExtension(unittest.TestCase):
         async def scenario():
             bound = await _bound_capability(None)
             self.assertIsNone(bound._resolve_if_available())
-            intent = await bound.parse("weather berlin", _vocabulary())
+            intent = await bound.parse("weather berlin", _vocabulary(), adapter="ollama")
             self.assertEqual(intent, UNRESOLVED)
         asyncio.run(scenario())
 
     def test_parse_signature_does_not_change_with_resolver_selection(self):
         """A future fallback resolver slots into _resolve_if_available; the
-        public parse contract (text + vocabulary -> ParsedIntent) is stable."""
+        public parse contract (text + vocabulary -> ParsedIntent) is stable and
+        the ai.llm adapter is selected explicitly per operation."""
         import inspect
 
         params = inspect.signature(ParsingCapability.parse).parameters
-        self.assertEqual(list(params), ["self", "text", "vocabulary", "model"])
+        self.assertEqual(
+            list(params), ["self", "text", "vocabulary", "adapter", "model"]
+        )
 
 
 class TestDecoupling(unittest.TestCase):
-    def test_no_chatrole_tina_telegram_coupling(self):
+    def test_no_chatrole_telegram_coupling(self):
         source = (PARSING_DIR / "capability.py").read_text().lower()
-        for token in ("chatrole", "tina", "telegram"):
+        for token in ("chatrole", "telegram"):
             self.assertNotIn(token, source, f"ai.parsing must not reference {token}")
         # The capability must never import workload/orchestration/role modules.
         for silo in ("vox.workloads", "vox.orchestration", "vox.roles"):
@@ -217,6 +223,14 @@ class TestDecoupling(unittest.TestCase):
         source = (PARSING_DIR / "capability.py").read_text()
         self.assertNotIn("import vox.capabilities.ai.llm", source)
         self.assertNotIn("vox.capabilities.ai.llm", source)
+
+    def test_no_concrete_llm_adapter_import(self):
+        """ai.parsing consumes the ai.llm port and never a concrete adapter."""
+        source = (PARSING_DIR / "capability.py").read_text().lower()
+        for token in ("ollama", "gemini", "adapters", "gemini-2.5-flash"):
+            self.assertNotIn(
+                token, source, f"ai.parsing must not reference {token}"
+            )
 
 
 if __name__ == "__main__":

@@ -99,6 +99,16 @@ async def test_multiple_store_and_lookup(cache):
 
 
 @pytest.mark.asyncio
+async def test_adapter_identity_is_part_of_cache_key(cache):
+    """Entries stored under different adapters must never collide."""
+    await cache.store("sys", "prompt", "model", "ollama response", "ollama")
+    assert await cache.lookup("sys", "prompt", "model", "gemini") is None
+    result = await cache.lookup("sys", "prompt", "model", "ollama")
+    assert result is not None
+    assert result.content == "ollama response"
+
+
+@pytest.mark.asyncio
 async def test_auto_init_on_first_use():
     """Cache created without explicit init_db() should self-heal."""
     path = Path(f"/tmp/test_cache_auto_{uuid.uuid4().hex[:8]}.db")

@@ -10,7 +10,7 @@ Validates that:
 - explain_config() reflects YAML metadata
 - validate_params() reflects YAML metadata
 - mount() resolves YAML defaults correctly
-- ai.llm uses LLM_MODEL_NAME.default from YAML
+- ai.llm aggregates per-adapter config.yml (OLLAMA_*/GEMINI_*) into its contract
 - Gateway params are not dependent on adapter Python PARAMS
 """
 
@@ -486,7 +486,13 @@ class TestGatewayParamsFromYAML(unittest.TestCase):
 
 
 class TestAILLMParamsFromYAML(unittest.TestCase):
-    """ai.llm params should come from YAML, not from Python PARAMS."""
+    """ai.llm params should come from YAML, not from Python PARAMS.
+
+    The contract is the aggregate of the port-level pipeline params and each
+    adapter's ``config.yml`` (the comm.gateway mechanism): provider endpoint,
+    model and timeout params are adapter-scoped, and the credential is a
+    Vault-injected secret, never a param.
+    """
 
     @classmethod
     def setUpClass(cls):
@@ -495,23 +501,58 @@ class TestAILLMParamsFromYAML(unittest.TestCase):
         cap_file = Path("src/vox/capabilities/ai/llm/capability.py")
         LLMCapability.load_contract(cap_file)
 
-    def test_llm_has_all_params(self):
+    @staticmethod
+    def _all_port_params():
+        return [
+            "LLM_TEMPERATURE",
+            "LLM_MAX_TOKENS",
+            "LLM_CACHE_ENABLED",
+            "LLM_CACHE_TTL",
+            "LLM_CACHE_DB_PATH",
+            "LLM_RAG_ENABLED",
+            "LLM_RAG_MAX_SNIPPETS",
+            "LLM_MAX_INPUT_TOKENS",
+        ]
+
+    @staticmethod
+    def _all_adapter_params():
+        return [
+            "OLLAMA_API_BASE_URL",
+            "OLLAMA_MODEL",
+            "OLLAMA_VISION_MODEL",
+            "OLLAMA_TIMEOUT",
+            "GEMINI_MODEL",
+            "GEMINI_VISION_MODEL",
+            "GEMINI_TIMEOUT",
+        ]
+
+    def test_llm_contract_aggregates_port_and_adapter_params(self):
         from vox.capabilities.ai.llm.capability import LLMCapability
 
         params = LLMCapability.get_params()
-        self.assertIn("LLM_API_BASE_URL", params)
-        self.assertIn("LLM_MODEL_NAME", params)
-        self.assertIn("LLM_VISION_MODEL_NAME", params)
-        self.assertIn("LLM_TEMPERATURE", params)
-        self.assertIn("LLM_MAX_TOKENS", params)
-        self.assertIn("LLM_TIMEOUT", params)
-        self.assertIn("LLM_CACHE_ENABLED", params)
-        self.assertIn("LLM_CACHE_TTL", params)
-        self.assertIn("LLM_CACHE_DB_PATH", params)
-        self.assertIn("LLM_RAG_ENABLED", params)
-        self.assertIn("LLM_RAG_MAX_SNIPPETS", params)
-        self.assertIn("LLM_MAX_INPUT_TOKENS", params)
-        self.assertEqual(len(params), 12)
+        for name in self._all_port_params() + self._all_adapter_params():
+            self.assertIn(name, params)
+        self.assertEqual(len(params), 15)
+
+    def test_llm_secret_is_adapter_owned(self):
+        from vox.capabilities.ai.llm.capability import LLMCapability
+
+        secrets = LLMCapability.get_secret_names()
+        self.assertEqual(secrets, {"GEMINI_API_KEY"})
+        self.assertNotIn("GEMINI_API_KEY", LLMCapability.get_params())
+
+    def test_provider_config_is_not_in_port_namespace(self):
+        """Endpoint/model/timeout moved out of the port into adapter config.yml."""
+        from vox.capabilities.ai.llm.capability import LLMCapability
+
+        params = set(LLMCapability.get_params())
+        for name in (
+            "LLM_API_BASE_URL",
+            "LLM_MODEL_NAME",
+            "LLM_VISION_MODEL_NAME",
+            "LLM_TIMEOUT",
+        ):
+            self.assertNotIn(name, params)
 
     def test_llm_no_class_level_PARAMS_dict(self):
         from vox.capabilities.ai.llm.capability import LLMCapability
@@ -526,9 +567,17 @@ class TestAILLMParamsFromYAML(unittest.TestCase):
         """Changing the YAML default should change the runtime behavior."""
         from vox.capabilities.ai.llm.capability import LLMCapability
 
-        meta = LLMCapability.get_param_meta("LLM_MODEL_NAME")
+        meta = LLMCapability.get_param_meta("OLLAMA_MODEL")
         self.assertIsNotNone(meta)
         self.assertEqual(meta.default, "llama3.2:1b")
+
+        gemini_meta = LLMCapability.get_param_meta("GEMINI_MODEL")
+        self.assertIsNotNone(gemini_meta)
+        self.assertEqual(gemini_meta.default, "gemini-2.5-flash")
+
+        gemini_key = LLMCapability.get_secret_meta("GEMINI_API_KEY")
+        self.assertIsNotNone(gemini_key)
+        self.assertTrue(gemini_key.required)
 
     def test_llm_no_secondary_model(self):
         from vox.capabilities.ai.llm.capability import LLMCapability

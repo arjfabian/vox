@@ -1,39 +1,154 @@
-"""ai.llm — Unified local/cloud LLM inference capability.
+"""ai.llm — provider-agnostic LLM inference capability (port).
 
-Routes every inbound payload through the sequential pipeline:
+Exposes text generation (``generate``), chat completion (``chat``) and vision
+inference (``generate_vision``) behind a provider-neutral interface. Concrete
+backends are explicit adapters under ``adapters/``, each owning its own
+``config.yml``, credentials and provider protocol (the canonical pattern is
+established by ``comm.gateway``).
 
-  1. Sanitize      — strip control chars, boilerplate, collapse JSON
-  2. Cache Check   — SHA-256 exact match lookup with TTL
-  3. RAG Retrieval — FTS5 search against workload private memory.db
-  4. Generation    — dispatch to selected LLM backend
-  5. Cache Commit  — store response for future cache hits
+  * The port contains no provider-specific implementation detail and performs
+    no provider selection.
+  * Adapter availability is decided per bound workload at boot time via each
+    adapter's ``is_configured()`` (provisioning, never selection).
+  * The adapter used by a particular operation is selected explicitly at
+    execution time through the required ``adapter`` keyword.
+  * Model selection is independent from adapter identity: a per-operation
+    ``model`` override is applied by the selected adapter on top of its own
+    configured defaults.
 
-Vision inference bypasses the pipeline and always routes to the local vision
-model.
-NLU intent parsing is also provided here as ``parse_intent()``.
+The generation pipeline (sanitize -> semantic cache -> RAG injection ->
+generation -> cache commit) is port-wide and provider-agnostic; the selected
+adapter only performs the generation step. Vision inference bypasses the
+pipeline and consumes raw image bytes (no intermediate files). NLU intent
+parsing is also provided here as ``parse_intent()``.
 """
 
-import base64
+from __future__ import annotations
+
 import json
+import logging
 import os
 import re
 from pathlib import Path
+from typing import Any
 
-from vox.capabilities.base import VOXCapability
+from vox.capabilities.base import (
+    CapabilityContract,
+    VOXCapability,
+    load_capability_yaml,
+    load_config_yml,
+)
 
+from .adapters import ADAPTER_REGISTRY
+from .adapters.base import LLMAdapter
 from .cache import SemanticCache
-from .client import LLMClient
-from .models import LLMChatMessage, LLMChatRequest, LLMGenerationOptions
+from .models import LLMChatMessage
 from .rag import RAGRetriever
 from .sanitizer import sanitize
+
+logger = logging.getLogger(__name__)
+
+
+class LLMAdapterUnavailableError(RuntimeError):
+    """Raised when an operation selects an adapter that is not mounted."""
 
 
 class LLMCapability(VOXCapability):
     CAPABILITY_NAME = "ai.llm"
 
-    _client: LLMClient
+    _adapters: dict[str, LLMAdapter]
     _cache: SemanticCache
     _rag: RAGRetriever
+
+    # --------------------------------------------------------------------------
+    # Contract loading — aggregate adapter config.yml files
+    # --------------------------------------------------------------------------
+
+    @classmethod
+    def load_contract(
+        cls,
+        capability_file: Path,
+    ) -> CapabilityContract | None:
+        """Load the ai.llm contract by merging per-adapter config.yml files.
+
+        The port's own ``capability.yml`` provides the provider-neutral pipeline
+        params. Each adapter directory contains a ``config.yml`` with ``params``
+        and ``secrets`` sections merged into the single CapabilityContract —
+        the comm.gateway aggregation mechanism.
+        """
+        contract = load_capability_yaml(capability_file)
+
+        if contract is None:
+            return None
+
+        adapter_dir = capability_file.parent / "adapters"
+
+        if adapter_dir.is_dir():
+            for adapter_entry in sorted(adapter_dir.iterdir()):
+                config_yml = adapter_entry / "config.yml"
+
+                if not config_yml.is_file():
+                    continue
+
+                params, secrets = load_config_yml(config_yml)
+
+                overlap = set(params) & set(contract.secrets)
+                if overlap:
+                    raise ValueError(
+                        f"Adapter '{adapter_entry.name}' config.yml redeclares "
+                        f"secret(s) already in contract: {sorted(overlap)}"
+                    )
+
+                overlap = set(secrets) & set(contract.params)
+                if overlap:
+                    raise ValueError(
+                        f"Adapter '{adapter_entry.name}' config.yml redeclares "
+                        f"param(s) already in contract: {sorted(overlap)}"
+                    )
+
+                conflict = set(params) & set(contract.params)
+                if conflict:
+                    raise ValueError(
+                        f"Adapter '{adapter_entry.name}' config.yml redeclares "
+                        f"param(s): {sorted(conflict)}"
+                    )
+
+                conflict = set(secrets) & set(contract.secrets)
+                if conflict:
+                    raise ValueError(
+                        f"Adapter '{adapter_entry.name}' config.yml redeclares "
+                        f"secret(s): {sorted(conflict)}"
+                    )
+
+                contract.params.update(params)
+                contract.secrets.update(secrets)
+
+        cls._contract = contract
+        return contract
+
+    # --------------------------------------------------------------------------
+    # Adapter parameter introspection
+    # --------------------------------------------------------------------------
+
+    @classmethod
+    def adapter_param_specs(cls) -> dict[str, dict[str, list[Any]]]:
+        """Per-adapter param+secret specs from adapter config.yml files."""
+        adapter_dir = Path(__file__).resolve().parent / "adapters"
+        specs: dict[str, dict[str, list[Any]]] = {}
+        for adapter_id in ADAPTER_REGISTRY:
+            config_yml = adapter_dir / adapter_id / "config.yml"
+            if not config_yml.is_file():
+                specs[adapter_id] = {}
+                continue
+            params, secrets = load_config_yml(config_yml)
+            specs[adapter_id] = {
+                **{
+                    name: [meta.description, meta.default]
+                    for name, meta in params.items()
+                },
+                **{name: [meta.description, ""] for name, meta in secrets.items()},
+            }
+        return specs
 
     # --------------------------------------------------------------------------
     # Health
@@ -41,18 +156,73 @@ class LLMCapability(VOXCapability):
 
     @classmethod
     async def health_check(cls) -> bool:
-        meta = cls.get_param_meta("LLM_API_BASE_URL")
-        base_url = meta.default if meta else "http://localhost:11434"
-        client = LLMClient(
-            base_url=base_url,
-            timeout=5.0,
-        )
-        result = await client.is_healthy()
-        await client.aclose()
-        return result
+        # The port is offline-checkable without probing any provider;
+        # provider readiness is an adapter concern.
+        return True
 
     # --------------------------------------------------------------------------
-    # Public operations
+    # Adapter availability (provisioning per bound workload)
+    # --------------------------------------------------------------------------
+
+    async def _build_adapters(self) -> dict[str, LLMAdapter]:
+        """Instantiate this bound's own configured adapters.
+
+        Each adapter is built from this bound's own params and injected Vault
+        secrets; an adapter is skipped when it is not configured for this
+        workload (e.g. its credential was not injected). The instances belong
+        exclusively to this bound capability/workload and are never shared.
+        """
+        adapters: dict[str, LLMAdapter] = {}
+        adapter_dir = Path(__file__).resolve().parent / "adapters"
+
+        for adapter_id, adapter_cls in ADAPTER_REGISTRY.items():
+            config_yml = adapter_dir / adapter_id / "config.yml"
+
+            if not config_yml.is_file():
+                logger.warning(
+                    "Adapter '%s' has no config.yml — skipping",
+                    adapter_id,
+                )
+                continue
+
+            params, secrets = load_config_yml(config_yml)
+
+            adapter_keys = set(params) | set(secrets)
+
+            adapter_config = {
+                key: value
+                for key, value in {
+                    **self._params,
+                    **self._secrets,
+                }.items()
+                if key in adapter_keys
+            }
+
+            if not adapter_cls.is_configured(adapter_config):
+                continue
+
+            adapters[adapter_id] = adapter_cls(adapter_config)
+
+        return adapters
+
+    def available_adapters(self) -> list[str]:
+        """Adapter ids provisioned for this bound workload.
+
+        Availability only — it says nothing about which adapter a particular
+        operation uses.
+        """
+        return sorted(self._adapters)
+
+    def _adapter(self, adapter_id: str) -> LLMAdapter:
+        adapter = self._adapters.get(adapter_id)
+        if adapter is None:
+            raise LLMAdapterUnavailableError(
+                f"adapter '{adapter_id}' is not available for this workload"
+            )
+        return adapter
+
+    # --------------------------------------------------------------------------
+    # Public operations — the adapter is selected per operation
     # --------------------------------------------------------------------------
 
     async def generate(
@@ -60,10 +230,13 @@ class LLMCapability(VOXCapability):
         system: str,
         prompt: str,
         *,
+        adapter: str,
         model: str | None = None,
         json_mode: bool = False,
         context_token: str | None = None,
     ) -> str:
+        adp = self._adapter(adapter)
+
         # 1. Sanitize
         sanitized = await sanitize(
             prompt,
@@ -72,11 +245,13 @@ class LLMCapability(VOXCapability):
         if sanitized.tokens_saved > 0:
             self.log(f"Sanitizer saved {sanitized.tokens_saved} tokens")
 
-        # 2. Cache check
+        # 2. Cache check (adapter identity and model are part of the key)
         cache_enabled = bool(self.LLM_CACHE_ENABLED)
-        effective_model = model or self.LLM_MODEL_NAME
+        effective_model = adp.resolve_model(model)
         if cache_enabled:
-            cached = await self._cache.lookup(system, sanitized.text, effective_model)
+            cached = await self._cache.lookup(
+                system, sanitized.text, effective_model, adapter
+            )
             if cached is not None:
                 self.log("Cache HIT — returning cached response")
                 return cached.content
@@ -95,10 +270,10 @@ class LLMCapability(VOXCapability):
                 self.log(f"Injected {len(snippets)} RAG snippet(s)")
 
         # 4. Generation
-        result = await self._client.generate(
+        result = await adp.generate(
             model=effective_model,
-            prompt=sanitized.text,
             system=augmented_system,
+            prompt=sanitized.text,
             temperature=float(self.LLM_TEMPERATURE),
             max_tokens=int(self.LLM_MAX_TOKENS),
             json_mode=json_mode,
@@ -107,7 +282,7 @@ class LLMCapability(VOXCapability):
         # 5. Cache commit
         if cache_enabled:
             await self._cache.store(
-                system, sanitized.text, effective_model, result.content
+                system, sanitized.text, effective_model, adapter, result.content
             )
 
         return result.content
@@ -116,44 +291,40 @@ class LLMCapability(VOXCapability):
         self,
         messages: list[LLMChatMessage],
         *,
+        adapter: str,
         model: str | None = None,
     ) -> str:
-        effective = model or self.LLM_MODEL_NAME
-        request = LLMChatRequest(
-            model=effective,
+        adp = self._adapter(adapter)
+        result = await adp.chat(
+            model=model,
             messages=messages,
-            stream=False,
-            options=LLMGenerationOptions(
-                temperature=float(self.LLM_TEMPERATURE),
-                max_tokens=int(self.LLM_MAX_TOKENS),
-            ),
+            temperature=float(self.LLM_TEMPERATURE),
+            max_tokens=int(self.LLM_MAX_TOKENS),
         )
-        result = await self._client.chat(request)
         return result.content
 
     async def generate_vision(
         self,
         system: str,
         prompt: str,
-        image_path: str,
+        image_bytes: bytes,
+        *,
+        adapter: str,
+        model: str | None = None,
     ) -> str:
-        self.log(f"Generating vision response using [{self.LLM_VISION_MODEL_NAME}]")
-        # ASYNC230: blocking file read for a small image is negligible
-        with open(image_path, "rb") as f:  # noqa: ASYNC230
-            image_b64 = base64.b64encode(f.read()).decode()
-        request = LLMChatRequest(
-            model=self.LLM_VISION_MODEL_NAME,
-            messages=[
-                LLMChatMessage(role="system", content=system),
-                LLMChatMessage(role="user", content=prompt, images=[image_b64]),
-            ],
-            stream=False,
-            options=LLMGenerationOptions(
-                temperature=float(self.LLM_TEMPERATURE),
-                max_tokens=int(self.LLM_MAX_TOKENS),
-            ),
+        adp = self._adapter(adapter)
+        self.log(
+            f"Generating vision response via adapter [{adapter}] "
+            f"({len(image_bytes)} bytes)"
         )
-        result = await self._client.chat(request)
+        result = await adp.generate_vision(
+            model=model,
+            system=system,
+            prompt=prompt,
+            image_bytes=image_bytes,
+            temperature=float(self.LLM_TEMPERATURE),
+            max_tokens=int(self.LLM_MAX_TOKENS),
+        )
         return result.content
 
     # --------------------------------------------------------------------------
@@ -164,6 +335,8 @@ class LLMCapability(VOXCapability):
         self,
         text: str,
         command_signatures: dict[str, str],
+        *,
+        adapter: str,
         model: str | None = None,
     ) -> dict:
         """Classify a user message into a structured intent.
@@ -171,7 +344,8 @@ class LLMCapability(VOXCapability):
         Args:
             text: Raw user message.
             command_signatures: ``{command_name: description}`` mapping.
-            model: Optional model override (defaults to instance model).
+            adapter: The ai.llm adapter to generate with.
+            model: Optional per-operation model override.
 
         Returns:
             ``{"command": str, "confidence": float, "entities": dict}``
@@ -216,7 +390,8 @@ class LLMCapability(VOXCapability):
         raw = await self.generate(
             system=system,
             prompt=text,
-            model=model or self.LLM_MODEL_NAME,
+            adapter=adapter,
+            model=model,
         )
 
         valid = list(command_signatures.keys()) + ["general_chat"]
@@ -280,10 +455,8 @@ class LLMCapability(VOXCapability):
     # --------------------------------------------------------------------------
 
     async def boot(self) -> None:
-        self._client = LLMClient(
-            base_url=self.LLM_API_BASE_URL,
-            timeout=float(self.LLM_TIMEOUT),
-        )
+        # This bound owns its adapter instances; never shared across workloads.
+        self._adapters = await self._build_adapters()
 
         cache_param = self.LLM_CACHE_DB_PATH
         cache_db_path = (
@@ -302,10 +475,26 @@ class LLMCapability(VOXCapability):
             max_snippets=int(self.LLM_RAG_MAX_SNIPPETS),
         )
 
+        # Lifecycle is part of the adapter contract, not duck-typed.
+        for adapter in self._adapters.values():
+            await adapter.start()
+
+        if self._adapters:
+            self.ok(
+                "ai.llm ready with adapters: "
+                f"{', '.join(self.available_adapters())}"
+            )
+        else:
+            self.ok("No adapters configured — ai.llm idle")
+
     async def shutdown(self) -> None:
-        if hasattr(self, "_client"):
-            await self._client.aclose()
-        if hasattr(self, "_cache"):
-            await self._cache.close()
-        if hasattr(self, "_rag"):
-            await self._rag.close()
+        for adapter in getattr(self, "_adapters", {}).values():
+            await adapter.shutdown()
+
+        cache = getattr(self, "_cache", None)
+        if cache is not None:
+            await cache.close()
+
+        rag = getattr(self, "_rag", None)
+        if rag is not None:
+            await rag.close()

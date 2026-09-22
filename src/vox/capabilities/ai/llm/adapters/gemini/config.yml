@@ -1,0 +1,23 @@
+# gemini — Google Gemini backend adapter configuration.
+#
+# Aggregated into the ai.llm CapabilityContract by LLMCapability.load_contract.
+# The API key is a secret: injected only through the workload Vault path, never
+# read from environment variables or .env files.
+params:
+  GEMINI_MODEL:
+    description: Model identifier for text generation and chat
+    type: string
+    default: gemini-2.5-flash
+  GEMINI_VISION_MODEL:
+    description: Model identifier for vision inference
+    type: string
+    default: gemini-2.5-flash
+  GEMINI_TIMEOUT:
+    description: Request timeout in seconds
+    type: float
+    default: 60.0
+secrets:
+  GEMINI_API_KEY:
+    description: Google AI Studio API key (Vault-injected)
+    type: string
+    required: true

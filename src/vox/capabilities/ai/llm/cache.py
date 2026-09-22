@@ -71,11 +71,12 @@ class SemanticCache:
         system: str,
         prompt: str,
         model: str,
+        adapter: str = "",
     ) -> LLMGenerationResult | None:
         if not self._initialized:
             await self.init_db()
 
-        key = _sha256(system, prompt, model)
+        key = _sha256(system, prompt, adapter, model)
 
         async with self._lock:
             row = await self._query_one(
@@ -101,11 +102,12 @@ class SemanticCache:
         prompt: str,
         model: str,
         content: str,
+        adapter: str = "",
     ) -> None:
         if not self._initialized:
             await self.init_db()
 
-        key = _sha256(system, prompt, model)
+        key = _sha256(system, prompt, adapter, model)
         payload = json.dumps({"content": content})
 
         async with self._lock:
@@ -118,11 +120,13 @@ class SemanticCache:
 
         logger.info("Cached response for key=%s", key[:12])
 
-    async def invalidate(self, system: str, prompt: str, model: str) -> None:
+    async def invalidate(
+        self, system: str, prompt: str, model: str, adapter: str = ""
+    ) -> None:
         if not self._initialized:
             await self.init_db()
 
-        key = _sha256(system, prompt, model)
+        key = _sha256(system, prompt, adapter, model)
         async with self._lock:
             await self._execute("DELETE FROM exact_cache WHERE key = ?", (key,))
 
