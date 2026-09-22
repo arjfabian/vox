@@ -521,6 +521,9 @@ class VOXBoundCapability:
     def error(self, message: str) -> None:
         self.logger.error(f"[{self.name}] {message}")
 
+    def exception(self, message: str) -> None:
+        self.logger.exception(f"[{self.name}] {message}")
+
     def ok(self, message: str) -> None:
         self.logger.ok(f"[{self.name}] {message}")
 

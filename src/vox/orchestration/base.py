@@ -168,8 +168,10 @@ class VOXOrchestrator:
         for workload in all_workloads:
             try:
                 await workload.shutdown()
-            except Exception as e:  # noqa: BLE001 — fleet shutdown
-                self.logger.error(f"Workload shutdown failed [{workload.name}]: {e}")
+            except Exception:
+                self.logger.exception(
+                    f"Workload shutdown failed [{workload.name}]"
+                )
         self.active_workloads.clear()
         self.inactive_workloads.clear()
         self.degraded_workloads.clear()
@@ -178,13 +180,13 @@ class VOXOrchestrator:
             if entry.instance is not None:
                 try:
                     await entry.instance.shutdown()
-                except Exception as e:  # noqa: BLE001 — fleet shutdown
-                    self.logger.error(f"Capability shutdown failed [{cap_id}]: {e}")
+                except Exception:
+                    self.logger.exception(f"Capability shutdown failed [{cap_id}]")
         if self.fleet_messenger is not None:
             try:
                 await self.fleet_messenger.shutdown()
-            except Exception as e:  # noqa: BLE001 — fleet shutdown
-                self.logger.error(f"FleetMessenger shutdown failed: {e}")
+            except Exception:
+                self.logger.exception("FleetMessenger shutdown failed")
         self.logger.ok("VOX fleet shut down.")
 
     # --------------------------------------------------------------------------

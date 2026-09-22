@@ -23,9 +23,13 @@ silo.
 Owned here:
 
 - **Observability models** — `VOXForensicLogger` and `VOXLogSource`.
-- **Forensic/event logging behavior** — the `ok/info/warning/error/debug`
-  emission contract, source-metadata attachment (`extra={"vox_source": ...}`),
-  and child-logger creation (`get_child`).
+- **Forensic/event logging behavior** — the
+  `ok/info/warning/error/exception/debug` emission contract,
+  source-metadata attachment (`extra={"vox_source": ...}`), and child-logger
+  creation (`get_child`). `exception()` mirrors `logging.Logger.exception`
+  (ERROR level with the in-flight exception traceback) and is the sanctioned
+  way to record a caught exception; it must never mask the operational
+  exception being reported.
 - **Verbosity/debug behavior** — the `verbose` flag on `VOXForensicLogger`
   gates `debug()` output, and is propagated through `get_child`.
 - **Formatters / output representation** — `VOXColorFormatter`
@@ -54,8 +58,8 @@ Owned here:
    attaches handlers/formatters, reads `config.log_path`, and wraps the result
    in `VOXForensicLogger(verbose=config.verbose_logging)`.
 3. **Event emission** — consumers call `logger.info`/`ok`/`warning`/`error`/
-   `debug`/`get_child` on a `VOXForensicLogger` they were handed. They do not
-   reach into formatters or the raw `_logger`.
+   `exception`/`debug`/`get_child` on a `VOXForensicLogger` they were handed.
+   They do not reach into formatters or the raw `_logger`.
 4. **Formatting** — the cli-installed `VOXColorFormatter`/`VOXPlainFormatter`
    on the `vox` hierarchy render each record.
 5. **Output** — stream/`config.log_path` handlers.
@@ -148,3 +152,14 @@ not a routine edit:
   same `vox` hierarchy as the forensic wrapper. This is the standard Python
   logging pattern and both render through the single cli-installed
   construction; it is not duplicated logger ownership.
+- **Closed — `exception()` is part of the emission contract.** The forensic
+  logger previously exposed only `ok/info/warning/error/debug`, while repo code
+  legitimately called `.exception(...)` from exception boundaries. That gap
+  surfaced as `'VOXForensicLogger' object has no attribute 'exception'` at a
+  role-dispatch boundary, where the logging AttributeError replaced the
+  original operational exception and re-surfaced as
+  `ERROR [adapter] Telegram dispatch failed: ...`. `VOXForensicLogger.exception()`
+  now provides the `logging.Logger.exception` contract (ERROR + in-flight
+  traceback), is guarded so a logging failure can never mask the reported
+  exception, and the formatters render exception tracebacks for both
+  colour/plain paths.

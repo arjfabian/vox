@@ -327,8 +327,8 @@ class VOXWorkload:
                 setattr(self, role_name, role)
                 self._register_role_routes(role)
                 self.logger.ok(f"Loaded role: {role_name}")
-            except Exception as exc:  # noqa: BLE001 — role boundary
-                self.logger.error(f"Role load failed [{role_name}]: {exc}")
+            except Exception:
+                self.logger.exception(f"Role load failed [{role_name}]")
 
     def _role_route_names(self, role: Any) -> tuple[set[str], set[str]]:
         """Return (route names, command names) from the role's public surface."""
@@ -413,8 +413,8 @@ class VOXWorkload:
         await self._capability_binder.init_vault()
         try:
             await self._capability_binder.inject_vault_secrets()
-        except VaultAccessError as e:
-            self.logger.error(str(e))
+        except VaultAccessError:
+            self.logger.exception("Vault secret injection failed")
             self._state = WorkloadState.FAILED
             return False
 
@@ -435,8 +435,8 @@ class VOXWorkload:
             try:
                 await cap.initialize()
                 await cap.boot()
-            except Exception as e:  # noqa: BLE001 — capability boundary
-                self.logger.error(f"Capability boot failed [{cap}]: {e}")
+            except Exception:
+                self.logger.exception(f"Capability boot failed [{cap}]")
                 ok = False
         if not ok:
             self._state = WorkloadState.FAILED
@@ -490,8 +490,8 @@ class VOXWorkload:
         for cap in self.capabilities.values():
             try:
                 await cap.shutdown()
-            except Exception as e:  # noqa: BLE001 — shutdown boundary
-                self.logger.error(f"Capability shutdown failed [{cap}]: {e}")
+            except Exception:
+                self.logger.exception(f"Capability shutdown failed [{cap}]")
         self.roles.clear()
         self.capabilities.clear()
         self._state = WorkloadState.STOPPED
@@ -544,13 +544,17 @@ class VOXWorkload:
         for role in targets:
             try:
                 await role.handle_event(event_name, **kwargs)
-            except Exception as exc:  # noqa: BLE001 — dispatch boundary
-                self.logger.error(f"Role dispatch failure [{event_name}]: {exc}")
+            except Exception:
+                self.logger.exception(
+                    "Role dispatch failure [%s]",
+                    event_name,
+                )
         handler = self._capability_commands.get(event_name)
         if handler:
             try:
                 await handler(**kwargs)
-            except Exception as exc:  # noqa: BLE001 — dispatch boundary
-                self.logger.error(
-                    f"Capability command dispatch failure [{event_name}]: {exc}"
+            except Exception:
+                self.logger.exception(
+                    "Capability command dispatch failure [%s]",
+                    event_name,
                 )

@@ -290,8 +290,8 @@ class TelegramAdapter(BaseAdapter):
 
             bytes_data = await self._download_file(file_path)
 
-        except Exception as exc:  # noqa: BLE001 — attachment fetch is best-effort
-            logger.error("Telegram attachment download failed: %s", exc)
+        except Exception:
+            logger.exception("Telegram attachment download failed")
             return inbound
 
         if not bytes_data:
@@ -355,11 +355,8 @@ class TelegramAdapter(BaseAdapter):
 
             return True
 
-        except Exception as exc:  # noqa: BLE001
-            logger.error(
-                "Telegram send failed: %s",
-                exc,
-            )
+        except Exception:
+            logger.exception("Telegram send failed")
             return False
 
     # --------------------------------------------------------------------------
@@ -391,11 +388,10 @@ class TelegramAdapter(BaseAdapter):
                 except asyncio.CancelledError:
                     break
 
-                except Exception as exc:  # noqa: BLE001
-                    logger.error(
-                        "Telegram poll error (retry in %ss): %s",
+                except Exception:
+                    logger.exception(
+                        "Telegram poll error (retry in %ss)",
                         _POLL_RETRY_DELAY,
-                        exc,
                     )
 
                     await asyncio.sleep(_POLL_RETRY_DELAY)
@@ -434,22 +430,16 @@ class TelegramAdapter(BaseAdapter):
             inbound = self.parse_inbound(update)
             inbound = await self.resolve_attachment(inbound)
 
-        except Exception as exc:  # noqa: BLE001
-            logger.error(
-                "Telegram update parse failed: %s",
-                exc,
-            )
+        except Exception:
+            logger.exception("Telegram update parse failed")
             return
 
         if self._dispatch is not None:
             try:
                 await self._dispatch(inbound)
 
-            except Exception as exc:  # noqa: BLE001
-                logger.error(
-                    "Telegram dispatch failed: %s",
-                    exc,
-                )
+            except Exception:
+                logger.exception("Telegram dispatch failed")
 
     # --------------------------------------------------------------------------
     # Internals

@@ -34,8 +34,8 @@ async def run_vox(runtime: VOXRuntime, logger: VOXForensicLogger) -> None:
 
     try:
         operative = await runtime.orchestrator.boot()
-    except Exception:  # noqa: BLE001 — boot failure triggers shutdown
-        logger.error("VOX boot failed.")
+    except Exception:
+        logger.exception("VOX boot failed.")
         await runtime.orchestrator.shutdown()
         return
 

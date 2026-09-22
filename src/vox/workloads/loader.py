@@ -129,8 +129,8 @@ class WorkloadLoader:
         except WorkloadProvisionError:
             raise
 
-        except Exception as exc:  # noqa: BLE001
-            self._logger.error(f"Manifest load error: {exc}")
+        except Exception:
+            self._logger.exception("Manifest load error")
             return False
 
     def _validate_manifest(self, data: dict[str, Any]) -> None:
@@ -185,8 +185,8 @@ class WorkloadLoader:
             config.update(env_data)
             return True
 
-        except Exception as exc:  # noqa: BLE001
-            self._logger.error(f"Env load error: {exc}")
+        except Exception:
+            self._logger.exception("Env load error")
             return False
 
     @staticmethod

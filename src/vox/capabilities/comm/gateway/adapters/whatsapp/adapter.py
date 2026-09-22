@@ -211,8 +211,8 @@ class WhatsAppAdapter(BaseAdapter):
             )
             resp.raise_for_status()
             return True
-        except Exception as exc:  # noqa: BLE001 — HTTP send failure
-            logger.error("WhatsApp send failed: %s", exc)
+        except Exception:
+            logger.exception("WhatsApp send failed")
             return False
 
     # --------------------------------------------------------------------------

@@ -54,7 +54,16 @@ class VOXColorFormatter(logging.Formatter):
         entry_src = f"{src_color}[{_source_tag(record)}]{self._RESET}"
         entry_message = f"{self._WHITE}{record.getMessage()}{self._RESET}"
 
-        return f"{entry_ts} {entry_level} {entry_src} {entry_message}"
+        text = f"{entry_ts} {entry_level} {entry_src} {entry_message}"
+
+        if record.exc_info and not record.exc_text:
+            record.exc_text = self.formatException(record.exc_info)
+        if record.exc_text:
+            text = f"{text}\n{record.exc_text}"
+        if record.stack_info:
+            text = f"{text}\n{record.stack_info}"
+
+        return text
 
 
 class VOXPlainFormatter(logging.Formatter):
@@ -66,4 +75,13 @@ class VOXPlainFormatter(logging.Formatter):
 
         tag = _source_tag(record)
 
-        return f"{timestamp} [{record.levelname}] [{tag}] {record.getMessage()}"
+        text = f"{timestamp} [{record.levelname}] [{tag}] {record.getMessage()}"
+
+        if record.exc_info and not record.exc_text:
+            record.exc_text = self.formatException(record.exc_info)
+        if record.exc_text:
+            text = f"{text}\n{record.exc_text}"
+        if record.stack_info:
+            text = f"{text}\n{record.stack_info}"
+
+        return text

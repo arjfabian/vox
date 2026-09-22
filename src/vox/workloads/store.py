@@ -67,10 +67,8 @@ class VOXWorkloadStore:
                         "CREATE UNIQUE INDEX IF NOT EXISTS idx_checksum_unique "
                         "ON asset_index(checksum)"
                     )
-                except aiosqlite.OperationalError as e:
-                    logger.error(
-                        "Failed to create unique index on checksum: %s", e
-                    )
+                except aiosqlite.OperationalError:
+                    logger.exception("Failed to create unique index on checksum")
                     raise
             await conn.commit()
 

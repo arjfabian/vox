@@ -134,7 +134,7 @@ class TestVOXOrchestratorShutdown(unittest.TestCase):
         asyncio.run(self.orc.shutdown())
 
         workload.shutdown.assert_awaited_once()
-        self.logger.error.assert_called_once()
+        self.logger.exception.assert_called_once()
 
     def test_shutdown_capability_error_does_not_propagate(self):
         cap = MagicMock()
@@ -148,6 +148,7 @@ class TestVOXOrchestratorShutdown(unittest.TestCase):
         asyncio.run(self.orc.shutdown())
 
         cap.shutdown.assert_awaited_once()
+        self.logger.exception.assert_called_once()
 
     def test_shutdown_skips_unloaded_capabilities(self):
         self.orc.capability_registry["unloaded.cap"] = CapabilityEntry(

@@ -37,8 +37,8 @@ class BrowserCapability(VOXCapability):
             await page.screenshot(path=str(path), full_page=True)
             self.ok(f"Captured: {path}")
             return str(path)
-        except Exception as e:  # noqa: BLE001 — screenshot returns empty
-            self.error(f"Capture failed: {e}")
+        except Exception:  # noqa: BLE001 — screenshot returns empty
+            self.exception("Capture failed")
             return ""
         finally:
             await page.close()
@@ -51,8 +51,8 @@ class BrowserCapability(VOXCapability):
                 url, wait_until="networkidle", timeout=int(self.BROWSER_TIMEOUT)
             )
             return await page.inner_text("body")
-        except Exception as e:  # noqa: BLE001 — text extraction returns empty
-            self.error(f"Text extraction failed: {e}")
+        except Exception:  # noqa: BLE001 — text extraction returns empty
+            self.exception("Text extraction failed")
             return ""
         finally:
             await page.close()

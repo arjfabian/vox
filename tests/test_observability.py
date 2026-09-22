@@ -1,6 +1,8 @@
 import io
 import logging
+import sys
 import unittest
+from unittest.mock import MagicMock, patch
 
 from vox.observability.constants import LOG_LEVEL_OK
 from vox.observability.formatters import (
@@ -9,6 +11,15 @@ from vox.observability.formatters import (
     _source_tag,
 )
 from vox.observability.models import VOXForensicLogger, VOXLogSource
+
+
+class _RecordHandler(logging.Handler):
+    def __init__(self):
+        super().__init__()
+        self.records: list[logging.LogRecord] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.records.append(record)
 
 
 class TestSourceTag(unittest.TestCase):
@@ -67,6 +78,8 @@ class TestVOXForensicLogger(unittest.TestCase):
         base = logging.getLogger("vox.test")
         base.setLevel(logging.DEBUG)
         base.addHandler(handler)
+        self.capture = _RecordHandler()
+        base.addHandler(self.capture)
         self.logger = VOXForensicLogger(base)
         self.base = base
 
@@ -106,6 +119,63 @@ class TestVOXForensicLogger(unittest.TestCase):
         child.info("from child")
         # The record name should be vox.test.workload1
         self.assertIn("from child", self.stream.getvalue())
+
+    def test_exception_logs_at_error_level_with_traceback(self):
+        original = ValueError("vision timeout")
+        try:
+            raise original
+        except ValueError:
+            self.logger.exception("dispatch failed")
+        record = self.capture.records[-1]
+        self.assertEqual(record.levelno, logging.ERROR)
+        self.assertEqual(record.getMessage(), "dispatch failed")
+        self.assertIsNotNone(record.exc_info)
+        self.assertIs(record.exc_info[0], ValueError)
+        self.assertIs(record.exc_info[1], original)
+
+    def test_exception_preserves_original_exception_when_logging_fails(self):
+        original = RuntimeError("simulated adapter failure")
+        with (
+            patch.object(self.base, "error", side_effect=RuntimeError("broken")),
+            patch.object(logging, "lastResort", MagicMock()),
+        ):
+            try:
+                raise original
+            except RuntimeError as caught:
+                self.logger.exception("dispatch failed")
+                self.assertIs(caught, original)
+
+    def test_exception_on_child_logger(self):
+        child = self.logger.get_child("sample")
+        try:
+            raise KeyError("unknown secret")
+        except KeyError:
+            child.exception("child failed")
+        record = self.capture.records[-1]
+        self.assertEqual(record.name, "vox.test.sample")
+        self.assertIs(record.exc_info[0], KeyError)
+
+    def test_exception_honors_explicit_exc_info_false(self):
+        try:
+            raise ValueError("boom")
+        except ValueError:
+            self.logger.exception("no traceback wanted", exc_info=False)
+        record = self.capture.records[-1]
+        self.assertEqual(record.getMessage(), "no traceback wanted")
+        self.assertIsNone(record.exc_info)
+
+    def test_exception_attaches_source_metadata(self):
+        src = VOXLogSource(source_type="workload", source_name="sample")
+        try:
+            raise RuntimeError("op failed")
+        except RuntimeError:
+            self.logger.exception("op failed", source=src)
+        record = self.capture.records[-1]
+        self.assertIs(record.vox_source, src)
+        self.assertEqual(record.getMessage(), "op failed")
+
+    def test_exception_returns_none(self):
+        self.assertIsNone(self.logger.exception("no-op"))
 
 
 class TestVOXColorFormatter(unittest.TestCase):
@@ -150,6 +220,21 @@ class TestVOXColorFormatter(unittest.TestCase):
         result = self.fmt.format(record)
         self.assertIn("ok msg", result)
 
+    def test_format_includes_traceback_for_exception_record(self):
+        try:
+            raise ValueError("boom")
+        except ValueError:
+            exc_info = sys.exc_info()
+        record = logging.LogRecord("vox", logging.ERROR, "f.py", 1, "failed", (), exc_info)
+        result = self.fmt.format(record)
+        self.assertIn("Traceback", result)
+        self.assertIn("boom", result)
+
+    def test_format_without_exc_text_is_unchanged(self):
+        record = logging.LogRecord("vox", logging.INFO, "", 0, "plain", (), None)
+        result = self.fmt.format(record)
+        self.assertNotIn("Traceback", result)
+
 
 class TestVOXPlainFormatter(unittest.TestCase):
     def setUp(self):
@@ -173,3 +258,16 @@ class TestVOXPlainFormatter(unittest.TestCase):
         )
         result = self.fmt.format(record)
         self.assertIn("[workload1]", result)
+
+    def test_format_includes_traceback_for_exception_record(self):
+        try:
+            raise ValueError("boom")
+        except ValueError:
+            exc_info = sys.exc_info()
+        record = logging.LogRecord(
+            "vox", logging.ERROR, "f.py", 1, "failed", (), exc_info
+        )
+        result = self.fmt.format(record)
+        self.assertIn("Traceback", result)
+        self.assertIn("boom", result)
+        self.assertNotIn("\x1b", result)

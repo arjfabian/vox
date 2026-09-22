@@ -42,8 +42,8 @@ class FleetMessenger:
             )
             resp.raise_for_status()
             return True
-        except Exception as exc:  # noqa: BLE001 — send failure
-            self.logger.error(f"FleetMessenger send failed: {exc}")
+        except Exception:
+            self.logger.exception("FleetMessenger send failed")
             return False
 
     async def shutdown(self) -> None:

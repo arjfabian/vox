@@ -102,8 +102,10 @@ class VOXRegistry:
             else:
                 self._logger.error(f"Capability [{capability_id}] failed health check")
             return healthy
-        except Exception as exc:  # noqa: BLE001 — load failures are non-fatal
-            self._logger.error(f"Failed to load capability [{capability_id}]: {exc}")
+        except Exception:
+            self._logger.exception(
+                f"Failed to load capability [{capability_id}]"
+            )
             return False
 
     def get_capability_instance(self, cap_id: str) -> VOXCapability | None:
@@ -153,8 +155,8 @@ class VOXRegistry:
                         "name": data.get("name"),
                     }
                 )
-            except Exception as e:  # noqa: BLE001 — malformed manifest skipped
-                self._logger.error(f"Failed parsing {persona_folder}: {e}")
+            except Exception:
+                self._logger.exception(f"Failed parsing {persona_folder}")
         workloads_by_id = {}
         for spec in workload_specs:
             if spec["id"]:
@@ -253,6 +255,6 @@ class VOXRegistry:
                 global_env=global_env,
             )
             return workload
-        except Exception as e:  # noqa: BLE001 — hire failures are non-fatal
-            self._logger.error(f"hire_workload failed for {folder}: {e}")
+        except Exception:
+            self._logger.exception(f"hire_workload failed for {folder}")
             return None

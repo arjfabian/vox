@@ -138,6 +138,10 @@ class TestVOXBoundCapability(unittest.TestCase):
         self.bound.error("err")
         self.bound.logger.error.assert_called_once()
 
+    def test_exception_delegates_to_logger(self):
+        self.bound.exception("oops")
+        self.bound.logger.exception.assert_called_once()
+
     def test_health_check_delegates(self):
         with unittest.mock.patch.object(
             VOXCapability, "health_check", return_value=False

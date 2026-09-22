@@ -43,8 +43,8 @@ class VOXSpeakerProfile:
             self._embedding = np.load(path)
             self._logger.ok(f"Speaker profile loaded from '{path}'.")
             return True
-        except Exception as e:  # noqa: BLE001 — load failure returns False
-            self._logger.error(f"Failed to load speaker profile: {e}")
+        except Exception:
+            self._logger.exception("Failed to load speaker profile")
             return False
 
     def verify(self, audio_bytes: bytes) -> bool:
@@ -61,8 +61,8 @@ class VOXSpeakerProfile:
             similarity = self._cosine_similarity(self._embedding, embedding)
             self._logger.info(f"Speaker similarity score: {similarity:.3f}")
             return similarity >= _SIMILARITY_THRESHOLD
-        except Exception as e:  # noqa: BLE001 — verify failure returns False
-            self._logger.error(f"Speaker verification error: {e}")
+        except Exception:
+            self._logger.exception("Speaker verification error")
             return False
 
     @staticmethod

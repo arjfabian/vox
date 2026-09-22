@@ -112,9 +112,9 @@ async def handle_control_command(
         writer.write((json.dumps(response) + "\n").encode())
         await writer.drain()
 
-    except Exception as e:  # noqa: BLE001 — UDS handler must not crash
+    except Exception as e:
         error_msg = f"UDS Server Error: {e}"
-        logger.error(error_msg)
+        logger.exception("UDS command handling failed")
         try:
             writer.write(
                 (json.dumps({"ok": False, "error": error_msg}) + "\n").encode()

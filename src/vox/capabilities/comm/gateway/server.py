@@ -237,8 +237,8 @@ class IngressServer:
             try:
                 inbound = adapter.parse_inbound(raw)
                 inbound = await adapter.resolve_attachment(inbound)
-            except Exception as exc:  # noqa: BLE001 — parse failure returns 422
-                logger.error("Parse error [%s]: %s", channel, exc)
+            except Exception:
+                logger.exception("Parse error [%s]", channel)
                 return web.json_response({"error": "parse error"}, status=422)
 
             dispatch = self._channel_dispatch.get(channel)
@@ -247,8 +247,8 @@ class IngressServer:
 
             try:
                 await dispatch(inbound)
-            except Exception as exc:  # noqa: BLE001 — dispatch fails
-                logger.error("Dispatch error [%s]: %s", channel, exc)
+            except Exception:
+                logger.exception("Dispatch error [%s]", channel)
                 return web.json_response({"error": "dispatch error"}, status=500)
 
             return web.json_response({"ok": True})

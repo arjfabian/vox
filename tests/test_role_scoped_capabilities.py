@@ -518,5 +518,38 @@ class TestFleetOnboardingRoleScoped(unittest.IsolatedAsyncioTestCase):
             shutil.rmtree(tmp, ignore_errors=True)
 
 
+class TestDispatchFailureObservability(_WorkloadFixture):
+    """A raising Role must surface its root exception, never a swallowed one-liner."""
+
+    def test_failing_role_logs_root_exception_with_traceback(self):
+        logger = MagicMock()
+
+        (self.tmp / "manifest.yml").write_text(
+            "name: FailWorkload\nid: test-uuid-fail\nautostart: false\n"
+        )
+        (self.tmp / "roles" / "boom.py").write_text(
+            "from vox.roles import VOXRole\n\n"
+            "class Role(VOXRole):\n"
+            "    def __init__(self, workload):\n"
+            "        super().__init__(workload)\n"
+            "        @self.on('parse_receipt')\n"
+            "        def _handler(**kwargs):\n"
+            "            raise RuntimeError('simulated vision timeout')\n"
+        )
+        orchestrator = MagicMock()
+        orchestrator.get_capability_instance.side_effect = lambda cap_id: None
+        wl = VOXWorkload(self.tmp, logger, orchestrator)
+        asyncio_run(wl.boot())
+        asyncio_run(wl.emit("parse_receipt"))
+
+        # boot() swaps the injected logger for a per-workload child; emit
+        # failures are recorded on the workload logger with the full traceback
+        # attached (.exception semantics), not reduced to a bare one-liner.
+        wl.logger.exception.assert_called_once()
+        args = wl.logger.exception.call_args.args
+        self.assertEqual(args[0], "Role dispatch failure [%s]")
+        self.assertEqual(args[1], "parse_receipt")
+
+
 if __name__ == "__main__":
     unittest.main()
