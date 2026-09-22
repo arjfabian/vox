@@ -105,14 +105,15 @@ and roles, then boot. Enabled by default; disable via `VOX_WATCH_DISABLED=true`.
 
 Capabilities are infrastructure resources — compute, communication, I/O —
 that the orchestrator manages and assigns to workloads. They are not ambient
-APIs. A workload can only use a capability that passes its health check.
+APIs, and none are mounted implicitly.
 
-Capability requirements are declared in role source code via the `REQUIRES`
-class variable and `self.workload.capabilities["cap_id"]` usage. At bootstrap,
-the workload scans its role files with an AST parser, resolves the required
-capability set, and mounts the matching instances from the registry. If a
-capability is unavailable, affected roles are disabled and the workload runs
-in degraded mode.
+Capability requirements are derived from role source code: a role requests a
+capability by using `self.workload.capabilities["cap_id"]` (or `.get(...)`). At
+bootstrap, the workload's AST parser scans the roles that actually loaded,
+resolves the required capability set, and mounts the matching instances from
+the registry (shared capabilities are mounted once). If a capability is
+missing, only the roles that reference it are disabled; the workload stays
+operational while at least one role is available.
 
 A **Pub/Sub War Room** (`VOXWarRoom`) provides async incident notification.
 Alerts published by any workload or the system are fanned out to all active
@@ -121,31 +122,35 @@ workloads and mirrored to an external channel through the orchestrator's
 `TELEGRAM_BOT_TOKEN` and `VOX_WAR_ROOM_ID` are configured). Role-level
 messaging is handled by `comm.gateway` — a domain-agnostic multi-channel
 gateway with adapter-driven inbound and outbound (Telegram via webhook or
-`getUpdates` long-polling, WhatsApp Cloud API, generic HTTP webhook) —
-mounted per workload as `CommGatewayCapability` and used via `send_text()`.
+`getUpdates` long-polling, WhatsApp Cloud API, generic HTTP webhook). It is
+mounted for a workload only when a loaded role references it, and used via
+`send_text(channel, recipient_id, ...)` with an explicit channel and receiver
+per operation.
 
 Built-in capabilities:
 
 | Capability | ID | Backend |
 |---|---|---|
-| LLM text generation | `ai.llm` | Ollama (local) routed via complexity classifier (optional cloud fallback) |
+| LLM text generation | `ai.llm` | Ollama (local) / Gemini (cloud) via explicit adapters |
+| Intent parsing | `ai.parsing` | natural-language → `CommandSpec` via the `ai.llm` port |
 | Headless browser | `net.browser` | Playwright (Firefox) |
 | Messaging (inbound + outbound) | `comm.gateway` | Telegram (webhook / `getUpdates` long-poll) / WhatsApp Cloud API / generic webhook |
 | Email dispatch | `comm.email` | SMTP |
 | Speech-to-text | `comm.voicetotext` | faster-whisper |
+| Image OCR | `image.ocr` | via `ai.llm` port (vision-capable adapter) |
 
 The LLM is one capability among several. Capabilities are interchangeable.
 
 ### Roles
 
-Roles are behavioural modules attached to a workload. A role declares which
-capabilities it requires via `REQUIRES`, exposes command handlers via the
-`@command` decorator, and subscribes to events via `role.on("event")`.
-Only roles listed in the manifest are loaded.
+Roles are behavioural modules attached to a workload. A role exposes command
+handlers via the `@command` decorator and subscribes to events via
+`role.on("event")`. Only roles listed in the manifest are loaded.
 
 Roles depend on capabilities, not the other way around. A role declares its
-requirements in source code; the workload's AST scanner discovers them at
-bootstrap.
+requirements by using `self.workload.capabilities[...]` and by declaring the
+Vault secrets it needs; the workload's AST scanner discovers both at bootstrap
+without executing role code.
 
 ### Lifecycle
 
@@ -205,9 +210,11 @@ structured.
 
 - **Identity enforcement.** Every workload must present a valid manifest with
   name and UUID. Bootstrap rejects workloads without valid identity.
-- **Capability gating.** A role whose required capabilities cannot be mounted
-  is disabled at bootstrap. The workload runs in degraded mode; it cannot use
-  capabilities that were never mounted.
+- **Capability gating.** Only roles that reference a missing capability are
+  disabled at bootstrap; unrelated roles stay operational. A workload with at
+  least one available role still boots (degraded, not unhealthy); a workload
+  with no operational roles stays parked. It can only use capabilities that
+  were actually mounted.
 - **Filesystem isolation.** File access is scoped to a per-workload sandbox
   directory. Operations outside the sandbox are rejected at the path level.
 - **Control plane isolation.** The Unix domain socket is restricted to the
@@ -231,14 +238,17 @@ structured.
   creation. Every record carries the workload identity.
 - **Encrypted secret vault.** Per-workload AES-256-GCM vault (`WorkloadVault`) with
   PBKDF2HMAC key derivation. Each workload gets an isolated `secrets.vault`
-  SQLite file. Fallback chain: vault → local `.env`.
+  SQLite file. Secrets resolve from the Vault store only — the runtime never
+  falls back to workload config or `.env`. A missing required secret disables
+  the affected roles; a workload whose roles require secrets fails boot if the
+  vault is unavailable.
 
 ## Getting started
 
 ### Prerequisites
 
 - Python 3.11+
-- [Ollama](https://ollama.ai) (for `ai.llm` capability)
+- [Ollama](https://ollama.ai) (local backend for the `ai.llm` Ollama adapter) **or** a Google Gemini API key (cloud backend). The Ollama adapter needs no credentials; the Gemini adapter requires the `GEMINI_API_KEY` Vault secret.
 - [Playwright](https://playwright.dev) browsers: `playwright install firefox`
 - Telegram Bot Token — fleet-level War Room / `FleetMessenger` alert mirroring, and the optional `comm.gateway` Telegram adapter (only if you use Telegram)
 - WhatsApp Cloud API credentials — optional, only for the `comm.gateway` WhatsApp adapter
@@ -264,11 +274,11 @@ TELEGRAM_USER_ID=...
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `VOX_MASTER_KEY` | — | Master passphrase for the per-workload encrypted vault (`WorkloadVault`). Required when capabilities declare `SENSITIVE_PARAMS` that are not provided via `.env`. |
+| `VOX_MASTER_KEY` | — | Master passphrase for the per-workload encrypted vault (`WorkloadVault`), required when a workload's roles depend on required Vault secrets. A workload with required secrets fails boot if the vault cannot be initialised. |
 | `VOX_WAR_ROOM_ID` | — | Telegram chat ID for War Room alert mirroring. **Required** — VOX refuses to start without it. |
-| `TELEGRAM_BOT_TOKEN` | — | Telegram Bot API token — fleet-level War Room / `FleetMessenger` alert mirroring, and the optional `comm.gateway` Telegram adapter |
+| `TELEGRAM_BOT_TOKEN` | — | Telegram Bot API token — fleet-level War Room / `FleetMessenger` alert mirroring. The optional `comm.gateway` Telegram adapter uses the same token as a Vault-provisioned secret |
 | `TELEGRAM_USER_ID` | — | Telegram chat/user ID injected into every workload config (global workload key) and used as the outbound recipient for `comm.gateway` Telegram messages |
-| `LLM_API_BASE_URL` | `http://localhost:11434` | Ollama endpoint for `ai.llm` capability (capability param) |
+| `GEMINI_API_KEY` | — | Google Gemini API key — Vault secret for the `ai.llm` Gemini adapter, provisioned via `tools/provision_vault.py` (not read from `.env`). Required only for the Gemini adapter; the Ollama adapter needs no key. |
 | `TELEGRAM_LONG_TIMEOUT` | `25` | `comm.gateway` Telegram `getUpdates` long-poll timeout (seconds); the HTTP client read timeout is derived from it (+5s buffer) |
 | `VOX_API_HOST` | `127.0.0.1` | HTTP API bind address |
 | `VOX_API_TOKEN` | — | Bearer token for API authentication |
@@ -276,7 +286,12 @@ TELEGRAM_USER_ID=...
 | `VOX_VERBOSE_LOGGING` | `false` | Enable verbose debug logging |
 | `VOX_UDS_PATH` | `/tmp/vox.sock` | Unix domain socket path |
 
-Channel credentials for the optional `comm.gateway` adapters are adapter-owned and only required for the channel you use — e.g. the WhatsApp Cloud API adapter reads `WHATSAPP_ACCESS_TOKEN` and `WHATSAPP_PHONE_NUMBER_ID` (plus `WHATSAPP_APP_SECRET` / `WHATSAPP_VERIFY_TOKEN` when webhook verification is enabled). `TELEGRAM_BOT_TOKEN` additionally powers fleet-level War Room mirroring via `FleetMessenger` when `VOX_WAR_ROOM_ID` is set.
+Adapter credentials for the optional `comm.gateway` channels are declared per adapter
+in its `config.yml` and provisioned per workload through `tools/provision_vault.py` —
+e.g. the WhatsApp Cloud API adapter takes `WHATSAPP_ACCESS_TOKEN`,
+`WHATSAPP_APP_SECRET`, and `WHATSAPP_VERIFY_TOKEN` as Vault secrets, with
+`WHATSAPP_PHONE_NUMBER_ID` as an adapter parameter. `TELEGRAM_BOT_TOKEN`
+additionally powers fleet-level War Room mirroring via `FleetMessenger` when `VOX_WAR_ROOM_ID` is set.
 
 The HTTP API always binds to port `8000` (fixed in `api_server.py`, no env override).
 
@@ -319,14 +334,16 @@ control plane but are not currently exposed through the `vox` CLI.
 instance/personas/
   my_workload/
     manifest.yml          name, id, master_id, roles, personality, rate limits
-    .env                   optional per-workload secrets override
+    .env                   optional per-workload configuration override (non-secret only)
     roles/
       handler.py           VOXRole subclass with @command handlers
 ```
 
 The manifest declares the workload's identity and which roles to load.
 Capability requirements are inferred from role source code at bootstrap
-via AST analysis. Required identity fields: `name`, `id`.
+via AST analysis. Required identity fields: `name`, `id`. Secrets required by
+a workload's roles are provisioned into its vault with
+`tools/provision_vault.py` — they are never supplied through `.env`.
 
 ## Storage architecture
 
@@ -367,14 +384,14 @@ vox/
 │   │   └── store.py                      VOXWorkloadStore — file asset index
 │   ├── capabilities/                     capability definitions and backends
 │   │   ├── base.py                       VOXCapability, VOXBoundCapability
-│   │   ├── ai/llm/                       unified LLM pipeline
+│   │   ├── ai/llm/                       provider-agnostic LLM port
 │   │   │   ├── capability.py             ai.llm capability entry point
-│   │   │   ├── client.py                 Ollama HTTP client
+│   │   │   ├── adapters/                 concrete LLM backends (ollama/, gemini/)
 │   │   │   ├── cache.py                  semantic response cache (SHA-256 + TTL)
 │   │   │   ├── rag.py                    FTS5 retrieval-augmented generation
-│   │   │   ├── router.py                 complexity classifier (local vs cloud)
 │   │   │   ├── sanitizer.py              input control-char/boilerplate cleaning
 │   │   │   └── models.py                 LLM request/response types
+│   │   ├── ai/parsing/                   intent resolution via the ai.llm port
 │   │   ├── net/browser/                  headless browser via Playwright
 │   │   ├── comm/gateway/                 multi-channel communication gateway
 │   │   │   ├── capability.py             CommGatewayCapability wrapper
@@ -382,12 +399,14 @@ vox/
 │   │   │   ├── server.py                 IngressServer (shared aiohttp listener)
 │   │   │   ├── adapters/
 │   │   │   │   ├── base.py               BaseAdapter ABC
-│   │   │   │   ├── telegram.py           Telegram Bot API adapter
-│   │   │   │   ├── whatsapp.py           WhatsApp Cloud API adapter
-│   │   │   │   └── webhook.py            generic HTTP webhook adapter
+│   │   │   │   ├── telegram/             Telegram adapter (+ config.yml)
+│   │   │   │   ├── whatsapp/             WhatsApp Cloud API adapter (+ config.yml)
+│   │   │   │   └── webhook/              generic HTTP webhook adapter (+ config.yml)
 │   │   │   └── capability.yml            capability manifest
 │   │   ├── comm/email/                   SMTP email dispatch
-│   │   └── comm/voicetotext/             speech-to-text via faster-whisper
+│   │   ├── comm/voicetotext/             speech-to-text via faster-whisper
+│   │   ├── image/ocr/                    image-to-text via the ai.llm port
+│   │   └── file/text_extraction/         file text extraction (scaffold)
 │   ├── config/                           configuration loading & resolution
 │   │   ├── models.py                     VOXConfig dataclass
 │   │   ├── from_env.py                   .env / os.environ parsing

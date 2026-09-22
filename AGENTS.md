@@ -41,6 +41,16 @@ README.md, CHANGELOG.md, and docs/internal/ for context.
   `BaseAdapter` subclass with `CHANNEL`, `WEBHOOK_PATH`, `is_configured`,
   registered in `adapters/__init__.py` `ADAPTER_REGISTRY`.
   Do not add channel-specific code to `capability.py` or `server.py`.
+- **ai.llm adapters.** Same pattern as `comm.gateway`. The port
+  (`generate`/`chat`/`generate_vision`/`parse_intent`) is provider-agnostic;
+  each backend is an `LLMAdapter` subclass under
+  `ai/llm/adapters/<adapter>/` with its own `config.yml` (e.g. `ollama`,
+  `gemini` + Vault secret `GEMINI_API_KEY`), aggregated into the port
+  contract by `load_contract()`. The adapter used by an operation is selected
+  explicitly via the required keyword-only `adapter=` argument; `model=` is an
+  optional per-operation override. Do not add provider-specific code or
+  selectors to `capability.py`, and never import a concrete LLM adapter from a
+  consumer (e.g. `ai.parsing`, `image.ocr`).
 - **Body-signing.** `verify_request(request, body)` verifies against the raw
   request bytes read before JSON parsing, never against `request.json()`.
 - **Inbound.** Dispatch through `orchestrator.dispatch_inbound_message(
@@ -50,12 +60,12 @@ README.md, CHANGELOG.md, and docs/internal/ for context.
   recipient.
 - **Secrets.** Injected via Vault through the `secrets` section of YAML
   contracts. Roles may declare `REQUIRED_SECRETS = {"cap_id": ["SECRET", ...]}`
-  alongside `REQUIRES`; the binder intersects these with the YAML contract's
-  `required:true` flags to determine which secrets must be present. Never put
-  credentials or tokens in source, tests, logs, or commits.
+  to request Vault secrets per capability; the binder intersects these with the
+  YAML contract's `required:true` flags to determine which secrets must be
+  present. Never put credentials or tokens in source, tests, logs, or commits.
 - **AST scanning.** `ASTWorkloadAnalyzer` statically scans role files for
-  `REQUIRES` (capability IDs) and `REQUIRED_SECRETS` (per-cap secret names)
-  without executing code.
+  capability usage (e.g. `self.workload.capabilities["cap_id"]`) and
+  `REQUIRED_SECRETS` (per-cap secret names) without executing code.
 
 These invariants are protected by tests in the suite; this file only tells you
 they exist. Prose is not an enforcement mechanism.
@@ -87,6 +97,37 @@ they exist. Prose is not an enforcement mechanism.
 - When explicitly preparing a release, bump `version` in pyproject.toml, add a
   dated `## [x.y.z]` entry to CHANGELOG.md, then tag `vX.Y.Z`. Detail goes in
   CHANGELOG, not README.
+
+## Changelog
+
+Use these sections in `CHANGELOG.md` consistently:
+
+- **Added** — new user-visible capabilities or functionality.
+- **Changed** — changes to existing behavior, interfaces, contracts, or
+  architecture that are not bug fixes and are not purely internal
+  restructuring.
+- **Fixed** — bugs, incorrect behavior, regressions, or security issues that
+  were corrected.
+- **Refactored** — significant internal restructuring or architectural
+  reorganization that is not itself a new feature or a bug fix.
+- **Removed** — APIs, components, behaviors, or capabilities that were removed.
+- **Documentation** — documentation-only changes that do not change product
+  behavior, architecture, or security.
+- **Security** — security changes significant enough to warrant dedicated
+  visibility. Use this section for security hardening, security-boundary
+  changes, credential-handling changes, or other security-relevant changes.
+
+A changelog entry may use multiple sections when appropriate. Choose the
+section based on the nature of the change, not on the file that was modified.
+For example, an architectural refactor belongs under `Refactored` even if it
+changes many Python files, while a documentation-only reorganization belongs
+under `Documentation` even if it modifies `CHANGELOG.md`.
+
+Do not duplicate the same change across sections unless the distinction is
+necessary to communicate separate user-visible effects.
+
+When reorganizing an existing changelog, preserve the entry wording and
+technical content unless the task explicitly requests editorial changes.
 
 ## Done checklist
 
