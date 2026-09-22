@@ -445,6 +445,23 @@ class TestLastRoleDisabledDuringBoot(_WorkloadFixture):
         self.assertTrue(wl.degraded)
         self.assertTrue(wl.health_check())
 
+    def test_env_config_does_not_satisfy_required_vault_secret(self):
+        (self.tmp / ".env").write_text(
+            "API_KEY=leaked-from-env\nTELEGRAM_USER_ID=user-123\n"
+        )
+        wl = self._build(
+            {"only_role": {"secret_cap"}},
+            {"secret_cap": ["API_KEY"]},
+        )
+
+        result = asyncio_run(wl.boot())
+
+        self.assertFalse(result)
+        self.assertEqual(wl.state, WorkloadState.FAILED)
+        self.assertNotIn("only_role", wl.roles)
+        self.assertTrue(wl.degraded)
+        self.assertEqual(wl.config["TELEGRAM_USER_ID"], "user-123")
+
 
 class TestFleetOnboardingRoleScoped(unittest.IsolatedAsyncioTestCase):
     async def test_degraded_with_roles_boots_but_zero_roles_stay_parked(self):

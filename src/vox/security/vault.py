@@ -2,7 +2,8 @@
 
 Uses AES-256-GCM with PBKDF2HMAC key derivation.
 Each workload gets an isolated ``secrets.vault`` SQLite file.
-Fallback chain: vault → local ``.env`` (via config dict).
+Resolution is Vault-only: workload config / ``.env`` values never satisfy a
+capability or provider secret lookup.
 
 Synchronous ``sqlite3`` is used only inside ``__init__`` for schema creation and
 salt derivation (one-time bootstrap path). All runtime public methods use
@@ -84,11 +85,11 @@ class WorkloadVault:
                     await conn.commit()
 
     async def get(self, capability_name: str, secret_key: str) -> str | None:
-        """Return decrypted value from vault, falling back to config/.env.
+        """Return the decrypted value from the Vault store.
 
-        If the key exists in the database but is marked *inactive*, returns
-        ``None`` explicitlyOnly falls back to ``self._config`` (the local
-        ``.env``) when the key does **not** exist in the database at all.
+        Vault-only resolution: returns ``None`` when the key is absent from the
+        store or marked *inactive*. Workload config / ``.env`` values must not
+        satisfy a capability or provider secret lookup.
         """
         if self.exists():
             row = await self._query(
@@ -100,9 +101,8 @@ class WorkloadVault:
                 value, status = row
                 if status == "active":
                     return self._decrypt(value)
-                return None
 
-        return self._config.get(secret_key)
+        return None
 
     async def set(
         self,

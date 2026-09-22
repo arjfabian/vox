@@ -8,12 +8,25 @@ Usage::
     export VOX_MASTER_KEY="your-strong-passphrase"
     python tools/provision_vault.py --workload <workload_name>
 
-Scans the workload's roles, discovers required capabilities and their
-secrets from YAML contracts, then performs a delta sync against the vault:
+Scans the workload's roles (AST, no execution), discovers required
+capabilities and the secrets those roles actually require, then performs a
+delta sync against the vault:
 
 * **Missing** — prompts securely via ``getpass``, encrypts, stores *active*.
 * **Orphaned** — vault rows for secret no longer required → marked *inactive*.
 * **Re-activated** — inactive row now required → switched back to *active*.
+
+Workload scoping mirrors ``CapabilityBinder``: a secret is provisioned only
+when the aggregated capability contract marks it ``required: true`` AND at
+least one loaded role declares it in ``REQUIRED_SECRETS``. A workload never
+requires secrets merely because an adapter exists elsewhere in the repository.
+
+Note on scope: role ``REQUIRED_SECRETS`` is used here as the *current
+sanctioned provisioning signal* — it tells this tool what a workload must have
+in its vault. It is intentionally NOT treated as the architectural definition
+of adapter availability: availability remains a distinct runtime/composition
+concern (adapter ``is_configured`` and manifest scoping) that this tool must
+not become the authority over.
 """
 
 import argparse
@@ -25,24 +38,23 @@ from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 PERSONAS_DIR = ROOT_DIR / "instance" / "personas"
-CAPABILITIES_DIR = ROOT_DIR / "src" / "vox" / "capabilities"
 sys.path.insert(0, str(ROOT_DIR / "src"))
 sys.path.insert(1, str(ROOT_DIR))
 
 from vox.security import WorkloadVault
 
-FLEET_MANDATORY: list[tuple[str, str]] = [
-    ("comm.gateway", "TELEGRAM_BOT_TOKEN"),
-]
-
 
 def _load_capability_contract(cap_id: str):
-    """Load a capability's YAML contract by ID (e.g. ``comm.email``).
+    """Load a capability's aggregated YAML contract by ID (e.g. ``comm.email``).
+
+    Uses the capability's own ``load_contract()`` so adapter-based ports (the
+    ``comm.gateway`` / ``ai.llm`` pattern) contribute their merged
+    per-adapter config — the same contract the runtime registry builds.
 
     Returns ``(CapabilityContract, None)`` on success or
     ``(None, error_message)`` on failure.
     """
-    from vox.capabilities.base import VOXCapability, load_capability_yaml
+    from vox.capabilities.base import VOXCapability
 
     parts = cap_id.split(".")
     module_path = f"vox.capabilities.{'.'.join(parts)}.capability"
@@ -63,95 +75,39 @@ def _load_capability_contract(cap_id: str):
     if capability_class is None:
         return None, "No VOXCapability subclass found"
 
-    contract = capability_class._contract
-    if contract is None:
-        capability_file = Path(module.__file__).resolve()
-        contract = load_capability_yaml(capability_file)
+    capability_file = Path(module.__file__).resolve()
+    try:
+        contract = capability_class.load_contract(capability_file)
+    except (ValueError, TypeError, RuntimeError) as e:
+        return None, str(e)
     if contract is None:
         return None, f"No capability.yml found for {cap_id}"
     return contract, None
 
 
-def _load_gateway_contract_secrets() -> dict[str, dict]:
-    """Load comm.gateway contract secrets by scanning adapter config.yml files.
-
-    The gateway aggregates secrets from per-adapter config.yml files.
-    Returns ``{cap_id: {"sensitive": [...], "all": {...}}}`` for the gateway.
-    """
-    from vox.capabilities.base import load_config_yml
-
-    gateway_dir = CAPABILITIES_DIR / "comm" / "gateway"
-    adapter_dir = gateway_dir / "adapters"
-
-    if not adapter_dir.is_dir():
-        return {}
-
-    secrets: dict[str, tuple[str, bool, str]] = {}
-
-    for adapter_entry in sorted(adapter_dir.iterdir()):
-        config_yml = adapter_entry / "config.yml"
-        if not config_yml.is_file():
-            continue
-        _params, adapter_secrets = load_config_yml(config_yml)
-        for name, meta in adapter_secrets.items():
-            secrets[name] = (name, meta.required, meta.description)
-
-    if not secrets:
-        return {}
-
-    sensitive = [(name, required) for name, required, _desc in secrets.values()]
-    all_descs = {name: desc for name, _, desc in secrets.values()}
-
-    return {
-        "comm.gateway": {
-            "sensitive": sensitive,
-            "all": all_descs,
-        },
-    }
-
-
 def _discover_sensitive_params(persona_dir: Path) -> dict[str, dict]:
-    """Scan workload roles and discover vault-managed secrets.
+    """Scan workload roles and discover required vault-managed secrets.
 
-    Uses the YAML capability contract as the single source of truth.
-    Returns ``{cap_id: {"sensitive": [(key, required)], "all": ...}}``.
-    ``sensitive`` contains ``(key, required)`` tuples where *required* is
-    ``True`` when the secret is marked ``required: true`` in the YAML.
+    Mirrors ``CapabilityBinder._collect_required_secrets()``: the workload's
+    required capabilities come from role source (AST ``scan_role_capabilities``,
+    replicating ``discover_and_mount``), and a secret is *provisioned* only
+    when the aggregated capability contract marks it ``required: true`` AND at
+    least one loaded role declares it in ``REQUIRED_SECRETS`` (AST
+    ``scan_required_secrets``). Optional secrets are not prompted.
+
+    ``REQUIRED_SECRETS`` is the current *provisioning signal* for this tool.
+    It must not be read as the architectural definition of adapter availability
+    (see module docstring).
+
+    Returns ``{cap_id: {"sensitive": [(key, required)], "all": ...}}`` where
+    ``sensitive`` contains only secrets the workload actually requires.
     """
+    import importlib.util
+
+    from vox.workloads.ast_analyzer import ASTWorkloadAnalyzer
+
     result: dict[str, dict] = {}
 
-    def _categorise_secrets(contract) -> list[tuple[str, bool]]:
-        """Return ``(key, required)`` pairs for Vault-managed secrets."""
-        return [
-            (name, meta.required)
-            for name, meta in contract.secrets.items()
-        ]
-
-    def _all_descriptions(contract) -> dict[str, str]:
-        """Return ``{secret: description}`` from contract secrets."""
-        return {
-            name: meta.description
-            for name, meta in contract.secrets.items()
-        }
-
-    # Fleet-mandatory capabilities — always provisioned regardless of roles.
-    # The gateway has aggregated secrets from adapter config.yml files.
-    gateway_secrets = _load_gateway_contract_secrets()
-    for cap_id, info in gateway_secrets.items():
-        result[cap_id] = info
-
-    # Also load any non-gateway fleet-mandatory capabilities
-    for cap_id, _ in FLEET_MANDATORY:
-        if cap_id in result:
-            continue
-        contract, err = _load_capability_contract(cap_id)
-        if contract is not None:
-            result[cap_id] = {
-                "sensitive": _categorise_secrets(contract),
-                "all": _all_descriptions(contract),
-            }
-
-    # Role-based discovery
     roles_dir = persona_dir / "roles"
     if not roles_dir.exists():
         return result
@@ -161,11 +117,16 @@ def _discover_sensitive_params(persona_dir: Path) -> dict[str, dict]:
         for f in roles_dir.glob("*.py")
         if not f.name.startswith("_") and not f.name.endswith("_new.py")
     )
+
+    required_caps: set[str] = set()
+    role_required_secrets: dict[str, set[str]] = {}
+
     for rf in role_files:
         role_name = rf.stem
 
-        import importlib.util
-
+        # Import probe for "loaded role" parity with the runtime: a role that
+        # fails to import contributes no requirements. Requirements themselves
+        # are read statically via AST, never from executing role code.
         try:
             spec = importlib.util.spec_from_file_location(role_name, rf)
             if spec is None or spec.loader is None:
@@ -191,20 +152,32 @@ def _discover_sensitive_params(persona_dir: Path) -> dict[str, dict]:
         if role_class is None:
             continue
 
-        for cap_id in getattr(role_class, "REQUIRES", set()):
-            if cap_id in result:
-                continue
-            contract, err = _load_capability_contract(cap_id)
-            if contract is None:
-                print(
-                    f"  [!] Skipping capability '{cap_id}' "
-                    f"(load error: {err})"
-                )
-                continue
-            result[cap_id] = {
-                "sensitive": _categorise_secrets(contract),
-                "all": _all_descriptions(contract),
-            }
+        required_caps |= ASTWorkloadAnalyzer.scan_role_capabilities(rf)
+        for cap_id, names in ASTWorkloadAnalyzer.scan_required_secrets(rf).items():
+            role_required_secrets.setdefault(cap_id, set()).update(names)
+
+    for cap_id in sorted(required_caps):
+        contract, err = _load_capability_contract(cap_id)
+        if contract is None:
+            print(
+                f"  [!] Skipping capability '{cap_id}' "
+                f"(load error: {err})"
+            )
+            continue
+
+        declared = role_required_secrets.get(cap_id, set())
+        selected = contract.required_secret_names & declared
+        if not selected:
+            continue
+
+        result[cap_id] = {
+            "sensitive": [(name, True) for name in sorted(selected)],
+            "all": {
+                name: contract.secrets[name].description
+                for name in sorted(selected)
+            },
+        }
+
     return result
 
 
@@ -301,11 +274,7 @@ async def main() -> None:
         print(f"Error: workload '{args.workload}' has no 'id' in manifest")
         sys.exit(2)
 
-    fleet_mandatory = [c for c, _ in FLEET_MANDATORY]
-    print(
-        f"Scanning workload '{args.workload}' "
-        f"(fleet-mandatory: {fleet_mandatory})..."
-    )
+    print(f"Scanning workload '{args.workload}' (role-scanned, AST)...")
     desired = _discover_sensitive_params(persona_dir)
 
     if not desired:

@@ -55,10 +55,10 @@ async def test_get_nonexistent_returns_none(vault):
 
 
 @pytest.mark.asyncio
-async def test_get_falls_back_to_config(vault_dir):
+async def test_get_ignores_config_only_values(vault_dir):
     v = WorkloadVault(vault_dir, "workload-uuid", config={"api_key": "from-env"})
     value = await v.get("llm", "api_key")
-    assert value == "from-env"
+    assert value is None
 
 
 @pytest.mark.asyncio
@@ -124,17 +124,17 @@ async def test_get_returns_none_for_inactive(vault):
 
 
 @pytest.mark.asyncio
-async def test_fallback_to_config_only_when_no_db_entry(vault_dir):
+async def test_provisioned_value_wins_and_env_never_satisfies_absent_keys(vault_dir):
     v1 = WorkloadVault(vault_dir, "workload-uuid-1234")
     await v1.set("llm", "key", "from-vault")
 
     v2 = WorkloadVault(
         vault_dir,
         "workload-uuid-1234",
-        config={"key": "from-env"},
+        config={"key": "from-env", "another": "from-env"},
     )
-    value = await v2.get("llm", "key")
-    assert value == "from-vault"
+    assert await v2.get("llm", "key") == "from-vault"
+    assert await v2.get("llm", "another") is None
 
 
 def test_wipe_destroys_key_material(vault):
