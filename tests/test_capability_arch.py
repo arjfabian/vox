@@ -1,9 +1,9 @@
 """Architecture enforcement tests for the capabilities silo.
 
-These guard the target architecture in ``.agents/architecture/capability.md``:
-param/secret namespace discipline, YAML-first contract metadata, capability
-identity consistency, and a narrow host interface with no reach into workload
-privates. They are guardrails, not prose.
+These guard the architectural invariants of the Capability subsystem:
+param/secret namespace discipline, YAML-first contract metadata,
+capability identity consistency, and a narrow host interface with no
+reach into workload privates.
 """
 
 from __future__ import annotations
@@ -84,9 +84,7 @@ class TestParamSecretSeparation(unittest.TestCase):
             self.assertEqual(forbidden, set(), str(yml))
 
     def test_email_credentials_are_secrets_not_params(self):
-        contract = _contract_for(
-            CAPABILITIES / "comm" / "email" / "capability.yml"
-        )
+        contract = _contract_for(CAPABILITIES / "comm" / "email" / "capability.yml")
         self.assertTrue(contract)
         self.assertIn("SMTP_USER", contract.secrets)
         self.assertIn("SMTP_PASS", contract.secrets)
@@ -94,9 +92,7 @@ class TestParamSecretSeparation(unittest.TestCase):
         self.assertNotIn("SMTP_PASS", contract.params)
 
     def test_email_exposed_commands_come_from_contract(self):
-        contract = _contract_for(
-            CAPABILITIES / "comm" / "email" / "capability.yml"
-        )
+        contract = _contract_for(CAPABILITIES / "comm" / "email" / "capability.yml")
         self.assertTrue(contract)
         names = [cmd["name"] for cmd in contract.exposed_commands]
         self.assertIn("send_email", names)
@@ -214,9 +210,7 @@ class TestCapabilityIdentity(unittest.TestCase):
 
     def test_class_name_matches_contract_name(self):
         for yml in _capability_ymls():
-            cap_id = ".".join(
-                yml.relative_to(CAPABILITIES).parts[:-1]
-            )
+            cap_id = ".".join(yml.relative_to(CAPABILITIES).parts[:-1])
             contract = _contract_for(yml)
             self.assertIsNotNone(contract, yml)
             self.assertEqual(contract.name, cap_id, str(yml))
@@ -381,10 +375,12 @@ class TestInboundDispatchBoundary(unittest.TestCase):
         for path in BOUNDARY_FILES:
             source = path.read_text()
             self.assertNotIn(
-                "dispatch_inbound_message", source,
+                "dispatch_inbound_message",
+                source,
                 f"{path}: must use host.dispatch_inbound, not the provider",
             )
             self.assertNotIn(
-                ".capability_provider", source,
+                ".capability_provider",
+                source,
                 f"{path}: must not depend on the whole provider abstraction",
             )
