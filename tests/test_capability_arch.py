@@ -54,6 +54,7 @@ BOUNDARY_FILES = [
     CAPABILITIES / "comm" / "voicetotext" / "capability.py",
     CAPABILITIES / "ai" / "llm" / "capability.py",
     CAPABILITIES / "ai" / "parsing" / "capability.py",
+    CAPABILITIES / "image" / "ocr" / "capability.py",
     CAPABILITIES / "net" / "browser" / "capability.py",
 ]
 

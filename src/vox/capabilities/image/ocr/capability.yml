@@ -1,0 +1,14 @@
+name: image.ocr
+version: 1.0.0
+
+description: |
+  Generic optical character recognition.
+  Given image bytes, returns the extracted text. The OCR engine is provided by
+  the generic ai.llm capability (vision inference), reached exclusively through
+  the capability host; a future engine swap (e.g. a local OCR library) is
+  confined to the implementation and does not change the public
+  extract(source) contract.
+
+provides:
+  - ocr
+  - image_to_text
