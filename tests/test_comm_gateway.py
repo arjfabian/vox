@@ -6,7 +6,7 @@ import hmac
 import json
 import pathlib
 import unittest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 from aiohttp import web
@@ -467,9 +467,10 @@ class TestIngressServerGenericRoutes(unittest.TestCase):
             "webhook": WebhookAdapter({}),
             "handshake": _HandshakeAdapter(),
         }
-        server = IngressServer(adapters=adapters, dispatch=AsyncMock())
+        server = IngressServer()
         server._app = web.Application()
-        server._register_routes()
+        for channel, adapter in adapters.items():
+            server.claim_channel(channel, adapter, dispatch=AsyncMock())
 
         pairs = {
             (route.method, route.resource.canonical)
@@ -491,9 +492,11 @@ class TestIngressServerGenericRoutes(unittest.TestCase):
         from aiohttp.test_utils import TestClient, TestServer
 
         async def run():
-            server = IngressServer(adapters={"handshake": _HandshakeAdapter()}, dispatch=AsyncMock())
+            server = IngressServer()
             server._app = web.Application()
-            server._register_routes()
+            server.claim_channel(
+                "handshake", _HandshakeAdapter(), dispatch=AsyncMock()
+            )
             async with TestServer(server._app) as ts, TestClient(ts) as client:
                 ok = await client.get(
                     "/webhook/handshake",
@@ -529,9 +532,9 @@ class TestIngressServerGenericRoutes(unittest.TestCase):
         ).hexdigest()
 
         async def run():
-            server = IngressServer(adapters={"signing": adapter}, dispatch=dispatch)
+            server = IngressServer()
             server._app = web.Application()
-            server._register_routes()
+            server.claim_channel("signing", adapter, dispatch=dispatch)
             async with TestServer(server._app) as ts, TestClient(ts) as client:
                 ok = await client.post(
                     "/webhook/signing",
@@ -561,9 +564,9 @@ class TestIngressServerGenericRoutes(unittest.TestCase):
     def test_missing_webhook_path_adapter_gets_no_route(self):
         adapter = _BodySigningAdapter()
         adapter.WEBHOOK_PATH = ""
-        server = IngressServer(adapters={"signing": adapter}, dispatch=AsyncMock())
+        server = IngressServer()
         server._app = web.Application()
-        server._register_routes()
+        server.claim_channel("signing", adapter, dispatch=AsyncMock())
 
         paths = {
             route.resource.canonical
@@ -956,27 +959,84 @@ class _ProviderAdapterNoWebhook(BaseAdapter):
 class TestIngressServerAbstraction(unittest.TestCase):
     def test_adapters_without_webhook_path_skipped(self):
         """Adapter without WEBHOOK_PATH doesn't register a route."""
-        server = IngressServer.__new__(IngressServer)
+        server = IngressServer()
         server._app = web.Application()
-        server._adapters = {"no_webhook_provider": _ProviderAdapterNoWebhook()}
-        server._bot = AsyncMock()
-        server._bot.config = {}
-        server._verification_handler = lambda req: web.Response(text="ok")
-        server._register_routes()
+        server.claim_channel(
+            "no_webhook_provider", _ProviderAdapterNoWebhook(), dispatch=AsyncMock()
+        )
         resource_paths = [r.canonical for r in server._app.router.resources()]
         self.assertNotIn("/no_webhook_provider", resource_paths)
         self.assertIn("/health", resource_paths)
 
-    def test_adapters_without_webhook_path_still_registered(self):
-        """Adapter without WEBHOOK_PATH still in _adapters dict."""
-        server = IngressServer.__new__(IngressServer)
+    def test_adapters_without_webhook_path_still_claimed(self):
+        """Adapter without WEBHOOK_PATH still registers as route owner."""
+        server = IngressServer()
         server._app = web.Application()
-        server._adapters = {"no_webhook_provider": _ProviderAdapterNoWebhook()}
-        server._bot = AsyncMock()
-        server._bot.config = {}
-        server._verification_handler = lambda req: web.Response(text="ok")
-        server._register_routes()
-        self.assertIn("no_webhook_provider", server._adapters)
+        server.claim_channel(
+            "no_webhook_provider", _ProviderAdapterNoWebhook(), dispatch=AsyncMock()
+        )
+        self.assertIn("no_webhook_provider", server.route_owners)
+
+    def test_first_claimant_owns_the_route(self):
+        """Only the first bound workload owns a channel's inbound route."""
+        server = IngressServer()
+        server._app = web.Application()
+        owner = _ProviderAdapter({"TEST_PROVIDER_TOKEN": "tok-a"})
+        second = _ProviderAdapter({"TEST_PROVIDER_TOKEN": "tok-b"})
+        first = server.claim_channel(
+            "test_provider", owner, dispatch=AsyncMock()
+        )
+        later = server.claim_channel(
+            "test_provider", second, dispatch=AsyncMock()
+        )
+        self.assertTrue(first)
+        self.assertFalse(later)
+        self.assertEqual(server.route_owners["test_provider"], owner)
+
+    def test_reclaim_after_relinquish_does_not_reregister_route(self):
+        """A re-claimed channel resolves the new owner without a aiohttp
+        duplicate-route crash (routes outlive ownership)."""
+        server = IngressServer()
+        server._app = web.Application()
+        server.claim_channel(
+            "test_provider", _ProviderAdapter({"TEST_PROVIDER_TOKEN": "tok-a"}),
+            dispatch=AsyncMock(),
+        )
+        server.relinquish_channel("test_provider")
+
+        new_owner = _ProviderAdapter({"TEST_PROVIDER_TOKEN": "tok-b"})
+        server.claim_channel("test_provider", new_owner, dispatch=AsyncMock())
+
+        routes = [
+            (r.method, r.resource.canonical)
+            for r in server._app.router.routes()
+            if r.method in {"GET", "POST"}
+        ]
+        self.assertEqual(routes.count(("POST", "/webhook/test-provider")), 1)
+        self.assertIs(server.route_owners["test_provider"], new_owner)
+
+    def test_unclaimed_route_returns_404_until_reclaimed(self):
+        """After the owner relinquishes, the path exists but yields 404."""
+        from aiohttp.test_utils import TestClient, TestServer
+
+        async def run():
+            server = IngressServer()
+            server._app = web.Application()
+            server.claim_channel(
+                "test_provider",
+                _ProviderAdapter({"TEST_PROVIDER_TOKEN": "tok-a"}),
+                dispatch=AsyncMock(),
+            )
+            server.relinquish_channel("test_provider")
+            async with TestServer(server._app) as ts, TestClient(ts) as client:
+                resp = await client.post(
+                    "/webhook/test-provider",
+                    json={"sender_id": "u1", "text": "hello"},
+                    headers={"X-Secret": "valid"},
+                )
+                self.assertEqual(resp.status, 404)
+
+        asyncio.run(run())
 
     def test_adapter_without_webhook_path_parse_inbound(self):
         """Adapter without webhook path can still handle inbound messages."""
@@ -996,12 +1056,27 @@ class TestIngressServerAbstraction(unittest.TestCase):
         asyncio.run(run())
 
     def test_lifecycle_start_shutdown(self):
-        """Adapters can be started and shut down."""
+        """Adapters can be started and shut down via the formal contract."""
 
         async def run():
             adapter = _ProviderAdapter({"TEST_PROVIDER_TOKEN": "tok"})
             await adapter.start()
             await adapter.shutdown()
+
+        asyncio.run(run())
+
+    def test_adapter_lifecycle_is_part_of_the_contract(self):
+        """BaseAdapter must declare the lifecycle interface (not duck-typed)."""
+        self.assertTrue(callable(BaseAdapter.start))
+        self.assertTrue(callable(BaseAdapter.shutdown))
+
+    def test_base_adapter_lifecycle_is_noop(self):
+        """The base lifecycle is a no-op; subclasses override only what they need."""
+
+        async def run():
+            adapter = _BodySigningAdapter()
+            self.assertIsNone(await adapter.start())
+            self.assertIsNone(await adapter.shutdown())
 
         asyncio.run(run())
 
@@ -1200,6 +1275,485 @@ class TestWhatsAppCompatibilityFixtures(unittest.TestCase):
             self.assertTrue(result)
 
         asyncio.run(run())
+
+
+class TestGatewayEnvIsNotACredentialSource(unittest.IsolatedAsyncioTestCase):
+    """F6 — workload ``.env`` values must not enable gateway adapters."""
+
+    def setUp(self):
+        import os
+        import uuid
+
+        from vox.capabilities.comm.gateway import capability as gateway_cap
+
+        self._module = gateway_cap
+        self._saved_server = gateway_cap._shared_server
+        gateway_cap._shared_server = None
+
+        self._workdir = (
+            pathlib.Path("/tmp") / f"test_gw_env_{uuid.uuid4().hex[:8]}"
+        )
+        self._workdir.mkdir(parents=True, exist_ok=True)
+        self._saved_key = os.environ.get("VOX_MASTER_KEY")
+        os.environ["VOX_MASTER_KEY"] = "test-master-key-gateway-boot"
+
+    def tearDown(self):
+        import os
+        import shutil
+
+        self._module._shared_server = self._saved_server
+        if self._saved_key is not None:
+            os.environ["VOX_MASTER_KEY"] = self._saved_key
+        else:
+            os.environ.pop("VOX_MASTER_KEY", None)
+        shutil.rmtree(self._workdir, ignore_errors=True)
+
+    async def _bound_with_env(self, env: dict[str, str]):
+        """Mount a bound gateway and inject secrets exactly like the binder."""
+        from unittest.mock import MagicMock
+
+        from vox.capabilities.comm.gateway import CommGatewayCapability
+        from vox.security import WorkloadVault
+
+        cap_file = pathlib.Path("src/vox/capabilities/comm/gateway/capability.py")
+        CommGatewayCapability.load_contract(cap_file)
+
+        cap = CommGatewayCapability()
+        cap.id = "comm.gateway"
+        cap.logger = MagicMock()
+
+        bound = cap.mount(host=MagicMock())
+        bound.logger = MagicMock()
+
+        vault = WorkloadVault(self._workdir, "test-uuid", config=dict(env))
+        for name in bound.get_secret_names():
+            value = await vault.get("comm.gateway", name)
+            if value is not None:
+                bound._secrets[name] = value
+        return bound, vault
+
+    async def test_env_token_does_not_configure_telegram(self):
+        from unittest.mock import patch
+
+        from vox.capabilities.comm.gateway.server import IngressServer
+
+        bound, vault = await self._bound_with_env(
+            {"TELEGRAM_BOT_TOKEN": "env-token", "TELEGRAM_USER_ID": "u-42"}
+        )
+
+        # Webhook is always available by design; the BOT_TOKEN must not enable
+        # the Telegram channel. Avoid binding a real port in the unit test.
+        with (
+            patch.object(IngressServer, "start", new=AsyncMock()),
+            patch.object(IngressServer, "stop", new=AsyncMock()),
+        ):
+            await bound.boot()
+
+            self.assertNotIn("telegram", bound._adapters)
+            self.assertIn("webhook", bound._adapters)
+            self.assertFalse(
+                await bound.send_text("telegram", "42", "hello"),
+                "A .env-only token must not satisfy the Telegram adapter",
+            )
+            await bound.shutdown()
+
+        self.assertIsNone(self._module._shared_server)
+        self.assertIsNone(await vault.get("comm.gateway", "TELEGRAM_BOT_TOKEN"))
+
+    async def test_provisioned_vault_token_configures_telegram(self):
+        from vox.capabilities.comm.gateway.adapters.telegram import TelegramAdapter
+
+        _, vault = await self._bound_with_env(
+            {"TELEGRAM_BOT_TOKEN": "env-token"}
+        )
+        await vault.set("comm.gateway", "TELEGRAM_BOT_TOKEN", "provisioned-token")
+
+        value = await vault.get("comm.gateway", "TELEGRAM_BOT_TOKEN")
+        self.assertEqual(value, "provisioned-token")
+        self.assertTrue(
+            TelegramAdapter.is_configured({"TELEGRAM_BOT_TOKEN": value})
+        )
+
+
+# ------------------------------------------------------------------------------
+# F3 — per-workload adapter instances; F8 — formal lifecycle. Invariant suite.
+# ------------------------------------------------------------------------------
+
+
+def _telegram_mock_handler(request: httpx.Request) -> httpx.Response:
+    if "sendMessage" in str(request.url.path):
+        return httpx.Response(200, json={"ok": True, "result": {"message_id": 1}})
+    if "getUpdates" in str(request.url.path):
+        return httpx.Response(200, json={"ok": True, "result": []})
+    return httpx.Response(404, json={"ok": False, "description": "not found"})
+
+
+async def _stub_telegram_client(self) -> httpx.AsyncClient:
+    """Replacement for TelegramAdapter._ensure_client using a MockTransport."""
+    if self._client is None:
+        self._client = httpx.AsyncClient(
+            base_url="https://api.telegram.org",
+            transport=httpx.MockTransport(_telegram_mock_handler),
+        )
+    return self._client
+
+
+async def _stub_telegram_poll_loop(self) -> None:
+    """Prevent a real getUpdates long-poll loop during unit tests."""
+    await asyncio.sleep(3600)
+
+
+class TestPerWorkloadAdapters(unittest.IsolatedAsyncioTestCase):
+    """F3 — each bound workload owns its own adapter instances (no process-global
+    adapter state); F8 — adapter lifecycle is an explicit BaseAdapter contract.
+
+    Invariants covered:
+      1. two workloads with distinct WhatsApp creds get distinct adapters and
+         per-workload outbound credentials;
+      2. a workload without the Telegram secret cannot send via Telegram while
+         another workload with it can;
+      3. adapter params (e.g. WHATSAPP_API_VERSION) are isolated per workload;
+      4. shutting down one workload does not stop another workload's adapters;
+      5. the shared IngressServer user count tracks 2 -> 1 -> 0 and the process
+         handle is cleared only on the final detach;
+      6. each channel has exactly one inbound route owner;
+      7. no process-global adapter state remains in the gateway module;
+      8. lifecycle is contract-first (BaseAdapter.start/shutdown), never duck-typed;
+      9. a single workload behaves exactly as before the refactor;
+      10. outbound channel selection stays an execution-time decision per bound.
+    """
+
+    def setUp(self):
+        from vox.capabilities.comm.gateway import capability as gateway_cap
+        from vox.capabilities.comm.gateway.adapters.telegram import TelegramAdapter
+        from vox.capabilities.comm.gateway.server import IngressServer
+
+        self._module = gateway_cap
+        self._saved_server = gateway_cap._shared_server
+        gateway_cap._shared_server = None
+
+        # Never bind a port or touch the network in these tests.
+        self._server_start = patch.object(IngressServer, "start", new=AsyncMock())
+        self._server_stop = patch.object(IngressServer, "stop", new=AsyncMock())
+        self._tg_client = patch.object(
+            TelegramAdapter, "_ensure_client", new=_stub_telegram_client
+        )
+        self._tg_poll = patch.object(
+            TelegramAdapter, "_poll_loop", new=_stub_telegram_poll_loop
+        )
+        self._server_start.start()
+        self._server_stop.start()
+        self._tg_client.start()
+        self._tg_poll.start()
+
+    def tearDown(self):
+        self._server_start.stop()
+        self._server_stop.stop()
+        self._tg_client.stop()
+        self._tg_poll.stop()
+        self._module._shared_server = self._saved_server
+
+    def _bound(self, overrides=None, secrets=None, cap=None):
+        """Mount a bound gateway with synthetic secrets.
+
+        ``cap`` lets two bounds share one loaded contract (realistic: the
+        binder mounts the same capability for multiple workloads).
+        """
+        from unittest.mock import MagicMock
+
+        from vox.capabilities.comm.gateway import CommGatewayCapability
+
+        if cap is None:
+            cap = CommGatewayCapability()
+            cap.id = "comm.gateway"
+            cap.logger = MagicMock()
+
+        bound = cap.mount(host=MagicMock(), overrides=overrides or {})
+        bound.logger = MagicMock()
+        bound._secrets.update(secrets or {})
+        return bound
+
+    async def _scenario_two_workloads(self):
+        from vox.capabilities.comm.gateway import CommGatewayCapability
+
+        cap = CommGatewayCapability()
+        cap.id = "comm.gateway"
+        cap.logger = MagicMock()
+
+        a = self._bound(
+            cap=cap,
+            overrides={"WHATSAPP_PHONE_NUMBER_ID": "111", "GATEWAY_PORT": 8011},
+            secrets={
+                "TELEGRAM_BOT_TOKEN": "123:AAA",
+                "WHATSAPP_ACCESS_TOKEN": "EAAG-A",
+                "WHATSAPP_APP_SECRET": "",
+                "WHATSAPP_VERIFY_TOKEN": "",
+            },
+        )
+        b = self._bound(
+            cap=cap,
+            overrides={"WHATSAPP_PHONE_NUMBER_ID": "222"},
+            secrets={
+                "TELEGRAM_BOT_TOKEN": "123:BBB",
+                "WHATSAPP_ACCESS_TOKEN": "EAAG-B",
+                "WHATSAPP_APP_SECRET": "",
+                "WHATSAPP_VERIFY_TOKEN": "",
+            },
+        )
+        await a.boot()
+        await b.boot()
+        return a, b
+
+    async def test_workloads_get_isolated_adapter_instances(self):
+        a, b = await self._scenario_two_workloads()
+        try:
+            for channel in ("telegram", "whatsapp", "webhook"):
+                self.assertIn(channel, a._adapters)
+                self.assertIn(channel, b._adapters)
+                self.assertIsNot(
+                    a._adapters[channel],
+                    b._adapters[channel],
+                    f"{channel} adapters must not be shared across workloads",
+                )
+            self.assertNotEqual(
+                a._adapters["whatsapp"]._access_token,
+                b._adapters["whatsapp"]._access_token,
+            )
+        finally:
+            await a.shutdown()
+            await b.shutdown()
+
+    async def test_outbound_uses_each_workloads_own_credentials(self):
+        import httpx as _httpx
+
+        captured: list[str] = []
+        access_token_a = "EAAG-A"
+        access_token_b = "EAAG-B"
+
+        def wa_handler(request: _httpx.Request) -> _httpx.Response:
+            captured.append(request.headers.get("Authorization") or "")
+            return _httpx.Response(200, json={"messages": [{"id": "wamid.1"}]})
+
+        async def fake_wa_client(self) -> _httpx.AsyncClient:
+            if self._client is None:
+                self._client = _httpx.AsyncClient(
+                    base_url="https://graph.facebook.com",
+                    headers={"Authorization": f"Bearer {self._access_token}"},
+                    transport=_httpx.MockTransport(wa_handler),
+                )
+            return self._client
+
+        from vox.capabilities.comm.gateway.adapters.whatsapp import WhatsAppAdapter
+
+        with (
+            patch.object(WhatsAppAdapter, "_ensure_client", new=fake_wa_client),
+        ):
+            a, b = await self._scenario_two_workloads()
+            try:
+                ok_a = await a.send_text("whatsapp", "456", "hello A")
+                ok_b = await b.send_text("whatsapp", "456", "hello B")
+                self.assertTrue(ok_a)
+                self.assertTrue(ok_b)
+                self.assertEqual(captured, [f"Bearer {access_token_a}", f"Bearer {access_token_b}"])
+            finally:
+                await a.shutdown()
+                await b.shutdown()
+
+    async def test_missing_secret_disables_channel_only_for_that_workload(self):
+        from vox.capabilities.comm.gateway import CommGatewayCapability
+
+        cap = CommGatewayCapability()
+        cap.id = "comm.gateway"
+        cap.logger = MagicMock()
+
+        a = self._bound(
+            cap=cap,
+            secrets={"TELEGRAM_BOT_TOKEN": "123:AAA"},
+        )
+        b = self._bound(cap=cap)  # no Telegram secret at all
+        await a.boot()
+        await b.boot()
+        try:
+            self.assertIn("telegram", a._adapters)
+            self.assertNotIn("telegram", b._adapters)
+            self.assertIn("webhook", b._adapters)  # always available by design
+            self.assertTrue(await a.send_text("telegram", "42", "hello"))
+            self.assertFalse(
+                await b.send_text("telegram", "42", "hello"),
+                "Workload B has no Telegram adapter of its own",
+            )
+        finally:
+            await a.shutdown()
+            await b.shutdown()
+
+    async def test_adapter_params_are_isolated_per_workload(self):
+        a, b = await self._scenario_two_workloads()
+        try:
+            self.assertEqual(a._adapters["whatsapp"]._api_version, "v25.0")
+            self.assertEqual(b._adapters["whatsapp"]._api_version, "v25.0")
+
+            # Per-workload param override (manifest params, not secrets).
+            bound_c = self._bound(
+                overrides={"WHATSAPP_API_VERSION": "v19.0"},
+                secrets={
+                    "WHATSAPP_ACCESS_TOKEN": "EAAG-C",
+                    "WHATSAPP_PHONE_NUMBER_ID": "333",
+                    "WHATSAPP_APP_SECRET": "",
+                    "WHATSAPP_VERIFY_TOKEN": "",
+                },
+            )
+            await bound_c.boot()
+            try:
+                self.assertEqual(bound_c._adapters["whatsapp"]._api_version, "v19.0")
+                self.assertEqual(a._adapters["whatsapp"]._api_version, "v25.0")
+            finally:
+                await bound_c.shutdown()
+        finally:
+            await a.shutdown()
+            await b.shutdown()
+
+    async def test_shutting_down_one_workload_leaves_the_other_running(self):
+        a, b = await self._scenario_two_workloads()
+        server = self._module._shared_server
+        a_poll = a._adapters["telegram"]._poll_task
+        b_poll = b._adapters["telegram"]._poll_task
+
+        self.assertIsNotNone(a_poll, "route-owning adapter performs inbound")
+        self.assertIsNone(b_poll, "non-owning adapter never starts inbound")
+
+        await b.shutdown()
+
+        self.assertIs(self._module._shared_server, server)
+        self.assertEqual(server.user_count, 1)
+        self.assertIs(a._adapters["telegram"]._poll_task, a_poll)
+        self.assertFalse(a_poll.cancelled())
+        # A's outbound still works after B detached.
+        self.assertTrue(await a.send_text("telegram", "42", "still alive"))
+
+        await a.shutdown()
+        self.assertIsNone(self._module._shared_server)
+
+    async def test_server_user_count_lifetime_and_shared_handle(self):
+        a, b = await self._scenario_two_workloads()
+        server = self._module._shared_server
+        try:
+            self.assertEqual(server.user_count, 2)
+            self.assertIs(self._module._shared_server, server)
+        finally:
+            await b.shutdown()
+            self.assertEqual(server.user_count, 1)
+            self.assertIs(self._module._shared_server, server)
+            await a.shutdown()
+            self.assertEqual(server.user_count, 0)
+            self.assertIsNone(self._module._shared_server)
+
+    async def test_single_route_owner_per_channel(self):
+        a, b = await self._scenario_two_workloads()
+        server = self._module._shared_server
+        try:
+            for channel in ("telegram", "whatsapp", "webhook"):
+                self.assertIn(channel, server.route_owners)
+                self.assertIs(server.route_owners[channel], a._adapters[channel])
+                self.assertIsNot(server.route_owners[channel], b._adapters[channel])
+        finally:
+            await a.shutdown()
+            await b.shutdown()
+
+    def test_no_process_global_adapter_state_remains(self):
+        module = self._module
+        self.assertFalse(hasattr(module, "_shared_adapters"))
+        self.assertFalse(hasattr(module, "_mounted_workloads_count"))
+
+        source = pathlib.Path(module.__file__).read_text()
+        server_source = (
+            pathlib.Path(module.__file__).parent / "server.py"
+        ).read_text()
+        self.assertNotIn("_shared_adapters", source)
+        self.assertNotIn("_mounted_workloads_count", source)
+        self.assertNotIn("_shared_adapters", server_source)
+        self.assertNotIn("_bots", server_source)
+
+    def test_lifecycle_is_contract_first_not_duck_typed(self):
+        self.assertTrue(callable(BaseAdapter.start))
+        self.assertTrue(callable(BaseAdapter.shutdown))
+
+        capability_source = pathlib.Path(self._module.__file__).read_text()
+        self.assertNotIn("hasattr(", capability_source)
+
+    async def test_single_workload_behavior_intact(self):
+        from vox.capabilities.comm.gateway.adapters.whatsapp import WhatsAppAdapter
+
+        async def fake_wa_client(self):
+            if self._client is None:
+                self._client = httpx.AsyncClient(
+                    base_url="https://graph.facebook.com",
+                    headers={"Authorization": f"Bearer {self._access_token}"},
+                    transport=httpx.MockTransport(
+                        lambda req: httpx.Response(
+                            200, json={"messages": [{"id": "wamid.1"}]}
+                        )
+                    ),
+                )
+            return self._client
+
+        with patch.object(WhatsAppAdapter, "_ensure_client", new=fake_wa_client):
+            a = self._bound(
+                overrides={"WHATSAPP_PHONE_NUMBER_ID": "111", "GATEWAY_PORT": 8011},
+                secrets={
+                    "TELEGRAM_BOT_TOKEN": "123:AAA",
+                    "WHATSAPP_ACCESS_TOKEN": "EAAG-A",
+                    "WHATSAPP_APP_SECRET": "",
+                    "WHATSAPP_VERIFY_TOKEN": "",
+                },
+            )
+            await a.boot()
+            try:
+                self.assertEqual(set(a._adapters), {"telegram", "whatsapp", "webhook"})
+                self.assertEqual(a._owned_channels, {"telegram", "whatsapp", "webhook"})
+                self.assertIs(self._module._shared_server, a._server)
+                self.assertTrue(await a.send_text("telegram", "42", "hello tg"))
+                self.assertTrue(await a.send_text("whatsapp", "456", "hello wa"))
+                self.assertTrue(await a.send_text("webhook", "777", "hello wb"))
+            finally:
+                await a.shutdown()
+        self.assertIsNone(self._module._shared_server)
+
+    async def test_execution_time_channel_selection(self):
+        from vox.capabilities.comm.gateway.adapters.whatsapp import WhatsAppAdapter
+
+        async def fake_wa_client(self):
+            if self._client is None:
+                self._client = httpx.AsyncClient(
+                    base_url="https://graph.facebook.com",
+                    headers={"Authorization": f"Bearer {self._access_token}"},
+                    transport=httpx.MockTransport(
+                        lambda req: httpx.Response(
+                            200, json={"messages": [{"id": "wamid.1"}]}
+                        )
+                    ),
+                )
+            return self._client
+
+        with patch.object(WhatsAppAdapter, "_ensure_client", new=fake_wa_client):
+            a = self._bound(
+                overrides={"WHATSAPP_PHONE_NUMBER_ID": "111", "GATEWAY_PORT": 8011},
+                secrets={
+                    "TELEGRAM_BOT_TOKEN": "123:AAA",
+                    "WHATSAPP_ACCESS_TOKEN": "EAAG-A",
+                    "WHATSAPP_APP_SECRET": "",
+                    "WHATSAPP_VERIFY_TOKEN": "",
+                },
+            )
+            await a.boot()
+            try:
+                # Same bound: each call picks the channel's own adapter at
+                # execution time.
+                self.assertTrue(await a.send_text("telegram", "42", "via tg"))
+                self.assertTrue(await a.send_text("whatsapp", "456", "via wa"))
+                self.assertTrue(await a.send_text("webhook", "777", "via wb"))
+            finally:
+                await a.shutdown()
+        self.assertIsNone(self._module._shared_server)
 
 
 if __name__ == "__main__":

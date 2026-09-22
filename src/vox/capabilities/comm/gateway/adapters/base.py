@@ -18,6 +18,20 @@ Every adapter implements the inbound/outbound contract:
 Adapters also declare their own HTTP route (``WEBHOOK_PATH``) so the shared
 IngressServer registers channels generically — no server changes when a new
 channel is plugged in.
+
+Lifecycle is part of the adapter contract, not duck-typed:
+
+  start()
+      Begin inbound activity for this channel (e.g. Telegram's getUpdates
+      long-poller). Only the route-owning adapter instance — the one bound
+      workload that claimed the channel on the shared IngressServer — is
+      started. Every other configured adapter instance for the same channel is
+      outbound-only and never starts inbound work.
+  shutdown()
+      Release every runtime resource the adapter acquired (poll tasks, HTTP
+      clients). Each bound workload shuts down the adapter instances it owns.
+
+The base implementations are no-ops; adapters override only what they need.
 """
 
 from abc import ABC, abstractmethod
@@ -70,6 +84,25 @@ class BaseAdapter(ABC):
         and echo the challenge. Return ``None`` to reject the handshake.
         """
         return None
+
+    async def start(self) -> None:
+        """Begin inbound activity for this channel.
+
+        Called only for the route-owning adapter instance that claimed the
+        channel on the shared IngressServer. Non-owning adapter instances stay
+        outbound-only. The base implementation is a no-op; adapters with an
+        inbound poller/handler (e.g. Telegram) override it.
+        """
+        return
+
+    async def shutdown(self) -> None:
+        """Release runtime resources this adapter instance acquired.
+
+        Every adapter instance owned by a bound workload is shut down when that
+        workload detaches — never another workload's instances. The base
+        implementation is a no-op.
+        """
+        return
 
     @classmethod
     def is_configured(cls, config: dict) -> bool:

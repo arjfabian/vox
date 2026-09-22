@@ -12,16 +12,25 @@ merged into a single CapabilityContract at load time. Adapters keep their own
 internal PARAMS for self-documentation and ``is_configured()`` checks, but the
 YAML config files are authoritative.
 
-Architecture note: The IngressServer is shared across all workloads that mount
-this capability. The first workload to boot creates the server; subsequent
-workloads attach to the existing instance and log an attachment message.
-Adapters are also shared since the server routes all inbound traffic through the
-host's narrow ``dispatch_inbound`` service, which delegates to the shared
-dispatcher that fans out to every workload with comm.gateway mounted.
+Architecture note: adapter instances are per bound capability (per workload).
+Each bound capability creates and owns its own configured adapter instances
+from its own Vault-injected secrets and its own manifest params. Adapter
+selection for a particular outbound operation remains an execution-time
+concern (``send_text(channel, ...)``).
 
-Shutdown: A reference count (_mounted_workloads_count) tracks how many workloads
-have the capability booted. The server is only stopped when the last workload
-shuts down, preventing one workload's stop from killing inbound for the rest.
+A single process-level IngressServer is shared across all workloads. The server
+owns the inbound webhook routes and the bound-user reference count, and it shuts
+down when the final bound user detaches. The first bound capability to boot
+with a channel becomes the inbound route owner for that channel and starts that
+channel's inbound activity; a later workload with the same channel keeps its own
+adapter instance for outbound but does not start a second inbound
+poller/handler. A workload never inherits another workload's adapter
+configuration or credentials.
+
+Lifecycle: each adapter implements ``start()``/``shutdown()`` as part of the
+BaseAdapter contract. Only the route-owning adapter instance is started
+(inbound activity); every adapter instance owned by a bound workload is shut
+down when that workload detaches.
 """
 
 from __future__ import annotations
@@ -43,10 +52,10 @@ from .server import IngressServer
 
 logger = logging.getLogger(__name__)
 
-# Shared across all workloads — the server is a singleton resource.
+# Process-level handle to the shared ingress server. The server object itself
+# owns route ownership and the bound-user reference count; it does not own a
+# process-global adapter set.
 _shared_server: IngressServer | None = None
-_shared_adapters: dict[str, Any] = {}
-_mounted_workloads_count: int = 0
 
 
 class CommGatewayCapability(VOXCapability):
@@ -150,31 +159,17 @@ class CommGatewayCapability(VOXCapability):
     async def health_check(cls) -> bool:
         return True
 
-    async def boot(self) -> None:
-        global _shared_server, _shared_adapters, _mounted_workloads_count
+    async def _build_adapters(
+        self,
+        dispatch,
+    ) -> dict[str, Any]:
+        """Instantiate this bound capability's own configured adapters.
 
-        if _shared_server is not None:
-            _mounted_workloads_count += 1
-            self.ok(
-                f"Attached to existing gateway server on "
-                f"{self.GATEWAY_HOST}:{self.GATEWAY_PORT}"
-            )
-            return
-
-        port = int(self.GATEWAY_PORT) if self.GATEWAY_PORT else 8001
-        host = self.GATEWAY_HOST or "0.0.0.0"
-
-        async def dispatch(message: VOXInboundMessage) -> None:
-            delivered = await self._host.dispatch_inbound(
-                source="comm.gateway",
-                payload=message.model_dump(),
-            )
-            if not delivered:
-                logger.warning("Gateway inbound dropped: no dispatch target")
-
-        # Instantiate every registered adapter, slicing its declared params out
-        # of the bound config. A channel is skipped when it is not configured
-        # (e.g. no bot token for Telegram).
+        Each adapter is built from this bound's own params and injected Vault
+        secrets; a channel is skipped when it is not configured (e.g. no bot
+        token for Telegram). The returned instances belong exclusively to this
+        bound capability/workload.
+        """
         adapters: dict[str, Any] = {}
 
         for channel, adapter_cls in ADAPTER_REGISTRY.items():
@@ -206,50 +201,92 @@ class CommGatewayCapability(VOXCapability):
 
             adapters[channel] = adapter_cls(adapter_config, dispatch=dispatch)
 
+        return adapters
+
+    async def boot(self) -> None:
+        global _shared_server
+
+        port = int(self.GATEWAY_PORT) if self.GATEWAY_PORT else 8001
+        host = self.GATEWAY_HOST or "0.0.0.0"
+
+        async def dispatch(message: VOXInboundMessage) -> None:
+            delivered = await self._host.dispatch_inbound(
+                source="comm.gateway",
+                payload=message.model_dump(),
+            )
+            if not delivered:
+                logger.warning("Gateway inbound dropped: no dispatch target")
+
+        # This bound own its adapter instances; never shared across workloads.
+        adapters = await self._build_adapters(dispatch)
+
         if not adapters:
             self.ok("No adapters configured — gateway idle")
             return
 
-        _shared_adapters = adapters
-        _shared_server = IngressServer(
-            adapters=adapters,
-            dispatch=dispatch,
-            host=host,
-            port=port,
-        )
-        await _shared_server.start()
-        for adapter in adapters.values():
-            if hasattr(adapter, "start"):
-                await adapter.start()
-        _mounted_workloads_count += 1
-        self.ok(f"Gateway server listening on {host}:{port}")
+        server = _shared_server
+        if server is None:
+            server = IngressServer(host=host, port=port)
+            _shared_server = server
+
+        server.attach()
+
+        owned_channels: set[str] = set()
+        for channel, adapter in adapters.items():
+            if server.claim_channel(channel, adapter, dispatch):
+                owned_channels.add(channel)
+
+        self._adapters = adapters
+        self._owned_channels = owned_channels
+        self._server = server
+
+        await server.start()
+
+        # Only the route-owning adapter instance performs inbound activity;
+        # every other instance for the same channel stays outbound-only.
+        for channel in owned_channels:
+            await adapters[channel].start()
+
+        if owned_channels:
+            self.ok(f"Gateway server listening on {host}:{port}")
+        else:
+            self.ok(f"Attached to existing gateway server on {host}:{port}")
 
     async def shutdown(self) -> None:
-        global _shared_server, _mounted_workloads_count
+        global _shared_server
 
-        _mounted_workloads_count -= 1
+        adapters = getattr(self, "_adapters", {})
+        owned_channels = getattr(self, "_owned_channels", set())
+        server = getattr(self, "_server", None)
 
-        if _mounted_workloads_count <= 0 and _shared_server is not None:
-            await _shared_server.stop()
-            _shared_server = None
+        # Shut down this workload's own adapter instances only. A non-owning
+        # telegram adapter has no poller, but its client/resources are still
+        # released here.
+        for adapter in adapters.values():
+            await adapter.shutdown()
 
-            for adapter in _shared_adapters.values():
-                if hasattr(adapter, "shutdown"):
-                    await adapter.shutdown()
-            _shared_adapters.clear()
-            _mounted_workloads_count = 0
+        if server is not None:
+            for channel in owned_channels:
+                server.relinquish_channel(channel)
+
+            last_user = server.detach()
+            if last_user:
+                await server.stop()
+                if _shared_server is server:
+                    _shared_server = None
 
     # --------------------------------------------------------------------------
     # Outbound
     # --------------------------------------------------------------------------
 
     async def send_message(self, message: VOXOutboundMessage) -> bool:
-        """Send an outbound message through the appropriate channel adapter."""
-        if not _shared_adapters:
-            self.error("Gateway has no adapters — cannot send")
-            return False
+        """Send an outbound message through this workload's own channel adapter.
 
-        adapter = _shared_adapters.get(message.channel)
+        The adapter for ``message.channel`` is selected from this bound
+        capability's adapter set — never another workload's — preserving
+        per-workload credentials and configuration.
+        """
+        adapter = getattr(self, "_adapters", {}).get(message.channel)
         if adapter is None:
             self.error(f"No adapter for channel: {message.channel}")
             return False
